@@ -26,6 +26,10 @@ Web-based platform for D'Rising Sun Transport: online seat reservation, real-tim
 ## Getting Started
 
 ```bash
+#before installing the npm
+cd drs-bus-main
+
+#then install
 npm install
 npm run dev
 ```
