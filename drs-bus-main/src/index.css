@@ -1,1 +1,47 @@
 @import "tailwindcss";
+
+/*
+  Brand tokens for D' Rising Sun — grounded in the Cordillera setting
+  and the company's own name: deep pine-forest greens for the routes
+  through the mountains, warm sunrise gold as the accent that plays
+  against it. Referenced as e.g. bg-brand-forest-900, text-brand-green-600.
+*/
+@theme {
+  --font-display: "Sora", sans-serif;
+  --font-body: "Inter", sans-serif;
+
+  --color-brand-forest-950: #0d2016;
+  --color-brand-forest-900: #123524;
+  --color-brand-forest-800: #1a4a30;
+  --color-brand-forest-700: #235c3c;
+
+  --color-brand-green-600: #2f9e5c;
+  --color-brand-green-500: #3cb873;
+
+  --color-brand-sunrise-500: #f0a63a;
+  --color-brand-sunrise-400: #f4b85c;
+
+  --color-surface: #f6f8f4;
+  --color-ink-900: #12271b;
+  --color-ink-600: #4b5d54;
+}
+
+@layer base {
+  body {
+    font-family: var(--font-body);
+    background-color: var(--color-surface);
+    color: var(--color-ink-900);
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+  }
+
+  /* visible keyboard focus, kept everywhere */
+  :focus-visible {
+    outline: 2px solid var(--color-brand-green-600);
+    outline-offset: 2px;
+  }
+}

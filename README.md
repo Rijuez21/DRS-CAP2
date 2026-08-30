@@ -1,3 +1,5 @@
+# **IMPORTANT** After working on your part, remember to update the README file
+
 # DRS Bus Management System
 
 Web-based platform for D'Rising Sun Transport: online seat reservation, real-time GPS fleet tracking, and role-based dashboards for passengers, drivers, terminal staff, and administrators. Built as part of the DRS Bus Management System IT project proposal.
@@ -31,30 +33,44 @@ cd drs-bus-main
 
 #then install
 npm install
+npm install lucide-react
 npm run dev
 ```
 
 App runs at `http://localhost:5173`.
 
-## Folder Structure
+Also confirm index.html includes the Google Fonts link tags in `<head>`:
+```html
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+```
 
+## Folder Structure
 ```
 src/
 ├── assets/
 ├── components/
-│   ├── common/          # Shared UI: Button, Input, Card, Modal, StatusBadge...
-│   └── layout/
-│       ├── PassengerLayout.jsx
-│       ├── DriverLayout.jsx
-│       ├── StaffLayout.jsx
-│       └── AdminLayout.jsx
+│   ├── common/
+│   │   ├── EmptyState.jsx      # dashed-border placeholder for empty lists/sections
+│   │   └── StatusBadge.jsx     # color-coded trip status pill
+│   ├── layout/
+│   │   ├── PassengerLayout.jsx # mobile: bottom tab bar · desktop (lg:): sidebar
+│   │   ├── DriverLayout.jsx
+│   │   ├── StaffLayout.jsx
+│   │   └── AdminLayout.jsx
+│   └── passenger/
+│       ├── TripSearchPanel.jsx     # From / To / Date search form
+│       ├── StatsRow.jsx            # Routes / Trips Today / My Bookings counters
+│       ├── TripCard.jsx            # trip listing card
+│       ├── SeatMap.jsx             # interactive clickable seat map grid
+│       └── BookingSummaryCard.jsx  # selected seats, passenger info, confirm button
 ├── pages/
 │   ├── auth/
 │   │   └── Login.jsx
 │   ├── passenger/
-│   │   ├── Home.jsx
-│   │   ├── TripListings.jsx
-│   │   ├── TripDetail.jsx
+│   │   ├── Home.jsx             # built — dashboard + trip search
+│   │   ├── TripListings.jsx     # built — All Routes
+│   │   ├── TripDetail.jsx       # built — bus info + seat picker + booking
 │   │   ├── BookingConfirmed.jsx
 │   │   ├── MyBookings.jsx
 │   │   ├── BookingDetails.jsx
@@ -80,10 +96,23 @@ src/
 │       └── UserManagement.jsx
 ├── routes/
 │   └── AppRoutes.jsx
+├── index.css       # Tailwind import + brand design tokens (@theme)
 ├── App.jsx
 └── main.jsx
 ```
+**Note**: page-level files (the ones users navigate to via a URL) live in pages/passenger/. Reusable pieces that pages assemble (SeatMap, TripCard, TripSearchPanel, StatsRow, BookingSummaryCard) live in components/passenger/ — keep new reusable UI there, not inside pages/.
+## Design Tokens
+Defined in src/index.css under @theme, inspired by the Cordillera setting and the "Rising Sun" name:
 
+| Token | Use |
+|---|---|
+| `brand-forest-900` / `950`	| Dark headers, sidebar, hero panels |
+| `brand-green-600` / `500`	| Primary buttons, links, active states, prices |
+| `brand-sunrise-500` / `400`	| Accent highlights, input fields, "Boarding" status 
+| `surface`	| `App background` |
+| `ink-900` / `600` | Primary / secondary text |
+| `font-display (Sora)` |	Headings, stats, prices |
+| `font-body (Inter)`	| Body text |
 ## Routing Map
 
 All routes are defined centrally in `src/routes/AppRoutes.jsx`. Each role has its own nested layout (sidebar nav + `<Outlet />`) so pages within a role share a consistent shell.
