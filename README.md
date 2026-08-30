@@ -1,4 +1,4 @@
-# **IMPORTANT!** After working on your part, remember to update the README file
+# **IMPORTANT!** After working on your part, remember to update the README file!
 
 # DRS Bus Management System — Frontend
 
@@ -9,7 +9,7 @@ Web-based platform for D'Rising Sun Transport: online seat reservation, real-tim
 **Gantt reference:**
 - Module 1 — Planning & System Design: UI wireframes. Done.
 - Module 2 — System / Foundation Setup: React + Tailwind project structure, shared page layout. Done.
-- Module 3 — Login & User Accounts: *"Create passenger login page, driver login page, and admin login page"* — Owner: Alexander Misagal (Front-End Developer) — Deliverable: **Login Pages (3 roles)**. Done.
+- Module 3 — Login & User Accounts: Create passenger login page, driver login page, and admin login page. Done.
 
 ## Tech Stack
 
