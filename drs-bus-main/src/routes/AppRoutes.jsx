@@ -1,7 +1,10 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 
 // Auth
-import Login from '../pages/auth/Login'
+import RoleSelect from "../pages/auth/RoleSelect";
+import PassengerLogin from "../pages/auth/PassengerLogin";
+import DriverLogin from "../pages/auth/DriverLogin";
+import AdminLogin from "../pages/auth/AdminLogin";
 
 // Layouts
 import PassengerLayout from '../components/layout/PassengerLayout'
@@ -43,8 +46,11 @@ import UserManagement from '../pages/admin/UserManagement'
 export default function AppRoutes() {
   return (
     <Routes>
-      {/* Entry point */}
-      <Route path="/" element={<Login />} />
+      {/* Entry point: choose a role, then log in as that role */}
+      <Route path="/" element={<RoleSelect />} />
+      <Route path="/login/passenger" element={<PassengerLogin />} />
+      <Route path="/login/driver" element={<DriverLogin />} />
+      <Route path="/login/admin" element={<AdminLogin />} />
 
       {/* Passenger */}
       <Route path="/passenger" element={<PassengerLayout />}>

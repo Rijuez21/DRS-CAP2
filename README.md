@@ -1,8 +1,15 @@
-# **IMPORTANT** After working on your part, remember to update the README file
+## *IMPORTANT!* After working on your part, remember to update the README file!
 
-# DRS Bus Management System
+# DRS Bus Management System — Frontend
 
-Web-based platform for D'Rising Sun Transport: online seat reservation, real-time GPS fleet tracking, and role-based dashboards for passengers, drivers, terminal staff, and administrators. Built as part of the DRS Bus Management System IT project proposal.
+Web-based platform for D'Rising Sun Transport: online seat reservation, real-time GPS fleet tracking, and role-based dashboards for passengers, drivers, terminal staff, and administrators. Built as part of the DRS Bus Management System IT project proposal (Saint Louis University).
+
+**Project folder:** `drs-bus-main`
+
+**Gantt reference:**
+- Module 1 — Planning & System Design: UI wireframes. Done.
+- Module 2 — System / Foundation Setup: React + Tailwind project structure, shared page layout. Done.
+- Module 3 — Login & User Accounts: *"Create passenger login page, driver login page, and admin login page"* — Owner: Alexander Misagal (Front-End Developer) — Deliverable: **Login Pages (3 roles)**. Done.
 
 ## Tech Stack
 
@@ -11,6 +18,8 @@ Web-based platform for D'Rising Sun Transport: online seat reservation, real-tim
 | UI Library | React (via Vite) |
 | Styling | Tailwind CSS v4 (`@tailwindcss/vite`) |
 | Routing | React Router v6 |
+| Icons | lucide-react |
+| Fonts | Sora (display), Inter (body) — via Google Fonts |
 | Backend (planned) | Node.js + Express.js |
 | Real-time | Socket.io |
 | Database (planned) | MySQL + Redis |
@@ -39,38 +48,47 @@ npm run dev
 
 App runs at `http://localhost:5173`.
 
-Also confirm index.html includes the Google Fonts link tags in `<head>`:
+Also confirm `index.html` includes the Google Fonts link tags in `<head>`:
+
 ```html
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 ```
 
 ## Folder Structure
+
 ```
 src/
 ├── assets/
+│   └── logo-sun.svg            # sunburst logo mark, used on all 3 login pages
 ├── components/
+│   ├── auth/
+│   │   ├── AuthShell.jsx       # shared chrome: logo, wordmark, card wrapper
+│   │   └── LoginForm.jsx       # shared email/password form + validation
 │   ├── common/
-│   │   ├── EmptyState.jsx      # dashed-border placeholder for empty lists/sections
-│   │   └── StatusBadge.jsx     # color-coded trip status pill
+│   │   ├── EmptyState.jsx
+│   │   └── StatusBadge.jsx
 │   ├── layout/
 │   │   ├── PassengerLayout.jsx # mobile: bottom tab bar · desktop (lg:): sidebar
 │   │   ├── DriverLayout.jsx
 │   │   ├── StaffLayout.jsx
 │   │   └── AdminLayout.jsx
 │   └── passenger/
-│       ├── TripSearchPanel.jsx     # From / To / Date search form
-│       ├── StatsRow.jsx            # Routes / Trips Today / My Bookings counters
-│       ├── TripCard.jsx            # trip listing card
-│       ├── SeatMap.jsx             # interactive clickable seat map grid
-│       └── BookingSummaryCard.jsx  # selected seats, passenger info, confirm button
+│       ├── TripSearchPanel.jsx
+│       ├── StatsRow.jsx
+│       ├── TripCard.jsx
+│       ├── SeatMap.jsx
+│       └── BookingSummaryCard.jsx
 ├── pages/
 │   ├── auth/
-│   │   └── Login.jsx
+│   │   ├── RoleSelect.jsx      # built — landing page, pick a role to log in as
+│   │   ├── PassengerLogin.jsx  # built
+│   │   ├── DriverLogin.jsx     # built
+│   │   └── AdminLogin.jsx      # built
 │   ├── passenger/
-│   │   ├── Home.jsx             # built — dashboard + trip search
-│   │   ├── TripListings.jsx     # built — All Routes
-│   │   ├── TripDetail.jsx       # built — bus info + seat picker + booking
+│   │   ├── Home.jsx
+│   │   ├── TripListings.jsx
+│   │   ├── TripDetail.jsx
 │   │   ├── BookingConfirmed.jsx
 │   │   ├── MyBookings.jsx
 │   │   ├── BookingDetails.jsx
@@ -100,48 +118,76 @@ src/
 ├── App.jsx
 └── main.jsx
 ```
-**Note**: page-level files (the ones users navigate to via a URL) live in pages/passenger/. Reusable pieces that pages assemble (SeatMap, TripCard, TripSearchPanel, StatsRow, BookingSummaryCard) live in components/passenger/ — keep new reusable UI there, not inside pages/.
+
+> **Note:** page-level files live in `pages/`. Reusable pieces those pages assemble live in `components/`, grouped by the same role/domain name (`auth/`, `passenger/`, etc.). Keep new reusable UI in `components/`, not inside `pages/`.
+
 ## Design Tokens
-Defined in src/index.css under @theme, inspired by the Cordillera setting and the "Rising Sun" name:
+
+Defined in `src/index.css` under `@theme`, inspired by the Cordillera setting and the "Rising Sun" name:
 
 | Token | Use |
 |---|---|
-| `brand-forest-900` / `950`	| Dark headers, sidebar, hero panels |
-| `brand-green-600` / `500`	| Primary buttons, links, active states, prices |
-| `brand-sunrise-500` / `400`	| Accent highlights, input fields, "Boarding" status 
-| `surface`	| `App background` |
+| `brand-forest-900` / `950` | Dark headers, sidebar, hero panels |
+| `brand-green-600` / `500` | Primary buttons, links, active states, prices |
+| `brand-sunrise-500` / `400` | Accent highlights, input fields, logo mark |
+| `surface` | App background |
 | `ink-900` / `600` | Primary / secondary text |
-| `font-display (Sora)` |	Headings, stats, prices |
-| `font-body (Inter)`	| Body text |
+| `font-display` (Sora) | Headings, stats, prices |
+| `font-body` (Inter) | Body text |
+
 ## Routing Map
 
-All routes are defined centrally in `src/routes/AppRoutes.jsx`. Each role has its own nested layout (sidebar nav + `<Outlet />`) so pages within a role share a consistent shell.
+All routes are defined centrally in `src/routes/AppRoutes.jsx`.
+
+| Path | Purpose |
+|---|---|
+| `/` | Role select — choose Passenger, Driver, or Admin |
+| `/login/passenger` | Passenger login (has "Sign up" — passengers self-register) |
+| `/login/driver` | Driver login (accounts created by an admin) |
+| `/login/admin` | Admin login (accounts created by an admin) |
 
 | Role | Base Path | Routes |
 |---|---|---|
-| — | `/` | Login |
 | Passenger | `/passenger` | `home`, `trips`, `trips/:tripId`, `booking-confirmed`, `my-bookings`, `my-bookings/:bookingId`, `tracking/:tripId`, `profile` |
 | Driver | `/driver` | `dashboard`, `route-schedule`, `manifest`, `vehicle-checklist`, `issue-reports` |
 | Terminal Staff | `/staff` | `walk-in`, `validate` |
 | Admin | `/admin` | `dashboard`, `fleet`, `routes`, `drivers`, `trips`, `reservations`, `maintenance`, `users` |
 
-Visiting a role's base path (e.g. `/admin`) redirects to that role's default page (e.g. `/admin/dashboard`). Unmatched URLs redirect to `/`.
+Each role's base path redirects to that role's default page. Unmatched URLs redirect to `/`. `PassengerLayout` is mobile-first: bottom tab bar below the `lg` breakpoint, fixed left sidebar at `lg` and above.
 
-## Setup Log (Foundation Phase)
+## Setup Log
 
+**Foundation Phase (Modules 1–2)**
 - [x] Scaffolded project with Vite (`react` template)
 - [x] Installed and configured Tailwind CSS v4 via the Vite plugin
-- [x] Verified Tailwind utility classes render correctly
 - [x] Installed React Router (`react-router-dom`)
 - [x] Built role-based folder structure (`pages/`, `components/layout/`)
 - [x] Wired up `AppRoutes.jsx` with nested routes for all 4 roles
-- [x] Built `PassengerLayout`, `DriverLayout`, `StaffLayout`, `AdminLayout` with sidebar nav + `Outlet`
+- [x] Built `DriverLayout`, `StaffLayout`, `AdminLayout` with sidebar nav + `Outlet`
 - [x] Created placeholder components for all 21 pages
-- [ ] Git initialized and "UI Foundation" commit made
+
+**Passenger Interface UI Phase**
+- [x] Installed `lucide-react`, added Sora/Inter fonts
+- [x] Added brand design tokens (`@theme` in `index.css`)
+- [x] Built `Home.jsx`, `TripListings.jsx`, `TripDetail.jsx`
+- [x] Built `SeatMap.jsx` — visual, clickable seat grid
+- [x] Rebuilt `PassengerLayout.jsx` as mobile-first (bottom tabs → sidebar at `lg`)
+
+**Login & User Accounts Phase (Module 3)**
+- [x] Built `RoleSelect.jsx` — landing page at `/`, replaces the old single `Login.jsx`
+- [x] Built `PassengerLogin.jsx`, `DriverLogin.jsx`, `AdminLogin.jsx`
+- [x] Built shared `AuthShell.jsx` and `LoginForm.jsx` (validation, error state, loading state)
+- [x] Added `logo-sun.svg` asset
+- [x] Updated `AppRoutes.jsx` with the 4 new auth routes
+
+**Not yet done**
+- [ ] Connect all forms/pages to the real backend API (still placeholder/`TODO`-marked — see comments in each file for the exact endpoint expected)
+- [ ] Build remaining passenger screens: BookingConfirmed, MyBookings, BookingDetails, LiveTracking, Profile
+- [ ] Build out Driver, Terminal Staff, and Admin page content (currently placeholders)
 
 ## Next Steps
 
-Per the project Gantt chart, the next task (Module 3, Sep 7–14) builds out the **Passenger Interface UI**: the real trip search panel, seat picker, and passenger dashboard content inside `pages/passenger/`.
+Per the Gantt chart, Module 4 (Passenger / Online Reservation) connects the booking flow to real reservation APIs, and the Full Stack track wires all three login pages to the authentication API.
 
 ## Available Scripts
 
