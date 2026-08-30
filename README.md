@@ -44,6 +44,12 @@ cd drs-bus-main
 npm install
 npm install lucide-react
 npm run dev
+  #if you want to try it on mobile do:
+    >make sure your pc and mobile are on the same network
+    >turn off your firewalls
+    >and finally run:
+npm run dev -- --host
+  >to see your pc's IPv4 address and host number, where you'll connect your mobile to.
 ```
 
 App runs at `http://localhost:5173`.
