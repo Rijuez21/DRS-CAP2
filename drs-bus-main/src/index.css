@@ -9,6 +9,7 @@
 @theme {
   --font-display: "Sora", sans-serif;
   --font-body: "Inter", sans-serif;
+  --font-landing: "Space Grotesk", sans-serif;
 
   --color-brand-forest-950: #0d2016;
   --color-brand-forest-900: #123524;
@@ -43,5 +44,45 @@
   :focus-visible {
     outline: 2px solid var(--color-brand-green-600);
     outline-offset: 2px;
+  }
+}
+
+/*
+  ── Scroll reveal — intentionally UNLAYERED, not inside @layer base. ──
+  Tailwind's own utility classes live in @layer utilities, which is
+  declared after @layer base, so any layered rule here would risk
+  losing to a utility class touching opacity/transform even if this
+  selector looks more specific. Unlayered CSS always wins over any
+  @layer'd CSS, so keeping this outside @layer makes it immune to
+  that class of bug for good.
+*/
+html {
+  scroll-behavior: smooth;
+}
+
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+[data-reveal].is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+[data-reveal="1"] { transition-delay: 0.12s; }
+[data-reveal="2"] { transition-delay: 0.24s; }
+[data-reveal="3"] { transition-delay: 0.36s; }
+[data-reveal="4"] { transition-delay: 0.48s; }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal] {
+    transition: none;
+    opacity: 1;
+    transform: none;
+  }
+  html {
+    scroll-behavior: auto;
   }
 }

@@ -1,5 +1,8 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 
+// Marketing
+import LandingPage from "../pages/LandingPage";
+
 // Auth
 import RoleSelect from "../pages/auth/RoleSelect";
 import PassengerLogin from "../pages/auth/PassengerLogin";
@@ -47,7 +50,8 @@ export default function AppRoutes() {
   return (
     <Routes>
       {/* Entry point: choose a role, then log in as that role */}
-      <Route path="/" element={<RoleSelect />} />
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/select-role" element={<RoleSelect />} />
       <Route path="/login/passenger" element={<PassengerLogin />} />
       <Route path="/login/driver" element={<DriverLogin />} />
       <Route path="/login/admin" element={<AdminLogin />} />
