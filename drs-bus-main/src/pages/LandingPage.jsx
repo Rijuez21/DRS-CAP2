@@ -31,7 +31,7 @@ export default function LandingPage() {
           </nav>
 
           <Link
-            to="/select-role"
+            to="/login/passenger"
             className="inline-flex items-center px-4 py-2 rounded text-sm font-semibold text-white bg-brand-green-600 hover:bg-brand-green-500 transition-colors"
           >
             Get Started
@@ -53,7 +53,7 @@ export default function LandingPage() {
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link
-              to="/select-role"
+              to="/login/passenger"
               className="inline-flex items-center px-5 py-3 rounded text-sm font-semibold text-white bg-brand-green-600 hover:bg-brand-green-500 transition-colors"
             >
               Get Started
@@ -310,7 +310,7 @@ export default function LandingPage() {
           </h2>
           <Link
             data-reveal="1"
-            to="/select-role"
+            to="/login/passenger"
             className="mt-8 inline-flex items-center px-6 py-3 rounded text-sm font-semibold text-white bg-brand-green-600 hover:bg-brand-green-500 transition-colors"
           >
             Get Started

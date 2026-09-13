@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext";
+import * as api from "../../lib/api";
 
 export default function LoginForm({
   role,
@@ -7,6 +9,10 @@ export default function LoginForm({
   showSignUp = false,
 }) {
   const navigate = useNavigate();
+  const { signIn } = useAuth();
+
+  const [mode, setMode] = useState("login"); // "login" | "signup"
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -16,6 +22,10 @@ export default function LoginForm({
     e.preventDefault();
     setError("");
 
+    if (mode === "signup" && !name) {
+      setError("Enter your name to create an account.");
+      return;
+    }
     if (!email || !password) {
       setError("Enter your email and password to continue.");
       return;
@@ -23,19 +33,34 @@ export default function LoginForm({
 
     setIsSubmitting(true);
     try {
-      // TODO: POST /api/auth/login with { email, password, role }
-      // On success: store the returned session/token, then navigate(redirectPath)
-      // On failure: setError(response.message) and stop here
+      if (mode === "signup") {
+        await api.register({ name, email, password });
+      }
+      const result = await api.login({ email, password, role });
+      signIn(result);
       navigate(redirectPath);
-    } catch {
-      setError("Something went wrong. Please try again.");
+    } catch (err) {
+      setError(err.message);
     } finally {
       setIsSubmitting(false);
     }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4" aria-label={`${role} login form`}>
+    <form onSubmit={handleSubmit} className="space-y-4" aria-label={`${role} ${mode} form`}>
+      {mode === "signup" && (
+        <Field label="Full Name">
+          <input
+            type="text"
+            autoComplete="name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Juan Dela Cruz"
+            className="w-full bg-brand-sunrise-400/40 border border-brand-sunrise-500/30 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-brand-green-600/50 placeholder:text-ink-600/50"
+          />
+        </Field>
+      )}
+
       <Field label="Email">
         <input
           type="email"
@@ -50,7 +75,7 @@ export default function LoginForm({
       <Field label="Password">
         <input
           type="password"
-          autoComplete="current-password"
+          autoComplete={mode === "signup" ? "new-password" : "current-password"}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder="••••••••"
@@ -69,24 +94,51 @@ export default function LoginForm({
         disabled={isSubmitting}
         className="w-full bg-brand-green-600 hover:bg-brand-green-500 disabled:opacity-60 transition-colors text-white font-display font-semibold rounded-xl py-3"
       >
-        {isSubmitting ? "Signing in…" : "Sign In"}
+        {isSubmitting ? (mode === "signup" ? "Creating account…" : "Signing in…") : mode === "signup" ? "Create Account" : "Sign In"}
       </button>
 
-      <div className="text-center text-sm">
-        <a
-          href="#"
-          className="text-ink-900 underline underline-offset-2 hover:text-brand-green-600"
-        >
-          Forgot password?
-        </a>
-      </div>
+      {mode === "login" && (
+        <div className="text-center text-sm">
+          <a
+            href="#"
+            className="text-ink-900 underline underline-offset-2 hover:text-brand-green-600"
+          >
+            Forgot password?
+          </a>
+        </div>
+      )}
 
       {showSignUp ? (
         <p className="text-center text-sm text-ink-600 pt-1">
-          New here?{" "}
-          <a href="#" className="text-brand-green-600 font-medium underline underline-offset-2">
-            Sign up
-          </a>
+          {mode === "signup" ? (
+            <>
+              Already have an account?{" "}
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("login");
+                  setError("");
+                }}
+                className="text-brand-green-600 font-medium underline underline-offset-2"
+              >
+                Sign in
+              </button>
+            </>
+          ) : (
+            <>
+              New here?{" "}
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("signup");
+                  setError("");
+                }}
+                className="text-brand-green-600 font-medium underline underline-offset-2"
+              >
+                Sign up
+              </button>
+            </>
+          )}
         </p>
       ) : (
         <p className="text-center text-xs text-ink-600 pt-1">

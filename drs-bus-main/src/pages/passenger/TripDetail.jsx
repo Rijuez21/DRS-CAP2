@@ -1,34 +1,46 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ChevronLeft } from "lucide-react";
 import SeatMap from "../../components/passenger/SeatMap";
 import BookingSummaryCard from "../../components/passenger/BookingSummaryCard";
-
-// TODO: replace with GET /api/trips/:id
-// totalSeats is bus capacity (needed to render the seat map) — kept as a
-// sane default until the real trip payload is wired in; everything else
-// stays null so the UI shows its placeholder state honestly.
-const trip = {
-  origin: null,
-  destination: null,
-  distanceKm: null,
-  departureTime: null,
-  arrivalTime: null,
-  duration: null,
-  busModel: null,
-  plateNumber: null,
-  busType: null,
-  totalSeats: 52,
-  fare: null,
-};
+import { useAuth } from "../../context/AuthContext";
+import * as api from "../../lib/api";
+import { mapTrip } from "../../lib/format";
 
 export default function TripDetail() {
   const { tripId } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
+
+  const [trip, setTrip] = useState(null);
+  const [occupiedSeatIds, setOccupiedSeatIds] = useState([]);
+  const [loadError, setLoadError] = useState("");
 
   const [selectedSeatIds, setSelectedSeatIds] = useState([]);
   const [passengerName, setPassengerName] = useState("");
   const [contactNumber, setContactNumber] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([api.getTrip(tripId), api.getSeats(tripId)])
+      .then(([tripRow, seatData]) => {
+        if (cancelled) return;
+        setTrip(mapTrip(tripRow));
+        setOccupiedSeatIds(seatData.bookedSeats);
+      })
+      .catch((err) => {
+        if (!cancelled) setLoadError(err.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tripId]);
+
+  useEffect(() => {
+    if (user?.name) setPassengerName(user.name);
+  }, [user]);
 
   function toggleSeat(id) {
     setSelectedSeatIds((prev) =>
@@ -36,11 +48,62 @@ export default function TripDetail() {
     );
   }
 
-  function handleConfirm() {
-    // TODO: POST /api/bookings with { tripId, seats: selectedSeatIds, passengerName, contactNumber }
-    // then navigate using the real booking code returned by the API
-    navigate("/passenger/booking-confirmed");
+  async function handleConfirm() {
+    setSubmitError("");
+
+    if (!user) {
+      setSubmitError("Please log in as a passenger to book a seat.");
+      return;
+    }
+    if (selectedSeatIds.length === 0) return;
+
+    setIsSubmitting(true);
+    try {
+      // One booking row per seat (the schema's seat lock is per trip+seat).
+      const bookings = [];
+      for (const seatId of selectedSeatIds) {
+        bookings.push(
+          await api.createBooking({
+            tripId: Number(tripId),
+            passengerId: user.id,
+            passengerName: passengerName || user.name,
+            seatNumber: String(seatId),
+          })
+        );
+      }
+      navigate("/passenger/booking-confirmed", {
+        state: { bookings, trip },
+      });
+    } catch (err) {
+      setSubmitError(err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
   }
+
+  if (loadError) {
+    return (
+      <div className="max-w-md mx-auto px-4 py-6">
+        <p role="alert" className="text-sm text-rose-600 font-medium">
+          {loadError}
+        </p>
+      </div>
+    );
+  }
+
+  const tripView = trip ?? {
+    origin: null,
+    destination: null,
+    distanceKm: null,
+    departureTime: null,
+    arrivalTime: null,
+    duration: null,
+    busModel: null,
+    plateNumber: null,
+    busType: null,
+    totalSeats: 52,
+    fare: null,
+  };
 
   return (
     <div className="max-w-md mx-auto lg:max-w-5xl px-4 py-6 space-y-5">
@@ -54,11 +117,11 @@ export default function TripDetail() {
 
       <div className="lg:grid lg:grid-cols-[1fr_360px] lg:gap-6 lg:items-start space-y-5 lg:space-y-0">
         <div className="space-y-5">
-          <RouteHeader trip={trip} tripId={tripId} />
-          <BusInfoCard trip={trip} />
+          <RouteHeader trip={tripView} tripId={tripId} />
+          <BusInfoCard trip={tripView} />
           <SeatMap
-            totalSeats={trip.totalSeats}
-            occupiedSeatIds={[]}
+            totalSeats={tripView.totalSeats}
+            occupiedSeatIds={occupiedSeatIds}
             selectedSeatIds={selectedSeatIds}
             onToggleSeat={toggleSeat}
             maxSeats={6}
@@ -67,12 +130,14 @@ export default function TripDetail() {
 
         <BookingSummaryCard
           selectedSeatIds={selectedSeatIds}
-          pricePerSeat={trip.fare}
+          pricePerSeat={tripView.fare}
           passengerName={passengerName}
           onPassengerNameChange={setPassengerName}
           contactNumber={contactNumber}
           onContactNumberChange={setContactNumber}
           onConfirm={handleConfirm}
+          isSubmitting={isSubmitting}
+          error={submitError}
         />
       </div>
     </div>

@@ -1,16 +1,49 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { ChevronLeft, RouteOff } from "lucide-react";
 import TripCard from "../../components/passenger/TripCard";
 import EmptyState from "../../components/common/EmptyState";
-
-// TODO: replace with GET /api/trips?origin=&destination=&date=
-const trips = [];
+import * as api from "../../lib/api";
+import { mapTrip, isSameDay } from "../../lib/format";
 
 export default function TripListings() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const origin = searchParams.get("origin");
+  const destination = searchParams.get("destination");
   const date = searchParams.get("date");
+
+  const [allTrips, setAllTrips] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    api
+      .getTrips()
+      .then((rows) => {
+        if (!cancelled) setAllTrips(rows.map(mapTrip));
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const trips = useMemo(() => {
+    return allTrips.filter((t) => {
+      if (origin && t.origin !== origin) return false;
+      if (destination && t.destination !== destination) return false;
+      if (date && !isSameDay(t.departureIso, date)) return false;
+      return true;
+    });
+  }, [allTrips, origin, destination, date]);
 
   const formattedDate = useMemo(() => {
     const d = date ? new Date(date) : new Date();
@@ -38,15 +71,21 @@ export default function TripListings() {
           <p className="text-sm text-ink-600">{formattedDate}</p>
         </div>
         <p className="text-sm font-medium text-ink-600">
-          {trips.length} Trips Available
+          {isLoading ? "Loading…" : `${trips.length} Trips Available`}
         </p>
       </header>
 
-      {trips.length === 0 ? (
+      {error && (
+        <p role="alert" className="text-sm text-rose-600 font-medium">
+          {error}
+        </p>
+      )}
+
+      {!isLoading && trips.length === 0 ? (
         <EmptyState
           icon={RouteOff}
-          title="No trips loaded yet"
-          description="This list will populate once trip search connects to the backend API."
+          title="No trips found"
+          description="Try a different route or date."
         />
       ) : (
         <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">

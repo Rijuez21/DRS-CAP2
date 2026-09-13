@@ -1,10 +1,25 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
+import * as api from "../../lib/api";
 
 export default function TripSearchPanel({ onSearch }) {
   const [origin, setOrigin] = useState("");
   const [destination, setDestination] = useState("");
   const [date, setDate] = useState("");
+  const [routes, setRoutes] = useState([]);
+
+  useEffect(() => {
+    api.getRoutes().then(setRoutes).catch(() => setRoutes([]));
+  }, []);
+
+  const origins = useMemo(
+    () => [...new Set(routes.map((r) => r.origin))].sort(),
+    [routes]
+  );
+  const destinations = useMemo(
+    () => [...new Set(routes.map((r) => r.destination))].sort(),
+    [routes]
+  );
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -23,7 +38,11 @@ export default function TripSearchPanel({ onSearch }) {
           className="w-full bg-brand-sunrise-400/90 text-ink-900 font-medium rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-white/60"
         >
           <option value="">Select origin</option>
-          {/* TODO: populate from GET /api/terminals once the backend is connected */}
+          {origins.map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
         </select>
       </Field>
 
@@ -34,7 +53,11 @@ export default function TripSearchPanel({ onSearch }) {
           className="w-full bg-brand-sunrise-400/90 text-ink-900 font-medium rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-white/60"
         >
           <option value="">Select destination</option>
-          {/* TODO: populate from GET /api/terminals once the backend is connected */}
+          {destinations.map((d) => (
+            <option key={d} value={d}>
+              {d}
+            </option>
+          ))}
         </select>
       </Field>
 

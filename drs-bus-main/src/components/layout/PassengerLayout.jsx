@@ -1,5 +1,7 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { Home, Bus, Ticket, User, Menu } from "lucide-react";
+import { useAuth } from "../../context/AuthContext";
+import NotificationBell from "../common/NotificationBell";
 
 const links = [
   { to: "home", label: "Home", icon: Home },
@@ -9,11 +11,16 @@ const links = [
 ];
 
 export default function PassengerLayout() {
+  const { user } = useAuth();
+
   return (
     <div className="min-h-screen bg-surface lg:flex">
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex lg:flex-col lg:w-60 lg:shrink-0 bg-brand-forest-900 text-white p-5 space-y-1">
-        <h2 className="font-display font-bold text-lg mb-6">D&apos; Rising Sun</h2>
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="font-display font-bold text-lg">D&apos; Rising Sun</h2>
+          <NotificationBell recipientType="passenger" recipientId={user?.id} />
+        </div>
         {links.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
@@ -36,9 +43,12 @@ export default function PassengerLayout() {
         {/* Mobile top bar */}
         <header className="lg:hidden sticky top-0 z-20 flex items-center justify-between bg-brand-forest-900 text-white px-4 py-3.5">
           <h1 className="font-display font-bold">D&apos; Rising Sun</h1>
-          <button type="button" aria-label="Open menu">
-            <Menu className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <NotificationBell recipientType="passenger" recipientId={user?.id} />
+            <button type="button" aria-label="Open menu">
+              <Menu className="w-5 h-5" />
+            </button>
+          </div>
         </header>
 
         <main className="pb-20 lg:pb-0">

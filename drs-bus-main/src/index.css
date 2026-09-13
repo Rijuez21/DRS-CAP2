@@ -47,6 +47,25 @@
   }
 }
 
+@layer components {
+  /* addition: shared text-input styling for the admin add/edit modals
+     (RouteManagement, DriverManagement, TripScheduling, MaintenanceTracking,
+     UserManagement) — one class instead of repeating the same utility
+     string in every form field. */
+  .input {
+    width: 100%;
+    border: 1px solid var(--color-slate-300, #cbd5e1);
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    outline: none;
+  }
+  .input:focus {
+    border-color: var(--color-brand-green-600);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-brand-green-600) 25%, transparent);
+  }
+}
+
 /*
   ── Scroll reveal — intentionally UNLAYERED, not inside @layer base. ──
   Tailwind's own utility classes live in @layer utilities, which is

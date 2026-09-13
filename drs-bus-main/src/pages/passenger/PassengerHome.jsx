@@ -1,30 +1,49 @@
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { MapPin } from "lucide-react";
 import TripSearchPanel from "../../components/passenger/TripSearchPanel";
 import StatsRow from "../../components/passenger/StatsRow";
 import EmptyState from "../../components/common/EmptyState";
-
-// TODO: replace with the logged-in user's name from auth/session
-const passengerName = "Passenger";
-
-// TODO: replace with real counts from GET /api/dashboard/summary
-const stats = [
-  { label: "Routes", value: null },
-  { label: "Trips Today", value: null },
-  { label: "My Bookings", value: null },
-];
-
-// TODO: replace with GET /api/routes/popular
-const popularRoutes = [];
+import { useAuth } from "../../context/AuthContext";
+import * as api from "../../lib/api";
+import { mapTrip, isSameDay } from "../../lib/format";
 
 export default function PassengerHome() {
   const navigate = useNavigate();
-  const today = new Date().toLocaleDateString("en-PH", {
+  const { user } = useAuth();
+
+  const [routes, setRoutes] = useState([]);
+  const [trips, setTrips] = useState([]);
+  const [bookingCount, setBookingCount] = useState(null);
+
+  useEffect(() => {
+    api.getRoutes().then(setRoutes).catch(() => setRoutes([]));
+    api.getTrips().then((rows) => setTrips(rows.map(mapTrip))).catch(() => setTrips([]));
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    api.getBookings({ passengerId: user.id }).then((rows) => setBookingCount(rows.length)).catch(() => {});
+  }, [user]);
+
+  const today = new Date();
+  const todayLabel = today.toLocaleDateString("en-PH", {
     weekday: "long",
     month: "long",
     day: "numeric",
     year: "numeric",
   });
+  const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+  const stats = [
+    { label: "Routes", value: routes.length || null },
+    { label: "Trips Today", value: trips.filter((t) => isSameDay(t.departureIso, todayIso)).length || null },
+    { label: "My Bookings", value: bookingCount },
+  ];
+
+  // "Popular" here just means the first few distinct routes on record —
+  // there's no booking-volume ranking endpoint yet.
+  const popularRoutes = useMemo(() => routes.slice(0, 4), [routes]);
 
   function handleSearch(criteria) {
     const cleaned = Object.fromEntries(
@@ -37,9 +56,9 @@ export default function PassengerHome() {
   return (
     <div className="px-4 py-6 lg:px-8 lg:py-10 max-w-md mx-auto lg:max-w-5xl">
       <header className="mb-5">
-        <p className="text-sm text-ink-600">{today}</p>
+        <p className="text-sm text-ink-600">{todayLabel}</p>
         <h1 className="font-display text-2xl font-bold">
-          Welcome, {passengerName}
+          Welcome, {user?.name ?? "Passenger"}
         </h1>
       </header>
 
@@ -66,13 +85,30 @@ export default function PassengerHome() {
             {popularRoutes.length === 0 ? (
               <EmptyState
                 icon={MapPin}
-                title="No popular routes yet"
-                description="Your most-traveled routes will show up here once trip data is connected."
+                title="No routes yet"
+                description="Routes will show up here once they're added by an administrator."
               />
             ) : (
               <div className="grid gap-3 sm:grid-cols-2">
                 {popularRoutes.map((r) => (
-                  <div key={r.id}>{/* route card, wire up once data exists */}</div>
+                  <button
+                    key={r.route_id}
+                    type="button"
+                    onClick={() =>
+                      navigate(
+                        `/passenger/trips?${new URLSearchParams({ origin: r.origin, destination: r.destination })}`
+                      )
+                    }
+                    className="text-left rounded-2xl bg-white border border-slate-100 p-4 shadow-sm hover:border-brand-green-500/50 hover:shadow-md transition"
+                  >
+                    <p className="font-medium text-sm">
+                      {r.origin} → {r.destination}
+                    </p>
+                    <p className="text-xs text-ink-600 mt-1">
+                      {r.distance != null ? `${r.distance} km` : ""}
+                      {r.base_fare != null ? ` · ₱${r.base_fare}` : ""}
+                    </p>
+                  </button>
                 ))}
               </div>
             )}

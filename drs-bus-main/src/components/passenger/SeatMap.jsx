@@ -86,8 +86,8 @@ export default function SeatMap({
 }
 
 function Seat({ id, occupiedSeatIds, selectedSeatIds, onToggleSeat, maxSeats }) {
-  const isOccupied = occupiedSeatIds.includes(id);
-  const isSelected = selectedSeatIds.includes(id);
+  const isOccupied = occupiedSeatIds.map(String).includes(String(id));
+  const isSelected = selectedSeatIds.map(String).includes(String(id));
   const atLimit = !isSelected && selectedSeatIds.length >= maxSeats;
 
   return (

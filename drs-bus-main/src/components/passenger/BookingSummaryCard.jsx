@@ -1,11 +1,13 @@
 export default function BookingSummaryCard({
   selectedSeatIds,
-  pricePerSeat, // TODO: from trip.fare once GET /api/trips/:id is wired up
+  pricePerSeat,
   passengerName,
   onPassengerNameChange,
   contactNumber,
   onContactNumberChange,
   onConfirm,
+  isSubmitting = false,
+  error = "",
 }) {
   const total =
     pricePerSeat != null ? pricePerSeat * selectedSeatIds.length : null;
@@ -65,13 +67,19 @@ export default function BookingSummaryCard({
         )}
       </div>
 
+      {error && (
+        <p role="alert" className="text-sm text-rose-600 font-medium">
+          {error}
+        </p>
+      )}
+
       <button
         type="button"
         onClick={onConfirm}
-        disabled={selectedSeatIds.length === 0}
+        disabled={selectedSeatIds.length === 0 || isSubmitting}
         className="w-full bg-brand-green-600 hover:bg-brand-green-500 disabled:bg-slate-200 disabled:text-slate-400 text-white font-display font-semibold rounded-xl py-3 transition-colors"
       >
-        Confirm Booking
+        {isSubmitting ? "Booking…" : "Confirm Booking"}
       </button>
     </div>
   );
