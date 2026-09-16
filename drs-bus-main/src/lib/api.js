@@ -99,6 +99,7 @@ export const setRouteActive = (routeId, isActive) =>
 
 // ---- Drivers (admin) -------------------------------------------------------------
 export const getDrivers = () => request("/api/drivers");
+export const getDriver = (driverId) => request(`/api/drivers/${driverId}`); // NEW — also used by a driver viewing their own profile; backend should authorize when :id matches the requesting driver's own id, not just admin
 export const createDriver = (payload) => request("/api/drivers", { method: "POST", body: payload });
 export const updateDriver = (driverId, payload) =>
   request(`/api/drivers/${driverId}`, { method: "PATCH", body: payload });

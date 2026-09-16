@@ -27,10 +27,12 @@ import Profile from '../pages/passenger/Profile'
 
 // Driver pages
 import DriverDashboard from '../pages/driver/DriverDashboard'
+import AssignedBus from '../pages/driver/AssignedBus'      // NEW
 import RouteSchedule from '../pages/driver/RouteSchedule'
 import Manifest from '../pages/driver/Manifest'
 import VehicleChecklist from '../pages/driver/VehicleChecklist'
 import IssueReports from '../pages/driver/IssueReports'
+import DriverProfile from '../pages/driver/Profile'        // NEW — named DriverProfile, not Profile, to avoid colliding with the passenger Profile import already in this file
 
 // Staff pages
 import WalkInSales from '../pages/staff/WalkInSales'
@@ -93,10 +95,12 @@ export default function AppRoutes() {
       >
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<DriverDashboard />} />
+        <Route path="assigned-bus" element={<AssignedBus />} />       {/* NEW */}
         <Route path="route-schedule" element={<RouteSchedule />} />
         <Route path="manifest" element={<Manifest />} />
         <Route path="vehicle-checklist" element={<VehicleChecklist />} />
         <Route path="issue-reports" element={<IssueReports />} />
+        <Route path="profile" element={<DriverProfile />} />          {/* NEW */}
       </Route>
 
       {/* Terminal Staff */}

@@ -5,10 +5,12 @@ import NotificationBell from '../common/NotificationBell'
 
 const links = [
   { to: 'dashboard', label: 'Trip Dashboard' },
+  { to: 'assigned-bus', label: 'Assigned Bus' },   // NEW
   { to: 'route-schedule', label: 'Route Schedule' },
   { to: 'manifest', label: 'Manifest' },
   { to: 'vehicle-checklist', label: 'Pre-Trip Checklist' },
   { to: 'issue-reports', label: 'Issue Reports' },
+  { to: 'profile', label: 'Profile' },              // NEW
 ]
 
 export default function DriverLayout() {
