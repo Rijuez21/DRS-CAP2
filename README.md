@@ -10,6 +10,7 @@ Web-based platform for D'Rising Sun Transport: online seat reservation, real-tim
 - Module 1 — Planning & System Design: UI wireframes. Done.
 - Module 2 — System / Foundation Setup: React + Tailwind project structure, shared page layout. Done.
 - Module 3 — Login & User Accounts: Create passenger login page, driver login page, and admin login page. Done.
+- Module 6 — GPS / Live Bus Tracking: Build the live map showing bus location markers. Done.
 
 ## Tech Stack
 
@@ -23,7 +24,7 @@ Web-based platform for D'Rising Sun Transport: online seat reservation, real-tim
 | Backend (planned) | Node.js + Express.js |
 | Real-time | Socket.io |
 | Database (planned) | MySQL + Redis |
-| Maps (planned) | Leaflet.js / Mapbox |
+| Maps | Leaflet.js |
 
 ## Prerequisites
 
@@ -98,7 +99,7 @@ src/
 │   │   ├── BookingConfirmed.jsx
 │   │   ├── MyBookings.jsx
 │   │   ├── BookingDetails.jsx
-│   │   ├── LiveTracking.jsx
+│   │   ├── LiveTracking.jsx    # built — live single-bus map (Module 6)
 │   │   └── Profile.jsx
 │   ├── driver/
 │   │   ├── Dashboard.jsx
@@ -186,14 +187,21 @@ Each role's base path redirects to that role's default page. Unmatched URLs redi
 - [x] Added `logo-sun.svg` asset
 - [x] Updated `AppRoutes.jsx` with the 4 new auth routes
 
+**GPS / Live Bus Tracking Phase (Module 6)**
+- [x] Built `LiveTracking.jsx` — single-bus live map (`/passenger/tracking/:tripId`), using Leaflet
+- [x] Follows the same real-time pattern as the admin's `FleetTracking.jsx`: REST snapshot first (`getLatestLocation`) to seed the initial marker, then a Socket.io subscription for live updates, moving the existing marker instead of recreating the map on every tick
+- [x] Shows the same "buffered/offline" indicator `FleetTracking.jsx` uses, keyed off the `syncStatus` flag set by `useDriverLocation.js`'s offline queue
+
 **Not yet done**
 - [ ] Connect all forms/pages to the real backend API (still placeholder/`TODO`-marked — see comments in each file for the exact endpoint expected)
-- [ ] Build remaining passenger screens: BookingConfirmed, MyBookings, BookingDetails, LiveTracking, Profile
+- [ ] Build remaining passenger screens: BookingConfirmed, MyBookings, BookingDetails, Profile
 - [ ] Build out Driver, Terminal Staff, and Admin page content (currently placeholders)
+- [ ] Confirm `subscribe:bus`/`unsubscribe:bus` socket event names against the actual backend handler — `LiveTracking.jsx` currently assumes symmetry with `FleetTracking.jsx`'s `subscribe:fleet` pattern, but this hasn't been verified against real backend code yet
+- [ ] Add a "Track this bus" entry point — nothing currently links to `/passenger/tracking/:tripId` yet, since `MyBookings`/`BookingDetails` are still placeholders
 
 ## Next Steps
 
-Per the Gantt chart, Module 4 (Passenger / Online Reservation) connects the booking flow to real reservation APIs, and the Full Stack track wires all three login pages to the authentication API.
+Per the Gantt chart, Module 7 (Admin Module) is next up. Module 4 (Passenger / Online Reservation) and Module 5 (Driver Module) still need their own status updates here from whoever owns those parts.
 
 ## Available Scripts
 
