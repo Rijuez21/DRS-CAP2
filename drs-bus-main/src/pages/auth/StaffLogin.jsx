@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Bus, Ticket } from "lucide-react";
 import AuthShell from "../../components/auth/AuthShell";
 import LoginForm from "../../components/auth/LoginForm";
@@ -13,7 +14,10 @@ const SUB_ROLES = [
 // (drivers vs. staff_accounts), so this small tab picks that — it's not a
 // role-selection landing screen, just part of this one login form.
 export default function StaffLogin() {
-  const [subRole, setSubRole] = useState("driver");
+  // ?as=staff opens on the Terminal Staff tab (used when a staff member's
+  // session expires), otherwise Driver — the more common login here.
+  const [searchParams] = useSearchParams();
+  const [subRole, setSubRole] = useState(searchParams.get("as") === "staff" ? "staff" : "driver");
   const active = SUB_ROLES.find((r) => r.role === subRole);
 
   return (

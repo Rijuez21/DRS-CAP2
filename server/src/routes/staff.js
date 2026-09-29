@@ -10,7 +10,7 @@ export const staffRouter = Router();
 // both terminal_staff and admin rows since both live in staff_accounts
 // (see schema.sql's note on why the ERD's Commuter/Driver-only scope
 // needed this table added).
-staffRouter.get("/", async (req, res) => {
+staffRouter.get("/", requireRole("admin"), async (req, res) => {
   const { role } = req.query;
   const allowed = ["terminal_staff", "admin"];
   if (role && !allowed.includes(role)) {

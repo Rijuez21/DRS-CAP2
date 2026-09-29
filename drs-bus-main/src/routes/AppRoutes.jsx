@@ -23,6 +23,7 @@ import BookingConfirmed from '../pages/passenger/BookingConfirmed'
 import MyBookings from '../pages/passenger/MyBookings'
 import BookingDetails from '../pages/passenger/BookingDetails'
 import LiveTracking from '../pages/passenger/LiveTracking'
+import FlagBus from '../pages/passenger/FlagBus'          // NEW — Mode 2 "Flag a Bus"; separate from the Book Ahead pages above so that flow never loads GPS/map code of its own
 import Profile from '../pages/passenger/Profile'
 
 // Driver pages
@@ -37,6 +38,7 @@ import DriverProfile from '../pages/driver/Profile'        // NEW — named Driv
 // Staff pages
 import WalkInSales from '../pages/staff/WalkInSales'
 import ReservationValidation from '../pages/staff/ReservationValidation'
+import PaymentReview from '../pages/staff/PaymentReview'  // QR Ph review queue — shared by staff and admin
 
 // Admin pages
 import AdminDashboard from '../pages/admin/Dashboard'
@@ -49,6 +51,7 @@ import ReservationsManagement from '../pages/admin/ReservationsManagement'
 import MaintenanceTracking from '../pages/admin/MaintenanceTracking'
 import ReportsAnalytics from '../pages/admin/ReportsAnalytics'
 import UserManagement from '../pages/admin/UserManagement'
+import PaymentSettings from '../pages/admin/PaymentSettings'
 
 export default function AppRoutes() {
   return (
@@ -81,6 +84,10 @@ export default function AppRoutes() {
         <Route path="my-bookings" element={<MyBookings />} />
         <Route path="my-bookings/:bookingId" element={<BookingDetails />} />
         <Route path="tracking/:tripId" element={<LiveTracking />} />
+        {/* Two ways to ride, two separate entry points:
+              Book Ahead  = trips -> trips/:tripId (SeatMap) -> booking-confirmed — terminal departure, pick a seat, no map
+              Flag a Bus  = flag — already on the roadside, hail an In Transit bus on a live map, no seat picker */}
+        <Route path="flag" element={<FlagBus />} />                   {/* NEW */}
         <Route path="profile" element={<Profile />} />
       </Route>
 
@@ -115,6 +122,7 @@ export default function AppRoutes() {
         <Route index element={<Navigate to="walk-in" replace />} />
         <Route path="walk-in" element={<WalkInSales />} />
         <Route path="validate" element={<ReservationValidation />} />
+        <Route path="payments" element={<PaymentReview />} />
       </Route>
 
       {/* Admin */}
@@ -137,6 +145,8 @@ export default function AppRoutes() {
         <Route path="maintenance" element={<MaintenanceTracking />} />
         <Route path="reports" element={<ReportsAnalytics />} />
         <Route path="users" element={<UserManagement />} />
+        <Route path="payments" element={<PaymentReview />} />
+        <Route path="payment-settings" element={<PaymentSettings />} />
       </Route>
 
       {/* Catch-all */}

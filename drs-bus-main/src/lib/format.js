@@ -30,9 +30,24 @@ export function isSameDay(isoString, yyyyMmDd) {
 }
 
 /** Maps a backend trip row (snake_case, base_fare, etc.) to the shape TripCard/TripDetail expect. */
+// "air_conditioned" -> "Air-conditioned" etc. — raw enum values were shown
+// on screen as-is before.
+export function busTypeLabel(type) {
+  if (!type) return null;
+  return type === "air_conditioned" ? "Air-conditioned" : type === "ordinary" ? "Ordinary" : type;
+}
+
+// Today as YYYY-MM-DD in the user's local time (for <input type="date" min>).
+export function todayIsoDate() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export function mapTrip(row) {
+  // Unknown (null) when the server didn't send a count — never guessed as
+  // "full capacity", which is what the listing used to show for every trip.
   const seatsAvailable =
-    row.capacity != null && row.booked_count != null ? row.capacity - row.booked_count : row.capacity ?? null;
+    row.capacity != null && row.booked_count != null ? Math.max(0, row.capacity - Number(row.booked_count)) : null;
 
   return {
     id: row.trip_id,
@@ -41,9 +56,11 @@ export function mapTrip(row) {
     departureTime: formatTime(row.departure_time),
     arrivalTime: formatTime(row.arrival_time),
     duration: formatDuration(row.departure_time, row.arrival_time),
-    busModel: row.bus_type ? (row.bus_type === "air_conditioned" ? "Air-Conditioned Bus" : "Ordinary Bus") : null,
+    busModel: row.bus_type ? `${busTypeLabel(row.bus_type)} Bus` : null,
     plateNumber: row.plate_num,
-    busType: row.bus_type,
+    busType: busTypeLabel(row.bus_type),
+    busNumber: row.bus_number ?? null,
+    arrivalIso: row.arrival_time,
     totalSeats: row.capacity,
     seatsAvailable,
     fare: row.base_fare != null ? Number(row.base_fare) : null,

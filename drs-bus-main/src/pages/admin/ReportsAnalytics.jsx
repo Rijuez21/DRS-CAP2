@@ -21,6 +21,8 @@ const monthAgoIso = () => new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOS
 // project yet, so `format=pdf` intentionally 501s on the backend rather
 // than silently producing nothing).
 export default function ReportsAnalytics() {
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
   const [reportType, setReportType] = useState(REPORT_TYPES[0].key);
   const [from, setFrom] = useState(monthAgoIso());
   const [to, setTo] = useState(todayIso());
@@ -28,9 +30,17 @@ export default function ReportsAnalytics() {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
 
+  // Filter changes flag "loading" in their handlers (below), so the old
+  // report isn't shown as if it matched the new filters.
+  function changeFilter(setter) {
+    return (value) => {
+      setIsLoading(true);
+      setError("");
+      setter(value);
+    };
+  }
+
   useEffect(() => {
-    setIsLoading(true);
-    setError("");
     const params = { from, to };
     const loaders = {
       "on-time-performance": api.getOnTimeReport,
@@ -54,25 +64,40 @@ export default function ReportsAnalytics() {
       <div className="flex flex-wrap items-end gap-3">
         <label className="block">
           <span className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Report</span>
-          <select value={reportType} onChange={(e) => setReportType(e.target.value)} className="input max-w-xs">
+          <select value={reportType} onChange={(e) => changeFilter(setReportType)(e.target.value)} className="input max-w-xs">
             {REPORT_TYPES.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
           </select>
         </label>
         <label className="block">
           <span className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">From</span>
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="input" />
+          <input type="date" value={from} onChange={(e) => changeFilter(setFrom)(e.target.value)} className="input" />
         </label>
         <label className="block">
           <span className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">To</span>
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="input" />
+          <input type="date" value={to} onChange={(e) => changeFilter(setTo)(e.target.value)} className="input" />
         </label>
-        <a
-          href={api.getReportExportUrl(reportType, { from, to })}
-          className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-white text-sm font-semibold px-3 py-2 rounded"
+        {/* A button, not an <a href>: the export needs the admin's login
+            header, which a plain link can't send (it always got a 401). */}
+        <button
+          type="button"
+          onClick={async () => {
+            setIsExporting(true);
+            setExportError("");
+            try {
+              await api.downloadReportCsv(reportType, { from, to });
+            } catch (err) {
+              setExportError(err.message);
+            } finally {
+              setIsExporting(false);
+            }
+          }}
+          disabled={isExporting}
+          className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-60 text-white text-sm font-semibold px-3 py-2 rounded"
         >
-          <Download className="w-4 h-4" /> Export CSV
-        </a>
+          <Download className="w-4 h-4" /> {isExporting ? "Preparing…" : "Export CSV"}
+        </button>
       </div>
+      {exportError && <p role="alert" className="text-sm text-rose-600 font-medium">{exportError}</p>}
 
       <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
 

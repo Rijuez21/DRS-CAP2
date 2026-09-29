@@ -35,3 +35,29 @@ export async function notifyTripChange(io, tripId, message, type = "schedule_cha
     console.error("Notification dispatch failed (non-fatal):", err.message);
   }
 }
+
+// Flag a Bus mode: a single-recipient version of the above. A roadside
+// hail concerns exactly one driver (the one on the flagged trip) or one
+// passenger (the one who hailed), not everyone on the trip, so this skips
+// the recipient fan-out but keeps the same two-part delivery -- persisted
+// to `notifications` so it survives a missed socket event (driver's phone
+// was in a dead zone when the hail arrived) and pushed live as the same
+// `notification:new` the bell already listens for. The structured
+// `flag:*` events in bookings.js are what the Flag UIs actually react to;
+// this is the durable, human-readable trail alongside them.
+export async function notifyRecipient(io, { type: recipientType, id: recipientId }, message, type) {
+  try {
+    const [result] = await pool.query(
+      `INSERT INTO notifications (recipient_type, recipient_id, message, type) VALUES (?, ?, ?, ?)`,
+      [recipientType, recipientId, message, type]
+    );
+    io?.to(`${recipientType}:${recipientId}`).emit("notification:new", {
+      notification_id: result.insertId,
+      message,
+      type,
+      created_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error("Notification dispatch failed (non-fatal):", err.message);
+  }
+}

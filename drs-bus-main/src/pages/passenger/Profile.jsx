@@ -9,19 +9,23 @@ export default function Profile() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [bookings, setBookings] = useState([]);
+  const [loaded, setLoaded] = useState(false); // show real zeros once loaded, "—" only while loading
 
   useEffect(() => {
     if (!user) return;
-    api.getBookings({ passengerId: user.id }).then(setBookings).catch(() => setBookings([]));
+    api
+      .getBookings()
+      .then((rows) => {
+        setBookings(rows);
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
   }, [user]);
 
   const stats = [
-    { label: "Total Bookings", value: bookings.length || null },
-    {
-      label: "Confirmed",
-      value: bookings.filter((b) => b.status === "Confirmed" || b.status === "Boarded").length || null,
-    },
-    { label: "Cancelled", value: bookings.filter((b) => b.status === "Cancelled").length || null },
+    { label: "Trips booked", value: loaded ? bookings.length : null },
+    { label: "Travelled", value: loaded ? bookings.filter((b) => b.status === "Boarded").length : null },
+    { label: "Cancelled", value: loaded ? bookings.filter((b) => b.status === "Cancelled").length : null },
   ];
 
   function handleLogout() {

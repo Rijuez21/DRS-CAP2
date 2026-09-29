@@ -13,7 +13,7 @@ busRoutesRouter.get("/", async (req, res) => {
   const { includeInactive } = req.query;
   try {
     const [rows] = await pool.query(
-      `SELECT route_id, origin, destination, distance, base_fare, is_active FROM routes
+      `SELECT route_id, origin, destination, distance, base_fare, special_fare, is_active FROM routes
        ${includeInactive ? "" : "WHERE is_active = TRUE"}
        ORDER BY origin`
     );
@@ -24,20 +24,25 @@ busRoutesRouter.get("/", async (req, res) => {
   }
 });
 
+// Note: this used to also expose GET /:id/fare-matrix, backed by a
+// separate fare_matrix table. That's gone — routes now holds one row per
+// km post directly (base_fare/special_fare ARE the per-stop fare), so
+// there's nothing left to look up separately.
+
 // POST /api/routes — admin creates a new route
 busRoutesRouter.post("/", requireRole("admin"), async (req, res) => {
-  const { origin, destination, distance, baseFare } = req.body;
+  const { origin, destination, distance, baseFare, specialFare } = req.body;
   if (!origin || !destination || baseFare == null) {
     return res.status(400).json({ error: "origin, destination and baseFare are required" });
   }
 
   try {
     const [result] = await pool.query(
-      `INSERT INTO routes (origin, destination, distance, base_fare) VALUES (?, ?, ?, ?)`,
-      [origin, destination, distance ?? null, baseFare]
+      `INSERT INTO routes (origin, destination, distance, base_fare, special_fare) VALUES (?, ?, ?, ?, ?)`,
+      [origin, destination, distance ?? null, baseFare, specialFare ?? null]
     );
     await logAudit({ staffId: req.user.id, action: "create", entityType: "route", entityId: result.insertId, details: req.body });
-    res.status(201).json({ route_id: result.insertId, origin, destination, distance, baseFare, is_active: true });
+    res.status(201).json({ route_id: result.insertId, origin, destination, distance, baseFare, specialFare, is_active: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to create route" });
@@ -46,13 +51,14 @@ busRoutesRouter.post("/", requireRole("admin"), async (req, res) => {
 
 // PATCH /api/routes/:id — admin edits fare/distance/origin/destination
 busRoutesRouter.patch("/:id", requireRole("admin"), async (req, res) => {
-  const { origin, destination, distance, baseFare } = req.body;
+  const { origin, destination, distance, baseFare, specialFare } = req.body;
   const fields = [];
   const params = [];
   if (origin !== undefined) { fields.push("origin = ?"); params.push(origin); }
   if (destination !== undefined) { fields.push("destination = ?"); params.push(destination); }
   if (distance !== undefined) { fields.push("distance = ?"); params.push(distance); }
   if (baseFare !== undefined) { fields.push("base_fare = ?"); params.push(baseFare); }
+  if (specialFare !== undefined) { fields.push("special_fare = ?"); params.push(specialFare); }
 
   if (fields.length === 0) return res.status(400).json({ error: "No editable fields provided" });
 

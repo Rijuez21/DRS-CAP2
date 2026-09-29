@@ -4,7 +4,8 @@ import * as api from "../../lib/api";
 import EmptyState from "../../components/common/EmptyState";
 import InlineAlert from "../../components/common/InlineAlert";
 import Modal from "../../components/admin/Modal";
-import { formatDate } from "../../lib/format";
+import StatusBadge from "../../components/common/StatusBadge";
+import { formatDate, formatTime, todayIsoDate } from "../../lib/format";
 
 const STATUS_STYLES = {
   Scheduled: "bg-slate-100 text-slate-600",
@@ -25,7 +26,6 @@ export default function AdminMaintenanceTracking() {
   const [isSaving, setIsSaving] = useState(false);
 
   function load() {
-    setIsLoading(true);
     Promise.all([api.getMaintenance(), api.getBuses()])
       .then(([m, b]) => { setRecords(m); setBuses(b); })
       .catch((err) => setError(err.message))
@@ -37,6 +37,8 @@ export default function AdminMaintenanceTracking() {
   const isOverdue = (r) => r.next_service_date && new Date(r.next_service_date) < new Date() && r.status !== "Completed";
 
   async function handleAdd(e) {
+    setError("");
+    setSuccess("");
     e.preventDefault();
     if (!form.busId || !form.serviceType || !form.date) {
       setError("Bus, service type and date are required.");
@@ -82,7 +84,7 @@ export default function AdminMaintenanceTracking() {
           <h1 className="text-xl font-bold">Maintenance Tracking</h1>
           <p className="text-sm text-gray-500">Service log, status pipeline, and overdue alerts.</p>
         </div>
-        <button type="button" onClick={() => setShowAdd(true)} className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-semibold px-3 py-2 rounded">
+        <button type="button" onClick={() => { setForm({ ...emptyForm, date: todayIsoDate() }); setShowAdd(true); }} className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-semibold px-3 py-2 rounded">
           <Plus className="w-4 h-4" /> Log Service
         </button>
       </header>
@@ -90,6 +92,9 @@ export default function AdminMaintenanceTracking() {
       <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
       <InlineAlert type="success" message={success} onDismiss={() => setSuccess("")} />
 
+      <DriverIssueReports />
+
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 pt-2">Service log</h2>
       {isLoading ? (
         <p className="text-sm text-gray-500">Loading…</p>
       ) : records.length === 0 ? (
@@ -152,14 +157,14 @@ export default function AdminMaintenanceTracking() {
           }
         >
           <form id="maintenance-form" onSubmit={handleAdd} className="space-y-3">
-            <Field label="Bus">
+            <Field label="Bus *">
               <select required value={form.busId} onChange={(e) => setForm({ ...form, busId: e.target.value })} className="input">
                 <option value="">Select a bus…</option>
                 {buses.map((b) => <option key={b.bus_id} value={b.bus_id}>{b.plate_num}</option>)}
               </select>
             </Field>
-            <Field label="Service Type"><input required value={form.serviceType} onChange={(e) => setForm({ ...form, serviceType: e.target.value })} className="input" placeholder="Oil change, brake inspection…" /></Field>
-            <Field label="Date"><input required type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="input" /></Field>
+            <Field label="Service Type *"><input required value={form.serviceType} onChange={(e) => setForm({ ...form, serviceType: e.target.value })} className="input" placeholder="Oil change, brake inspection…" /></Field>
+            <Field label="Date *"><input required type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="input" /></Field>
             <Field label="Estimated Cost (₱)"><input type="number" min="0" step="0.01" value={form.cost} onChange={(e) => setForm({ ...form, cost: e.target.value })} className="input" /></Field>
             <Field label="Next Service Date"><input type="date" value={form.nextServiceDate} onChange={(e) => setForm({ ...form, nextServiceDate: e.target.value })} className="input" /></Field>
             <Field label="Mechanic Notes"><textarea value={form.mechanicNotes} onChange={(e) => setForm({ ...form, mechanicNotes: e.target.value })} className="input" rows={2} /></Field>
@@ -176,5 +181,86 @@ function Field({ label, children }) {
       <span className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{label}</span>
       {children}
     </label>
+  );
+}
+
+// Problems drivers report from the road (driver/IssueReports.jsx). Before,
+// these were written to issue_reports and never shown to anyone. Open and
+// Acknowledged reports are listed first; resolving one keeps it for history.
+const ISSUE_NEXT = { Open: ["Acknowledged", "Resolved"], Acknowledged: ["Resolved"], Resolved: [] };
+
+function DriverIssueReports() {
+  const [issues, setIssues] = useState([]);
+  const [showResolved, setShowResolved] = useState(false);
+  const [error, setError] = useState("");
+  const [busyId, setBusyId] = useState(null);
+
+  useEffect(() => {
+    api.getIssues().then(setIssues).catch((err) => setError(err.message));
+  }, []);
+
+  async function setStatus(issue, status) {
+    setBusyId(issue.issue_id);
+    setError("");
+    try {
+      await api.updateIssueStatus(issue.issue_id, status);
+      setIssues((prev) => prev.map((i) => (i.issue_id === issue.issue_id ? { ...i, status } : i)));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const open = issues.filter((i) => i.status !== "Resolved");
+  const shown = showResolved ? issues : open;
+
+  return (
+    <section className="space-y-2">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 flex items-center gap-1.5">
+          <AlertTriangle className="w-3.5 h-3.5" /> Driver issue reports {open.length > 0 && <span className="text-rose-600">({open.length} open)</span>}
+        </h2>
+        {issues.length > open.length && (
+          <label className="flex items-center gap-1.5 text-xs text-gray-600">
+            <input type="checkbox" checked={showResolved} onChange={(e) => setShowResolved(e.target.checked)} /> Show resolved
+          </label>
+        )}
+      </div>
+      <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
+      {shown.length === 0 ? (
+        <p className="text-sm text-gray-500 bg-white rounded-lg border p-3">No open issue reports from drivers.</p>
+      ) : (
+        <div className="bg-white rounded-lg border divide-y">
+          {shown.map((i) => (
+            <div key={i.issue_id} className="p-3 flex flex-col sm:flex-row sm:items-start gap-2">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium">
+                  <span className="capitalize">{i.category}</span> · Bus {i.bus_number ?? i.plate_num} · {i.driver_name}
+                </p>
+                <p className="text-sm text-gray-700">{i.description}</p>
+                <p className="text-xs text-gray-400">
+                  {formatDate(i.reported_at)} {formatTime(i.reported_at)}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <StatusBadge status={i.status} />
+                {ISSUE_NEXT[i.status].map((next) => (
+                  <button
+                    key={next}
+                    type="button"
+                    onClick={() => setStatus(i, next)}
+                    disabled={busyId === i.issue_id}
+                    className="text-xs font-semibold text-emerald-700 hover:underline disabled:opacity-50"
+                  >
+                    {next === "Acknowledged" ? "Acknowledge" : "Mark resolved"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }

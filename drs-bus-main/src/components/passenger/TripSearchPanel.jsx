@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import * as api from "../../lib/api";
+import { todayIsoDate } from "../../lib/format";
 
 export default function TripSearchPanel({ onSearch }) {
   const [origin, setOrigin] = useState("");
@@ -16,10 +17,17 @@ export default function TripSearchPanel({ onSearch }) {
     () => [...new Set(routes.map((r) => r.origin))].sort(),
     [routes]
   );
-  const destinations = useMemo(
-    () => [...new Set(routes.map((r) => r.destination))].sort(),
-    [routes]
-  );
+  // Only stops actually reachable from the chosen origin, in route order
+  // (nearest first) — the unfiltered list mixed ~160 km-post stops from
+  // every origin, most of which had no trip from where you are.
+  const destinations = useMemo(() => {
+    const seen = new Set();
+    return routes
+      .filter((r) => !origin || r.origin === origin)
+      .sort((a, b) => Number(a.distance ?? 0) - Number(b.distance ?? 0))
+      .filter((r) => (seen.has(r.destination) ? false : seen.add(r.destination)))
+      .map((r) => r.destination);
+  }, [routes, origin]);
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -34,7 +42,10 @@ export default function TripSearchPanel({ onSearch }) {
       <Field label="From">
         <select
           value={origin}
-          onChange={(e) => setOrigin(e.target.value)}
+          onChange={(e) => {
+            setOrigin(e.target.value);
+            setDestination("");
+          }}
           className="w-full bg-brand-sunrise-400/90 text-ink-900 font-medium rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-white/60"
         >
           <option value="">Select origin</option>
@@ -64,6 +75,7 @@ export default function TripSearchPanel({ onSearch }) {
       <Field label="Date">
         <input
           type="date"
+          min={todayIsoDate()}
           value={date}
           onChange={(e) => setDate(e.target.value)}
           className="w-full bg-brand-sunrise-400/90 text-ink-900 font-medium rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-white/60"

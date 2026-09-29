@@ -8,7 +8,7 @@ export const driversRouter = Router();
 
 // GET /api/drivers — powers admin/DriverManagement.jsx. Never returns
 // password_hash.
-driversRouter.get("/", async (req, res) => {
+driversRouter.get("/", requireRole("admin", "staff"), async (req, res) => {
   try {
     const [rows] = await pool.query(
       `SELECT driver_id, name, license_number, phoneno, hire_date, email, duty_status FROM drivers ORDER BY name`
@@ -20,20 +20,45 @@ driversRouter.get("/", async (req, res) => {
   }
 });
 
-// POST /api/drivers — admin provisions a new driver account, same
-// password-hashing approach as auth.js's register.
+// POST /api/drivers — admin adds a driver to the roster. Only name is
+// required: license number, email and password can be filled in later
+// (via PATCH) once they're actually known, instead of being faked to
+// satisfy a NOT NULL constraint. If email+password ARE given up front,
+// the account is login-ready immediately.
+// GET /api/drivers/:id — admin, or a driver viewing their own profile
+// (driver/Profile.jsx). This route was missing, so that page always failed.
+driversRouter.get("/:id", requireRole("admin", "driver"), async (req, res) => {
+  if (req.user.role === "driver" && req.user.id !== Number(req.params.id)) {
+    return res.status(403).json({ error: "You can only view your own profile" });
+  }
+  try {
+    const [[row]] = await pool.query(
+      `SELECT driver_id, name, license_number, phoneno, hire_date, email, duty_status FROM drivers WHERE driver_id = ?`,
+      [req.params.id]
+    );
+    if (!row) return res.status(404).json({ error: "Driver not found" });
+    res.json(row);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to load driver" });
+  }
+});
+
 driversRouter.post("/", requireRole("admin"), async (req, res) => {
   const { name, licenseNumber, phoneno, hireDate, email, password } = req.body;
-  if (!name || !licenseNumber || !email || !password) {
-    return res.status(400).json({ error: "name, licenseNumber, email and password are required" });
+  if (!name) {
+    return res.status(400).json({ error: "name is required" });
+  }
+  if ((email && !password) || (password && !email)) {
+    return res.status(400).json({ error: "email and password must be provided together, or not at all" });
   }
 
   try {
-    const passwordHash = await bcrypt.hash(password, 10);
+    const passwordHash = password ? await bcrypt.hash(password, 10) : null;
     const [result] = await pool.query(
       `INSERT INTO drivers (name, license_number, phoneno, hire_date, email, password_hash)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [name, licenseNumber, phoneno ?? null, hireDate ?? null, email, passwordHash]
+      [name, licenseNumber ?? null, phoneno ?? null, hireDate ?? null, email ?? null, passwordHash]
     );
     await logAudit({ staffId: req.user.id, action: "create", entityType: "driver", entityId: result.insertId, details: { name, licenseNumber, email } });
     res.status(201).json({ driver_id: result.insertId, name, licenseNumber, phoneno, hireDate, email });
@@ -47,10 +72,11 @@ driversRouter.post("/", requireRole("admin"), async (req, res) => {
 });
 
 // PATCH /api/drivers/:id — admin edits basic fields + duty status
-// (Active/On Leave/Suspended toggle in DriverManagement.jsx). Password
-// isn't editable here — that'd be a separate reset flow, not a field edit.
+// (Active/On Leave/Suspended toggle in DriverManagement.jsx), and can
+// now also complete licenseNumber/email/password once they're known —
+// this is the "finish the profile" path instead of seeding fake values.
 driversRouter.patch("/:id", requireRole("admin"), async (req, res) => {
-  const { name, phoneno, email, dutyStatus } = req.body;
+  const { name, phoneno, email, licenseNumber, password, dutyStatus } = req.body;
   const allowedDutyStatus = ["Active", "On Leave", "Suspended"];
   if (dutyStatus !== undefined && !allowedDutyStatus.includes(dutyStatus)) {
     return res.status(400).json({ error: `dutyStatus must be one of: ${allowedDutyStatus.join(", ")}` });
@@ -61,7 +87,12 @@ driversRouter.patch("/:id", requireRole("admin"), async (req, res) => {
   if (name !== undefined) { fields.push("name = ?"); params.push(name); }
   if (phoneno !== undefined) { fields.push("phoneno = ?"); params.push(phoneno); }
   if (email !== undefined) { fields.push("email = ?"); params.push(email); }
+  if (licenseNumber !== undefined) { fields.push("license_number = ?"); params.push(licenseNumber); }
   if (dutyStatus !== undefined) { fields.push("duty_status = ?"); params.push(dutyStatus); }
+  if (password) {
+    fields.push("password_hash = ?");
+    params.push(await bcrypt.hash(password, 10));
+  }
 
   if (fields.length === 0) {
     return res.status(400).json({ error: "No editable fields provided" });
@@ -71,11 +102,11 @@ driversRouter.patch("/:id", requireRole("admin"), async (req, res) => {
     params.push(req.params.id);
     const [result] = await pool.query(`UPDATE drivers SET ${fields.join(", ")} WHERE driver_id = ?`, params);
     if (result.affectedRows === 0) return res.status(404).json({ error: "Driver not found" });
-    await logAudit({ staffId: req.user.id, action: "update", entityType: "driver", entityId: req.params.id, details: req.body });
-    res.json({ driver_id: Number(req.params.id), ...req.body });
+    await logAudit({ staffId: req.user.id, action: "update", entityType: "driver", entityId: req.params.id, details: { ...req.body, password: password ? "(changed)" : undefined } });
+    res.json({ driver_id: Number(req.params.id), name, phoneno, email, licenseNumber, dutyStatus });
   } catch (err) {
     if (err.code === "ER_DUP_ENTRY") {
-      return res.status(409).json({ error: "That email is already in use" });
+      return res.status(409).json({ error: "That email or license number is already in use" });
     }
     console.error(err);
     res.status(500).json({ error: "Failed to update driver" });

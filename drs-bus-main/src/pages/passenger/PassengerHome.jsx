@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { MapPin } from "lucide-react";
+import { MapPin, CalendarClock, Hand, ChevronRight } from "lucide-react";
 import TripSearchPanel from "../../components/passenger/TripSearchPanel";
 import StatsRow from "../../components/passenger/StatsRow";
 import EmptyState from "../../components/common/EmptyState";
@@ -18,12 +18,16 @@ export default function PassengerHome() {
 
   useEffect(() => {
     api.getRoutes().then(setRoutes).catch(() => setRoutes([]));
-    api.getTrips().then((rows) => setTrips(rows.map(mapTrip))).catch(() => setTrips([]));
+    // Bookable trips only — the old count included cancelled and finished runs.
+    api.getTrips({ scope: "bookable" }).then((rows) => setTrips(rows.map(mapTrip))).catch(() => setTrips([]));
   }, []);
 
   useEffect(() => {
     if (!user) return;
-    api.getBookings({ passengerId: user.id }).then((rows) => setBookingCount(rows.length)).catch(() => {});
+    api
+      .getBookings()
+      .then((rows) => setBookingCount(rows.filter((b) => ["Reserved", "Confirmed", "Boarded"].includes(b.status) && !["Completed", "Cancelled"].includes(b.trip_status)).length))
+      .catch(() => {});
   }, [user]);
 
   const today = new Date();
@@ -37,8 +41,8 @@ export default function PassengerHome() {
 
   const stats = [
     { label: "Routes", value: routes.length || null },
-    { label: "Trips Today", value: trips.filter((t) => isSameDay(t.departureIso, todayIso)).length || null },
-    { label: "My Bookings", value: bookingCount },
+    { label: "Departures Today", value: trips.filter((t) => isSameDay(t.departureIso, todayIso)).length },
+    { label: "Upcoming Trips", value: bookingCount },
   ];
 
   // "Popular" here just means the first few distinct routes on record —
@@ -61,6 +65,8 @@ export default function PassengerHome() {
           Welcome, {user?.name ?? "Passenger"}
         </h1>
       </header>
+
+      <RideModeChooser onChoose={(path) => navigate(path)} />
 
       <div className="space-y-6 lg:grid lg:grid-cols-[340px_1fr] lg:gap-8 lg:space-y-0 lg:items-start">
         <TripSearchPanel onSearch={handleSearch} />
@@ -116,5 +122,48 @@ export default function PassengerHome() {
         </div>
       </div>
     </div>
+  );
+}
+
+// The fork between the two ride modes, shown first on Home so the
+// passenger picks based on where they are right now, before seeing any
+// search form. The search panel below this is the Book Ahead search —
+// it isn't reused for Flag a Bus, which filters by live position instead.
+const RIDE_MODES = [
+  {
+    path: "/passenger/trips",
+    icon: CalendarClock,
+    title: "Book Ahead",
+    description: "Leaving from the terminal? Reserve a seat on a scheduled trip.",
+  },
+  {
+    path: "/passenger/flag",
+    icon: Hand,
+    title: "Flag a Bus Nearby",
+    description: "Already on the roadside? Hail a bus that's on its way to you.",
+  },
+];
+
+function RideModeChooser({ onChoose }) {
+  return (
+    <section aria-label="How are you riding today?" className="grid gap-3 sm:grid-cols-2 mb-6">
+      {RIDE_MODES.map(({ path, icon: Icon, title, description }) => (
+        <button
+          key={path}
+          type="button"
+          onClick={() => onChoose(path)}
+          className="flex items-center gap-4 text-left rounded-2xl bg-white border border-slate-100 p-4 shadow-sm hover:border-brand-green-500/50 hover:shadow-md transition"
+        >
+          <span className="w-11 h-11 shrink-0 rounded-xl bg-brand-forest-900 flex items-center justify-center">
+            <Icon className="w-5 h-5 text-brand-sunrise-400" />
+          </span>
+          <span className="flex-1 min-w-0">
+            <span className="block font-display font-semibold">{title}</span>
+            <span className="block text-xs text-ink-600 mt-0.5">{description}</span>
+          </span>
+          <ChevronRight className="w-4 h-4 text-ink-600 shrink-0" />
+        </button>
+      ))}
+    </section>
   );
 }

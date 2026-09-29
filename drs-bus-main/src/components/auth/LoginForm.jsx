@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useAuth } from "../../context/AuthContext";
+import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useAuth, AUTH_NOTICE_KEY } from "../../context/AuthContext";
 import * as api from "../../lib/api";
 
 export default function LoginForm({
@@ -9,7 +9,17 @@ export default function LoginForm({
   showSignUp = false,
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { signIn } = useAuth();
+  // Set by RequireRole when it bounced the user here ("Please log in to
+  // continue" / "Your session has expired"); `from` is where to go back to.
+  const notice = location.state?.notice ?? "";
+  const returnTo = location.state?.from;
+  // The notice now lives in router state; drop the stored copy so it isn't
+  // shown again on some later, unrelated redirect.
+  useEffect(() => {
+    sessionStorage.removeItem(AUTH_NOTICE_KEY);
+  }, []);
 
   const [mode, setMode] = useState("login"); // "login" | "signup"
   const [name, setName] = useState("");
@@ -38,7 +48,9 @@ export default function LoginForm({
       }
       const result = await api.login({ email, password, role });
       signIn(result);
-      navigate(redirectPath);
+      // Back to the page that asked for login, if it belongs to this role.
+      const rolePrefix = redirectPath.split("/")[1];
+      navigate(returnTo && returnTo.startsWith(`/${rolePrefix}/`) ? returnTo : redirectPath, { replace: true });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -48,6 +60,11 @@ export default function LoginForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4" aria-label={`${role} ${mode} form`}>
+      {notice && !error && (
+        <p role="status" className="text-sm font-medium text-brand-forest-900 bg-brand-sunrise-400/30 rounded-xl px-4 py-2.5">
+          {notice}
+        </p>
+      )}
       {mode === "signup" && (
         <Field label="Full Name">
           <input

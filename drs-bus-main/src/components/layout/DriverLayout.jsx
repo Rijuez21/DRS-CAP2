@@ -1,53 +1,26 @@
-// src/components/layout/DriverLayout.jsx
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { useAuth } from '../../context/AuthContext'
-import NotificationBell from '../common/NotificationBell'
+import { LayoutDashboard, Bus, CalendarDays, Users, ClipboardCheck, AlertTriangle, User } from "lucide-react";
+import RoleLayout from "./RoleLayout";
 
+// Drivers work from their phones, so the four things done every trip are
+// bottom tabs; the rest are one tap away in the menu.
 const links = [
-  { to: 'dashboard', label: 'Trip Dashboard' },
-  { to: 'assigned-bus', label: 'Assigned Bus' },   // NEW
-  { to: 'route-schedule', label: 'Route Schedule' },
-  { to: 'manifest', label: 'Manifest' },
-  { to: 'vehicle-checklist', label: 'Pre-Trip Checklist' },
-  { to: 'issue-reports', label: 'Issue Reports' },
-  { to: 'profile', label: 'Profile' },              // NEW
-]
+  { to: "dashboard", label: "My Trips", short: "Trips", icon: LayoutDashboard, tab: true },
+  { to: "manifest", label: "Passenger List", short: "Passengers", icon: Users, tab: true },
+  { to: "vehicle-checklist", label: "Pre-Trip Checklist", short: "Checklist", icon: ClipboardCheck, tab: true },
+  { to: "issue-reports", label: "Report an Issue", short: "Issues", icon: AlertTriangle, tab: true },
+  { to: "assigned-bus", label: "Assigned Bus", icon: Bus },
+  { to: "route-schedule", label: "Route Schedule", icon: CalendarDays },
+  { to: "profile", label: "Profile", icon: User },
+];
+
+const theme = {
+  sidebar: "bg-emerald-700",
+  activeLink: "bg-emerald-900 text-white",
+  idleLink: "text-white/85 hover:bg-emerald-600 hover:text-white",
+  muted: "text-emerald-200",
+  tabActive: "text-emerald-700",
+};
 
 export default function DriverLayout() {
-  const { user, signOut } = useAuth()
-  const navigate = useNavigate()
-
-  return (
-    <div className="flex min-h-screen">
-      <aside className="w-56 bg-emerald-700 text-white p-4 space-y-2 flex flex-col">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="font-bold text-lg">DRS Driver</h2>
-          <NotificationBell recipientType="driver" recipientId={user?.id} />
-        </div>
-        {links.map((l) => (
-          <NavLink
-            key={l.to}
-            to={l.to}
-            className={({ isActive }) =>
-              `block px-3 py-2 rounded ${isActive ? 'bg-emerald-900' : 'hover:bg-emerald-600'}`
-            }
-          >
-            {l.label}
-          </NavLink>
-        ))}
-        <div className="flex-1" />
-        {user && <p className="text-xs text-emerald-200 px-3">{user.name}</p>}
-        <button
-          type="button"
-          onClick={() => { signOut(); navigate('/') }}
-          className="text-left px-3 py-2 rounded hover:bg-emerald-600 text-sm"
-        >
-          Log Out
-        </button>
-      </aside>
-      <main className="flex-1 bg-gray-50">
-        <Outlet />
-      </main>
-    </div>
-  )
+  return <RoleLayout title="DRS Driver" links={links} theme={theme} bell="driver" />;
 }

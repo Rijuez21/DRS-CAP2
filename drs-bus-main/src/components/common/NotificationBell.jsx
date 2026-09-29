@@ -20,16 +20,26 @@ export default function NotificationBell({ recipientType, recipientId }) {
     api.getNotifications(recipientType, recipientId).then(setNotifications).catch(() => {});
 
     const socket = getSocket();
-    socket.emit("subscribe:notifications", { recipientType, recipientId });
+    const join = () => socket.emit("subscribe:notifications", { recipientType, recipientId });
+    join();
 
     function handleNew(notification) {
       setNotifications((prev) => [notification, ...prev]);
     }
+    // A dropped connection (common on mountain roads) loses room membership
+    // on the server. Rejoin, and refetch anything sent while offline —
+    // before, the bell simply went quiet until the page was reloaded.
+    function handleReconnect() {
+      join();
+      api.getNotifications(recipientType, recipientId).then(setNotifications).catch(() => {});
+    }
     socket.on("notification:new", handleNew);
+    socket.on("connect", handleReconnect);
 
     return () => {
       socket.emit("unsubscribe:notifications", { recipientType, recipientId });
       socket.off("notification:new", handleNew);
+      socket.off("connect", handleReconnect);
     };
   }, [recipientType, recipientId]);
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import StatusBadge from "../../components/common/StatusBadge";
 import { useAuth } from "../../context/AuthContext";
 import * as api from "../../lib/api";
 import { formatDate } from "../../lib/format";
@@ -14,11 +15,12 @@ export default function IssueReports() {
   const [description, setDescription] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   function reload() {
     if (!user) return;
     api.getTrips({ driverId: user.id }).then(setTrips).catch(() => {});
-    api.getIssues(user.id).then(setIssues).catch(() => {});
+    api.getIssues().then(setIssues).catch((err) => setError(err.message));
   }
 
   useEffect(reload, [user]);
@@ -26,26 +28,23 @@ export default function IssueReports() {
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
+    setSuccess("");
     const selectedTrip = trips.find((t) => String(t.trip_id) === tripId);
     if (!selectedTrip) {
       setError("Select the trip this issue relates to.");
       return;
     }
-    if (!description) {
+    if (!description.trim()) {
       setError("Describe the issue.");
       return;
     }
 
     setIsSubmitting(true);
     try {
-      await api.submitIssue({
-        tripId: selectedTrip.trip_id,
-        busId: selectedTrip.bus_id,
-        driverId: user.id,
-        category,
-        description,
-      });
+      // Bus and driver are taken from the trip on the server.
+      await api.submitIssue({ tripId: selectedTrip.trip_id, category, description: description.trim() });
       setDescription("");
+      setSuccess("Report sent. The operations team can see it now — its status updates below.");
       reload();
     } catch (err) {
       setError(err.message);
@@ -95,7 +94,8 @@ export default function IssueReports() {
           rows={4}
         />
 
-        {error && <p className="text-sm text-rose-600 font-medium">{error}</p>}
+        {error && <p role="alert" className="text-sm text-rose-600 font-medium">{error}</p>}
+        {success && <p role="status" className="text-sm text-emerald-700 font-medium">{success}</p>}
 
         <button
           type="submit"
@@ -118,9 +118,7 @@ export default function IssueReports() {
                   <p className="font-medium text-sm">
                     {i.category[0].toUpperCase() + i.category.slice(1)} · {i.plate_num}
                   </p>
-                  <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
-                    {i.status}
-                  </span>
+                  <StatusBadge status={i.status} />
                 </div>
                 <p className="text-sm text-gray-600 mt-1">{i.description}</p>
                 <p className="text-xs text-gray-400 mt-1">{formatDate(i.reported_at)}</p>

@@ -11,7 +11,6 @@ export default function AssignedBus() {
 
   useEffect(() => {
     if (!user) return;
-    setLoading(true);
     api
       .getTrips({ driverId: user.id })
       .then(setTrips)

@@ -6,11 +6,12 @@ const SEATS_PER_ROW = 4; // 2 seats · aisle · 2 seats
 /**
  * Visual, clickable bus seat map.
  *
- * totalSeats drives the layout only — it's bus capacity, not booking
- * data, so a sensible default (52, standard coach) keeps this usable
- * before the backend is wired up.
+ * totalSeats: the bus's real capacity (seats are numbered 1..totalSeats,
+ * the same ids the booking API validates). Callers render this only once
+ * the trip has loaded — it never shows a placeholder bus.
  *
- * occupiedSeatIds: TODO — populate from GET /api/trips/:id/seats
+ * occupiedSeatIds: from GET /api/trips/:id/seats (TripDetail refreshes it
+ * every 30s and after a seat conflict; WalkInSales after every sale).
  */
 export default function SeatMap({
   totalSeats = 52,

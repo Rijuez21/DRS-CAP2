@@ -11,7 +11,6 @@ export default function DriverProfile() {
 
   useEffect(() => {
     if (!user) return;
-    setLoading(true);
     api
       .getDriver(user.id)
       .then(setDriver)

@@ -19,7 +19,12 @@ export async function ingestLocation(io, { busId, latitude, longitude, timestamp
   const [result] = await pool.query(
     `INSERT INTO location_tracking (bus_id, latitude, longitude, timestamp, sync_status)
      VALUES (?, ?, ?, ?, ?)`,
-    [busId, latitude, longitude, timestamp, syncStatus]
+    // Pass a Date, not the raw string: useDriverLocation sends ISO-8601
+    // with a trailing "Z" (new Date().toISOString()), which MySQL/MariaDB
+    // DATETIME can reject in strict mode ("Incorrect datetime value") —
+    // that 500s every GPS point and leaves the Flag a Bus map empty.
+    // mysql2 serializes a Date into a proper DATETIME literal.
+    [busId, latitude, longitude, new Date(timestamp), syncStatus]
   );
 
   const point = { tracking_id: result.insertId, busId, latitude, longitude, timestamp, syncStatus };

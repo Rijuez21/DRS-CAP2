@@ -1,9 +1,29 @@
 import jwt from "jsonwebtoken";
 
-// Falls back to a dev secret so `npm run dev` still works without an env
-// var set locally, same spirit as the Redis/MySQL connection fallbacks —
-// set a real JWT_SECRET in production (.env / Railway variables).
-export const JWT_SECRET = process.env.JWT_SECRET || "drs-bus-dev-secret";
+import "dotenv/config";
+
+// Signs every login token. The fallback below is in the public source code,
+// so a server using it lets anyone forge a token — including an admin one.
+// Local development may use it (with a warning); a deployed server refuses
+// to start until JWT_SECRET is set (Railway -> server service -> Variables).
+const DEV_FALLBACK_SECRET = "drs-bus-dev-secret";
+const isDeployed = process.env.NODE_ENV === "production" || Boolean(process.env.RAILWAY_ENVIRONMENT_NAME || process.env.RAILWAY_ENVIRONMENT);
+const configured = process.env.JWT_SECRET?.trim();
+
+if (!configured || configured === DEV_FALLBACK_SECRET) {
+  if (isDeployed) {
+    console.error(
+      "FATAL: JWT_SECRET is not set. Add a long random value in Railway -> server service -> Variables, then redeploy.\n" +
+        "Generate one with: node -e \"console.log(require('crypto').randomBytes(48).toString('hex'))\""
+    );
+    process.exit(1);
+  }
+  console.warn("WARNING: JWT_SECRET is not set — using the insecure development secret. Set JWT_SECRET in server/.env.");
+} else if (configured.length < 32) {
+  console.warn("WARNING: JWT_SECRET is short. Use at least 32 random characters.");
+}
+
+export const JWT_SECRET = configured || DEV_FALLBACK_SECRET;
 
 // Verifies the `Authorization: Bearer <token>` header and attaches the
 // decoded { id, role } payload to req.user. Standalone "must be logged in"

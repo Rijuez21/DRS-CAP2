@@ -18,9 +18,7 @@ export default function RouteSchedule() {
       <header>
         <h1 className="text-xl font-bold">Route Schedule</h1>
         <p className="text-sm text-gray-500">
-          Your assigned stops in departure order. (The current schema tracks
-          origin/destination per trip rather than intermediate stops, so this
-          is trip-level rather than stop-by-stop.)
+          All your assigned trips, earliest first.
         </p>
       </header>
 

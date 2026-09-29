@@ -81,11 +81,12 @@ export default function FleetTracking() {
   // 2. Subscribe to the single "fleet" room instead of one room per bus.
   useEffect(() => {
     const socket = getSocket();
-    socket.emit("subscribe:fleet");
+    const join = () => socket.emit("subscribe:fleet");
+    join();
 
     function handleUpdate(point) {
       setBuses((prev) => {
-        const idx = prev.findIndex((b) => b.busId === point.busId);
+        const idx = prev.findIndex((b) => Number(b.busId) === Number(point.busId));
         if (idx === -1) return prev; // point for a bus not in the active-fleet snapshot (e.g. now Idle) — ignore
         const next = [...prev];
         next[idx] = {
@@ -99,10 +100,12 @@ export default function FleetTracking() {
       });
     }
     socket.on("location:update", handleUpdate);
+    socket.on("connect", join); // rooms are lost when the connection drops — rejoin
 
     return () => {
       socket.emit("unsubscribe:fleet");
       socket.off("location:update", handleUpdate);
+      socket.off("connect", join);
     };
   }, []);
 
@@ -138,10 +141,11 @@ export default function FleetTracking() {
   }, [buses]);
 
   useEffect(() => {
+    const markers = markersRef.current; // same Map for the component's lifetime
     return () => {
       mapRef.current?.remove();
       mapRef.current = null;
-      markersRef.current.clear();
+      markers.clear();
     };
   }, []);
 

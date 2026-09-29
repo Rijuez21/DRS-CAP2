@@ -6,10 +6,14 @@ import { logAudit } from "../services/audit.js";
 export const busesRouter = Router();
 
 // GET /api/buses — powers admin/FleetManagement.jsx
-busesRouter.get("/", async (req, res) => {
+busesRouter.get("/", requireRole("admin"), async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT bus_id, plate_num, capacity, type, year_model, status FROM buses ORDER BY plate_num`
+      `SELECT b.bus_id, b.bus_number, b.plate_num, b.capacity, b.type, b.year_model, b.status,
+              b.current_driver_id, b.boarding_point, d.name AS driver_name
+       FROM buses b
+       LEFT JOIN drivers d ON d.driver_id = b.current_driver_id
+       ORDER BY b.bus_number IS NULL, b.bus_number, b.plate_num`
     );
     res.json(rows);
   } catch (err) {
@@ -20,43 +24,57 @@ busesRouter.get("/", async (req, res) => {
 
 // POST /api/buses — admin adds a bus to the fleet
 busesRouter.post("/", requireRole("admin"), async (req, res) => {
-  const { plateNum, capacity, type, yearModel } = req.body;
-  if (!plateNum || !capacity || !type) {
-    return res.status(400).json({ error: "plateNum, capacity and type are required" });
+  const { busNumber, plateNum, capacity, type, yearModel, currentDriverId, boardingPoint } = req.body;
+  if (!plateNum) {
+    return res.status(400).json({ error: "plateNum is required" });
   }
 
   try {
     const [result] = await pool.query(
-      `INSERT INTO buses (plate_num, capacity, type, year_model) VALUES (?, ?, ?, ?)`,
-      [plateNum, capacity, type, yearModel ?? null]
+      `INSERT INTO buses (bus_number, plate_num, capacity, type, year_model, current_driver_id, boarding_point)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [busNumber ?? null, plateNum, capacity ?? null, type ?? null, yearModel ?? null, currentDriverId ?? null, boardingPoint ?? null]
     );
     await logAudit({
       staffId: req.user.id,
       action: "create",
       entityType: "bus",
       entityId: result.insertId,
-      details: { plateNum, capacity, type, yearModel },
+      details: { busNumber, plateNum, capacity, type, yearModel, currentDriverId, boardingPoint },
     });
-    res.status(201).json({ bus_id: result.insertId, plateNum, capacity, type, yearModel, status: "Active" });
+    res.status(201).json({
+      bus_id: result.insertId,
+      busNumber,
+      plateNum,
+      capacity,
+      type,
+      yearModel,
+      status: "Active",
+      currentDriverId,
+      boardingPoint,
+    });
   } catch (err) {
     if (err.code === "ER_DUP_ENTRY") {
-      return res.status(409).json({ error: "A bus with that plate number already exists" });
+      return res.status(409).json({ error: "A bus with that plate number or bus number already exists" });
     }
     console.error(err);
     res.status(500).json({ error: "Failed to add bus" });
   }
 });
 
-// PATCH /api/buses/:id — admin edits plate/capacity/type/year (Fleet
-// Management's edit action, Table 4)
+// PATCH /api/buses/:id — admin edits plate/capacity/type/year/driver/etc.
+// (Fleet Management's edit action, Table 4)
 busesRouter.patch("/:id", requireRole("admin"), async (req, res) => {
-  const { plateNum, capacity, type, yearModel } = req.body;
+  const { busNumber, plateNum, capacity, type, yearModel, currentDriverId, boardingPoint } = req.body;
   const fields = [];
   const params = [];
+  if (busNumber !== undefined) { fields.push("bus_number = ?"); params.push(busNumber); }
   if (plateNum !== undefined) { fields.push("plate_num = ?"); params.push(plateNum); }
   if (capacity !== undefined) { fields.push("capacity = ?"); params.push(capacity); }
   if (type !== undefined) { fields.push("type = ?"); params.push(type); }
   if (yearModel !== undefined) { fields.push("year_model = ?"); params.push(yearModel); }
+  if (currentDriverId !== undefined) { fields.push("current_driver_id = ?"); params.push(currentDriverId); }
+  if (boardingPoint !== undefined) { fields.push("boarding_point = ?"); params.push(boardingPoint); }
 
   if (fields.length === 0) return res.status(400).json({ error: "No editable fields provided" });
 
@@ -68,7 +86,7 @@ busesRouter.patch("/:id", requireRole("admin"), async (req, res) => {
     res.json({ bus_id: Number(req.params.id), ...req.body });
   } catch (err) {
     if (err.code === "ER_DUP_ENTRY") {
-      return res.status(409).json({ error: "A bus with that plate number already exists" });
+      return res.status(409).json({ error: "A bus with that plate number or bus number already exists" });
     }
     console.error(err);
     res.status(500).json({ error: "Failed to update bus" });
@@ -119,7 +137,7 @@ busesRouter.patch("/:id/status", requireRole("admin"), async (req, res) => {
 export const maintenanceRouter = Router();
 
 // GET /api/maintenance — powers admin/MaintenanceTracking.jsx
-maintenanceRouter.get("/", async (req, res) => {
+maintenanceRouter.get("/", requireRole("admin"), async (req, res) => {
   try {
     const [rows] = await pool.query(
       `SELECT m.maintenance_id, m.service_type, m.date, m.cost, m.mechanic_notes,
