@@ -5,8 +5,10 @@ import { logAudit } from "../services/audit.js";
 
 export const busesRouter = Router();
 
-// GET /api/buses — powers admin/FleetManagement.jsx
-busesRouter.get("/", requireRole("admin"), async (req, res) => {
+// GET /api/buses — powers admin/FleetManagement.jsx, plus the bus picker in
+// TripScheduling.jsx, which terminal staff also use (read-only for them —
+// every write below stays admin-only).
+busesRouter.get("/", requireRole("admin", "staff"), async (req, res) => {
   try {
     const [rows] = await pool.query(
       `SELECT b.bus_id, b.bus_number, b.plate_num, b.capacity, b.type, b.year_model, b.status,

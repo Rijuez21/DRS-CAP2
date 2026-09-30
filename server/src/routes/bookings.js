@@ -9,6 +9,7 @@ import {
   whyStatusChangeNotAllowed,
 } from "../services/bookingRules.js";
 import { notifyRecipient } from "../services/notify.js";
+import { logAudit } from "../services/audit.js";
 
 export const bookingsRouter = Router();
 
@@ -43,6 +44,25 @@ export function attachBookingsIo(io) {
 
 const MAX_ONLINE_SEATS = 6; // same cap SeatMap.jsx shows passengers (maxSeats)
 const MAX_WALK_IN_SEATS = 10; // staff selling for a family/group at the counter
+const MAX_CASH_AMOUNT = 100000; // sanity cap on a typed "cash received" amount
+
+// Counter (cash) payment confirmation. Staff type how much cash the
+// passenger handed over; the server works out the fare itself and refuses
+// anything short of it, so a ticket is never issued on an underpayment.
+// Returns { cash } (a number) or { error }. Blank is allowed only when
+// `required` is false (older clients that don't send it yet).
+function parseCashReceived(value, { required }) {
+  if (value === undefined || value === null || value === "") {
+    return required ? { error: "Enter how much cash the passenger gave" } : { cash: null };
+  }
+  const cash = Number(value);
+  if (!Number.isFinite(cash) || cash < 0 || cash > MAX_CASH_AMOUNT) {
+    return { error: "Enter a valid cash amount" };
+  }
+  return { cash: Math.round(cash * 100) / 100 };
+}
+
+const peso = (n) => `₱${Number(n).toLocaleString("en-PH", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 
 // Columns every booking list returns. trip_status lets MyBookings tell a
 // passenger their trip was cancelled/finished instead of showing a
@@ -186,12 +206,17 @@ bookingsRouter.post("/", requireRole("passenger"), async (req, res) => {
 });
 
 // POST /api/bookings/walk-in — WalkInSales.jsx (terminal staff).
-// body: { tripId, passengerName, seatNumbers: [...] }. Same all-or-nothing
-// rule as online booking; walk-ins are paid at the counter, so Confirmed.
+// body: { tripId, passengerName, seatNumbers: [...], cashReceived }. Same
+// all-or-nothing rule as online booking; walk-ins are paid at the counter,
+// so Confirmed. cashReceived is the payment confirmation: the sale only
+// goes through if it covers the fare, and the amount + change are recorded
+// in the audit log so the counter's cash can be reconciled later.
 bookingsRouter.post("/walk-in", requireRole("staff", "admin"), async (req, res) => {
   const { tripId } = req.body;
   const passengerName = String(req.body.passengerName ?? "").trim().slice(0, 150);
   if (!tripId || !passengerName) return res.status(400).json({ error: "Choose a trip and enter the passenger's name" });
+  const payment = parseCashReceived(req.body.cashReceived, { required: false });
+  if (payment.error) return res.status(400).json({ error: payment.error });
 
   try {
     const trip = await loadTripForSale(pool, tripId);
@@ -200,6 +225,16 @@ bookingsRouter.post("/walk-in", requireRole("staff", "admin"), async (req, res) 
 
     const parsed = parseSeatRequest(req.body, trip.capacity, MAX_WALK_IN_SEATS);
     if (parsed.error) return res.status(400).json({ error: parsed.error });
+
+    const [[fareRow]] = await pool.query(
+      `SELECT rt.base_fare FROM trips tr JOIN routes rt ON rt.route_id = tr.route_id WHERE tr.trip_id = ?`,
+      [tripId]
+    );
+    const fare = fareRow?.base_fare != null ? Number(fareRow.base_fare) : null;
+    const total = fare != null ? fare * parsed.seats.length : null;
+    if (payment.cash != null && total != null && payment.cash < total) {
+      return res.status(400).json({ error: `Cash received (${peso(payment.cash)}) is less than the total fare (${peso(total)}). Nothing was sold.` });
+    }
 
     const passengerId = await getOrCreateWalkInPassengerId();
     const result = await insertSeatsAtomically(pool, {
@@ -211,11 +246,141 @@ bookingsRouter.post("/walk-in", requireRole("staff", "admin"), async (req, res) 
         conflictSeat: result.conflictSeat,
       });
     }
-    res.status(201).json({ tripId: Number(tripId), passengerName, bookings: result.created });
+    const change = payment.cash != null && total != null ? Math.round((payment.cash - total) * 100) / 100 : null;
+    await logAudit({
+      staffId: req.user.id,
+      action: "walk_in_sale",
+      entityType: "booking",
+      entityId: result.created[0]?.booking_id,
+      details: {
+        tripId: Number(tripId),
+        passengerName,
+        bookingIds: result.created.map((b) => b.booking_id),
+        seats: parsed.seats,
+        method: "cash",
+        total,
+        cashReceived: payment.cash,
+        change,
+      },
+    });
+    res.status(201).json({
+      tripId: Number(tripId),
+      passengerName,
+      bookings: result.created,
+      payment: { method: "cash", total, cashReceived: payment.cash, change },
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to create walk-in booking" });
   }
+});
+
+// POST /api/bookings/:id/counter-payment — ReservationValidation.jsx.
+// body: { cashReceived }. An online passenger who didn't pay by QR pays the
+// fare in cash at the terminal: staff confirm the cash, and the booking
+// moves Reserved -> Confirmed in the same step (the passenger is notified).
+// Refused while a QR payment for the booking is still waiting for review,
+// so nobody is charged twice — verify or reject that one first.
+bookingsRouter.post("/:id/counter-payment", requireRole("staff", "admin"), async (req, res) => {
+  const payment = parseCashReceived(req.body.cashReceived, { required: true });
+  if (payment.error) return res.status(400).json({ error: payment.error });
+
+  const conn = await pool.getConnection();
+  let booking;
+  let change;
+  try {
+    await conn.beginTransaction();
+    // FOR UPDATE: serializes against a passenger cancelling, or another
+    // staff member verifying a QR payment for the same booking.
+    [[booking]] = await conn.query(
+      `SELECT bk.booking_id, bk.passenger_id, bk.passenger_name, bk.status, bk.seat_number, bk.channel,
+              tr.trip_id, tr.status AS trip_status, tr.driver_id, rt.base_fare
+       FROM bookings bk
+       JOIN trips tr ON tr.trip_id = bk.trip_id
+       JOIN routes rt ON rt.route_id = tr.route_id
+       WHERE bk.booking_id = ?
+       FOR UPDATE`,
+      [req.params.id]
+    );
+    if (!booking) {
+      await conn.rollback();
+      return res.status(404).json({ error: "Booking not found" });
+    }
+    if (booking.status !== "Reserved") {
+      await conn.rollback();
+      return res.status(409).json({ error: `Booking #${booking.booking_id} is ${booking.status} — there's no payment to collect.` });
+    }
+    if (["Completed", "Cancelled"].includes(booking.trip_status)) {
+      await conn.rollback();
+      return res.status(409).json({ error: `This trip is ${booking.trip_status.toLowerCase()} — don't collect a fare for it.` });
+    }
+    const refusal = whyStatusChangeNotAllowed({ user: req.user, booking, trip: { status: booking.trip_status, driver_id: booking.driver_id }, next: "Confirmed" });
+    if (refusal) {
+      await conn.rollback();
+      return res.status(409).json({ error: refusal });
+    }
+    if (booking.base_fare == null) {
+      await conn.rollback();
+      return res.status(409).json({ error: "This route has no fare on file yet — set it in Route Management first." });
+    }
+    const fare = Number(booking.base_fare);
+    if (payment.cash < fare) {
+      await conn.rollback();
+      return res.status(400).json({ error: `Cash received (${peso(payment.cash)}) is less than the fare (${peso(fare)}).` });
+    }
+
+    const [[pendingQr]] = await conn.query(
+      `SELECT payment_id, reference_number FROM payments WHERE booking_id = ? AND status = 'Pending' LIMIT 1`,
+      [booking.booking_id]
+    );
+    if (pendingQr) {
+      await conn.rollback();
+      return res.status(409).json({
+        error: `An online payment (ref ${pendingQr.reference_number}) for this booking is still waiting for review. Verify or reject it in Online Payments first so the passenger isn't charged twice.`,
+      });
+    }
+
+    const [result] = await conn.query(
+      `UPDATE bookings SET status = 'Confirmed' WHERE booking_id = ? AND status = 'Reserved'`,
+      [booking.booking_id]
+    );
+    if (result.affectedRows === 0) {
+      await conn.rollback();
+      return res.status(409).json({ error: "This booking was just updated by someone else. Refresh to see its current status." });
+    }
+    await conn.commit();
+    booking.fare = fare;
+    change = Math.round((payment.cash - fare) * 100) / 100;
+  } catch (err) {
+    await conn.rollback().catch(() => {});
+    console.error(err);
+    return res.status(500).json({ error: "Failed to confirm the payment" });
+  } finally {
+    conn.release();
+  }
+
+  // Side effects only after the commit (both non-fatal).
+  await logAudit({
+    staffId: req.user.id,
+    action: "counter_payment",
+    entityType: "booking",
+    entityId: booking.booking_id,
+    details: { method: "cash", fare: booking.fare, cashReceived: payment.cash, change, seat: booking.seat_number },
+  });
+  if (booking.channel === "online") {
+    await notifyRecipient(
+      bookingsIo,
+      { type: "passenger", id: booking.passenger_id },
+      `Payment of ${peso(booking.fare)} received at the terminal — booking #${booking.booking_id} (seat ${booking.seat_number}) is confirmed.`,
+      "payment_verified"
+    );
+  }
+
+  res.json({
+    booking_id: booking.booking_id,
+    status: "Confirmed",
+    payment: { method: "cash", fare: booking.fare, cashReceived: payment.cash, change },
+  });
 });
 
 // PATCH /api/bookings/:id/status — passenger cancel (BookingDetails), driver

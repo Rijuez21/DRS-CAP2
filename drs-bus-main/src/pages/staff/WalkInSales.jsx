@@ -2,10 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { Ticket, Printer } from "lucide-react";
 import SeatMap from "../../components/passenger/SeatMap";
 import InlineAlert from "../../components/common/InlineAlert";
+import CashPaymentModal from "../../components/staff/CashPaymentModal";
 import * as api from "../../lib/api";
 import { mapTrip, formatDate, formatTime } from "../../lib/format";
+import { formatPeso } from "../../lib/image";
 
-// Terminal counter sale: trip -> seats -> name -> sell. Only trips a seat
+// Terminal counter sale: trip -> seats -> name -> confirm payment -> sell.
+// The payment step asks for the cash received and shows the change; the
+// ticket is only issued once that's confirmed (and covers the fare). Only trips a seat
 // can still be sold on are offered (the old dropdown listed Completed and
 // Cancelled trips too), and a multi-seat sale is all-or-nothing — before,
 // seat 3 failing left seats 1–2 sold with only an error on screen.
@@ -20,6 +24,8 @@ export default function WalkInSales() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [receipt, setReceipt] = useState(null);
   const [error, setError] = useState("");
+  const [paying, setPaying] = useState(false); // payment confirmation dialog open
+  const [payError, setPayError] = useState("");
 
   const loadTrips = useCallback(() => {
     api
@@ -59,28 +65,55 @@ export default function WalkInSales() {
     setSelectedSeatIds((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]));
   }
 
-  async function handleSell() {
+  // Step 4: check the form, then open the payment confirmation.
+  function handleSell() {
     setError("");
     if (!passengerName.trim()) {
       setError("Enter the passenger's name.");
       return;
     }
     if (selectedSeatIds.length === 0) return;
+    if (trip.fare == null) {
+      setError("This route has no fare on file yet, so the payment can't be confirmed. Ask an admin to set it in Route Management.");
+      return;
+    }
+    setPayError("");
+    setPaying(true);
+  }
+
+  // Payment confirmed in the dialog -> actually sell.
+  async function confirmPaymentAndSell(cashReceived) {
     setIsSubmitting(true);
+    setPayError("");
     try {
       const result = await api.createWalkInBooking({
         tripId: Number(tripId),
         passengerName: passengerName.trim(),
         seatNumbers: selectedSeatIds.map(String),
+        cashReceived,
       });
-      setReceipt({ ...result, trip, total: trip.fare != null ? trip.fare * result.bookings.length : null });
+      const total = result.payment?.total ?? (trip.fare != null ? trip.fare * result.bookings.length : null);
+      setReceipt({
+        ...result,
+        trip,
+        total,
+        cashReceived: result.payment?.cashReceived ?? cashReceived,
+        change: result.payment?.change ?? (total != null ? cashReceived - total : null),
+      });
+      setPaying(false);
       setPassengerName("");
       setSelectedSeatIds([]);
       refreshSeats(tripId).catch(() => {});
       loadTrips(); // seats-left in the dropdown
     } catch (err) {
-      setError(err.message);
-      if (err.status === 409) refreshSeats(tripId).catch(() => {});
+      if (err.status === 409) {
+        // A seat was just sold elsewhere: close the dialog so staff can re-pick.
+        setPaying(false);
+        setError(err.message);
+        refreshSeats(tripId).catch(() => {});
+      } else {
+        setPayError(err.message);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -92,7 +125,7 @@ export default function WalkInSales() {
     <div className="p-4 lg:p-6 space-y-4 max-w-5xl">
       <header>
         <h1 className="text-xl font-bold">Walk-in Sales</h1>
-        <p className="text-sm text-gray-500">Sell a seat to a passenger at the counter. Walk-in tickets are confirmed immediately.</p>
+        <p className="text-sm text-gray-500">Sell a seat to a passenger at the counter. Confirm the cash payment and the ticket is issued immediately.</p>
       </header>
 
       <InlineAlert type="error" message={tripsError} onDismiss={() => setTripsError("")} />
@@ -123,8 +156,13 @@ export default function WalkInSales() {
           </p>
           <p className="text-sm text-emerald-900">
             {receipt.bookings.map((b) => `Seat ${b.seat_number} (#${b.booking_id})`).join(" · ")}
-            {receipt.total != null && ` · Collect ₱${receipt.total}`}
           </p>
+          {receipt.total != null && (
+            <p className="text-sm text-emerald-900 font-medium">
+              Paid in cash: {formatPeso(receipt.total)}
+              {receipt.cashReceived != null && ` · Received ${formatPeso(receipt.cashReceived)} · Change ${formatPeso(receipt.change ?? 0)}`}
+            </p>
+          )}
           <button type="button" onClick={() => window.print()} className="text-xs font-semibold text-emerald-800 underline inline-flex items-center gap-1">
             <Printer className="w-3.5 h-3.5" /> Print receipt
           </button>
@@ -155,10 +193,33 @@ export default function WalkInSales() {
               disabled={count === 0 || isSubmitting}
               className="w-full bg-amber-700 hover:bg-amber-600 disabled:bg-gray-200 disabled:text-gray-400 text-white font-semibold rounded-lg py-2.5"
             >
-              {isSubmitting ? "Selling…" : count === 0 ? "Select a seat" : `Sell ${count} ticket${count === 1 ? "" : "s"}`}
+              {count === 0 ? "Select a seat" : `Collect payment · ${count} ticket${count === 1 ? "" : "s"}`}
             </button>
           </div>
         </div>
+      )}
+
+      {paying && trip && (
+        <CashPaymentModal
+          title="Confirm payment"
+          summary={
+            <>
+              <p className="font-medium text-gray-900">{passengerName.trim()}</p>
+              <p>
+                {trip.origin} → {trip.destination} · {trip.departureTime}
+              </p>
+              <p>
+                {count} seat{count === 1 ? "" : "s"} ({[...selectedSeatIds].sort((a, b) => a - b).join(", ")}) × {formatPeso(trip.fare)}
+              </p>
+            </>
+          }
+          amountDue={trip.fare * count}
+          confirmLabel={`Confirm payment & sell`}
+          isSaving={isSubmitting}
+          error={payError}
+          onConfirm={confirmPaymentAndSell}
+          onClose={() => setPaying(false)}
+        />
       )}
     </div>
   );

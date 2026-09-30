@@ -5,6 +5,7 @@ import EmptyState from "../../components/common/EmptyState";
 import InlineAlert from "../../components/common/InlineAlert";
 import Modal from "../../components/admin/Modal";
 import StatusBadge from "../../components/common/StatusBadge";
+import { useAuth } from "../../context/AuthContext";
 import { formatDate, formatTime } from "../../lib/format";
 
 const emptyForm = { busId: "", driverId: "", routeId: "", departureTime: "", arrivalTime: "" };
@@ -29,7 +30,15 @@ function toMysqlDatetime(localValue) {
 
 // Table 4's Trip Scheduling: assign bus + driver + route + times, with
 // server-side overlap-conflict prevention surfaced right in the form.
+// Shared by admin (/admin/trips) and terminal staff (/staff/trips): staff
+// can add and edit Scheduled trips; cancelling a trip stays admin-only
+// (it cancels every booking on it), so staff don't see that button.
 export default function AdminTripScheduling() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const accent = isAdmin
+    ? "bg-emerald-700 hover:bg-emerald-600"
+    : "bg-amber-700 hover:bg-amber-600";
   const [trips, setTrips] = useState([]);
   const [buses, setBuses] = useState([]);
   const [drivers, setDrivers] = useState([]);
@@ -125,14 +134,16 @@ export default function AdminTripScheduling() {
   }
 
   return (
-    <div className="p-6 space-y-4">
-      <header className="flex items-center justify-between">
+    <div className="p-4 sm:p-6 space-y-4">
+      <header className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold">Trip Scheduling</h1>
-          <p className="text-sm text-gray-500">Assign a bus, driver, and route to a departure time.</p>
+          <p className="text-sm text-gray-500">
+            {isAdmin ? "Assign a bus, driver, and route to a departure time." : "Add a departure: pick the route, bus, driver, and times. New trips open for booking right away."}
+          </p>
         </div>
-        <button type="button" onClick={() => { setEditingId(null); setForm(emptyForm); setFormError(""); setShowForm(true); }} className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-semibold px-3 py-2 rounded">
-          <Plus className="w-4 h-4" /> Schedule Trip
+        <button type="button" onClick={() => { setEditingId(null); setForm(emptyForm); setFormError(""); setShowForm(true); }} className={`flex items-center gap-1.5 ${accent} text-white text-sm font-semibold px-3 py-2 rounded shrink-0`}>
+          <Plus className="w-4 h-4" /> {isAdmin ? "Schedule Trip" : "Add Schedule"}
         </button>
       </header>
 
@@ -175,7 +186,7 @@ export default function AdminTripScheduling() {
                     {t.status === "Scheduled" && (
                       <button type="button" onClick={() => openEdit(t)} className="text-xs font-semibold text-emerald-700 hover:underline">Edit</button>
                     )}
-                    {(t.status === "Scheduled" || t.status === "Boarding") && (
+                    {isAdmin && (t.status === "Scheduled" || t.status === "Boarding") && (
                       <button type="button" onClick={() => handleCancelTrip(t)} disabled={busyTripId === t.trip_id} className="text-xs font-semibold text-rose-600 hover:underline disabled:opacity-50">
                         {busyTripId === t.trip_id ? "Cancelling…" : "Cancel"}
                       </button>
@@ -190,12 +201,12 @@ export default function AdminTripScheduling() {
 
       {showForm && (
         <Modal
-          title={editingId ? "Edit Trip" : "Schedule Trip"}
+          title={editingId ? "Edit Trip" : isAdmin ? "Schedule Trip" : "Add Schedule"}
           onClose={() => setShowForm(false)}
           footer={
             <>
               <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">Cancel</button>
-              <button type="submit" form="trip-form" disabled={isSaving} className="px-4 py-2 text-sm font-semibold text-white bg-emerald-700 hover:bg-emerald-600 disabled:opacity-60 rounded">
+              <button type="submit" form="trip-form" disabled={isSaving} className={`px-4 py-2 text-sm font-semibold text-white ${accent} disabled:opacity-60 rounded`}>
                 {isSaving ? "Checking availability…" : editingId ? "Save changes" : "Schedule"}
               </button>
             </>

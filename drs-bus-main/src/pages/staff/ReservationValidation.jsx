@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Search } from "lucide-react";
 import StatusBadge from "../../components/common/StatusBadge";
 import InlineAlert from "../../components/common/InlineAlert";
+import CashPaymentModal from "../../components/staff/CashPaymentModal";
 import * as api from "../../lib/api";
 import { formatDate, formatTime } from "../../lib/format";
 import { formatPeso } from "../../lib/image";
@@ -13,8 +14,10 @@ const CHANNEL_LABEL = { online: "Online", walk_in: "Walk-in", flagged: "Flagged 
 // whyStatusChangeNotAllowed for staff (bookingRules.js), so every button
 // shown will actually work.
 const ACTIONS = {
+  // "Confirmed" from Reserved goes through the payment confirmation dialog
+  // (cash collected at the counter) instead of a bare status change.
   Reserved: [
-    { to: "Confirmed", label: "Confirm seat", tone: "primary" },
+    { to: "Confirmed", label: "Collect fare & confirm", tone: "primary", payment: true },
     { to: "Boarded", label: "Check in (boarded)", tone: "primary" },
     { to: "Cancelled", label: "Cancel booking", tone: "danger" },
   ],
@@ -36,6 +39,32 @@ export default function ReservationValidation() {
   const [success, setSuccess] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [busyTo, setBusyTo] = useState(null);
+  // Online payment status, tagged with the booking/status it was loaded for
+  // so a stale answer is never shown for a different booking.
+  const [paymentState, setPaymentState] = useState({ key: null, info: undefined });
+  const [collecting, setCollecting] = useState(false); // cash payment dialog open
+  const [collectError, setCollectError] = useState("");
+  const [isCollecting, setIsCollecting] = useState(false);
+
+  // Online bookings may already have a QR payment on file — load it so the
+  // counter knows whether to collect the fare (and so "Collect fare" is
+  // hidden while a QR payment is still waiting for review).
+  const selectedId = selected?.booking_id;
+  const selectedChannel = selected?.channel;
+  const selectedStatus = selected?.status;
+  const paymentKey = selectedId && selectedChannel === "online" ? `${selectedId}-${selectedStatus}` : null;
+  const paymentInfo = paymentKey && paymentState.key === paymentKey ? paymentState.info : undefined; // undefined = loading / not applicable
+  useEffect(() => {
+    if (!paymentKey) return undefined;
+    let cancelled = false;
+    api
+      .getBookingPayment(selectedId)
+      .then((row) => !cancelled && setPaymentState({ key: paymentKey, info: row }))
+      .catch(() => !cancelled && setPaymentState({ key: paymentKey, info: null }));
+    return () => {
+      cancelled = true;
+    };
+  }, [paymentKey, selectedId]);
 
   async function handleSearch(e) {
     e.preventDefault();
@@ -76,8 +105,33 @@ export default function ReservationValidation() {
     }
   }
 
+  async function confirmCashPayment(cashReceived) {
+    setIsCollecting(true);
+    setCollectError("");
+    try {
+      const result = await api.confirmCounterPayment(selected.booking_id, cashReceived);
+      const updated = { ...selected, status: "Confirmed" };
+      setSelected(updated);
+      setResults((prev) => prev?.map((r) => (r.booking_id === updated.booking_id ? updated : r)) ?? prev);
+      const p = result.payment;
+      setSuccess(`Payment received — ${formatPeso(p.cashReceived)} cash, change ${formatPeso(p.change)}. Booking #${result.booking_id} is confirmed.`);
+      setCollecting(false);
+    } catch (err) {
+      setCollectError(err.message);
+    } finally {
+      setIsCollecting(false);
+    }
+  }
+
   const tripOver = selected && ["Completed", "Cancelled"].includes(selected.trip_status);
-  const actions = selected && !tripOver ? (ACTIONS[selected.status] ?? []) : [];
+  const qrPending = paymentInfo?.payment?.status === "Pending";
+  const fare = selected?.base_fare != null ? Number(selected.base_fare) : null;
+  // Hide "Collect fare" while a QR payment waits for review (verify that
+  // instead), while that status is still loading, or when the route has no
+  // fare to collect.
+  const actions = (selected && !tripOver ? (ACTIONS[selected.status] ?? []) : []).filter(
+    (a) => !a.payment || (fare != null && !qrPending && (selected.channel !== "online" || paymentInfo !== undefined))
+  );
 
   return (
     <div className="p-4 lg:p-6 space-y-4 max-w-2xl">
@@ -148,7 +202,10 @@ export default function ReservationValidation() {
             <div><dt className="text-xs text-gray-500">Channel</dt><dd className="font-medium">{CHANNEL_LABEL[selected.channel] ?? selected.channel}</dd></div>
             <div><dt className="text-xs text-gray-500">Trip status</dt><dd className="font-medium">{selected.trip_status}</dd></div>
           </dl>
-          {selected.channel === "online" && <OnlinePaymentStatus key={`${selected.booking_id}-${selected.status}`} bookingId={selected.booking_id} />}
+          {selected.channel === "online" && <OnlinePaymentStatus info={paymentInfo} />}
+          {selected.status === "Reserved" && !tripOver && fare == null && (
+            <p className="text-sm text-gray-600">This route has no fare on file, so the payment can't be recorded here.</p>
+          )}
           {tripOver && <p className="text-sm text-rose-600 font-medium">This trip is {selected.trip_status.toLowerCase()} — the booking can't be changed.</p>}
           {!tripOver && actions.length === 0 && <p className="text-sm text-gray-600">Nothing to do — this booking is {selected.status.toLowerCase()}.</p>}
           {actions.length > 0 && (
@@ -157,8 +214,16 @@ export default function ReservationValidation() {
                 <button
                   key={a.to}
                   type="button"
-                  onClick={() => (a.to === "Cancelled" && !window.confirm(`Cancel booking #${selected.booking_id}? The seat will be released.`) ? null : setStatus(a.to))}
-                  disabled={busyTo !== null}
+                  onClick={() => {
+                    if (a.payment) {
+                      setCollectError("");
+                      setCollecting(true);
+                      return;
+                    }
+                    if (a.to === "Cancelled" && !window.confirm(`Cancel booking #${selected.booking_id}? The seat will be released.`)) return;
+                    setStatus(a.to);
+                  }}
+                  disabled={busyTo !== null || isCollecting}
                   className={
                     a.tone === "danger"
                       ? "border border-rose-300 text-rose-600 hover:bg-rose-50 disabled:opacity-60 text-sm font-semibold px-4 py-2 rounded"
@@ -172,6 +237,28 @@ export default function ReservationValidation() {
           )}
         </div>
       )}
+
+      {collecting && selected && fare != null && (
+        <CashPaymentModal
+          title={`Collect fare · #${selected.booking_id}`}
+          summary={
+            <>
+              <p className="font-medium text-gray-900">{selected.passenger_name}</p>
+              <p>
+                {selected.origin} → {selected.destination} · Seat {selected.seat_number}
+              </p>
+              <p className="text-xs text-gray-500">Confirming the payment also confirms the seat, and the passenger is notified.</p>
+            </>
+          }
+          amountDue={fare}
+          note={paymentInfo?.payment?.status === "Rejected" ? "Their online payment was rejected — collect the full fare in cash." : undefined}
+          confirmLabel="Confirm payment"
+          isSaving={isCollecting}
+          error={collectError}
+          onConfirm={confirmCashPayment}
+          onClose={() => setCollecting(false)}
+        />
+      )}
     </div>
   );
 }
@@ -179,29 +266,18 @@ export default function ReservationValidation() {
 // Did this online passenger already pay by QR Ph? Tells the counter whether
 // to collect the fare, and points at the review queue when a payment is
 // still waiting (verifying it there confirms the booking automatically).
-function OnlinePaymentStatus({ bookingId }) {
-  const [info, setInfo] = useState(undefined);
-
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .getBookingPayment(bookingId)
-      .then((row) => {
-        if (!cancelled) setInfo(row);
-      })
-      .catch(() => {
-        if (!cancelled) setInfo(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [bookingId]);
-
+function OnlinePaymentStatus({ info }) {
   if (info === undefined) return <p className="text-sm text-gray-400">Checking online payment…</p>;
   if (info === null) return null;
   const p = info.payment;
   const box = "text-sm rounded-lg px-3 py-2";
-  if (!p) return <p className={`${box} bg-slate-50 text-gray-700`}>No online payment submitted — collect the fare at the counter.</p>;
+  if (!p) {
+    return (
+      <p className={`${box} bg-slate-50 text-gray-700`}>
+        {info.booking_status === "Reserved" ? "No online payment submitted — collect the fare at the counter." : "No online payment on file."}
+      </p>
+    );
+  }
   const ref = (
     <>
       {formatPeso(p.amount)}, ref <span className="font-mono">{p.reference_number}</span>

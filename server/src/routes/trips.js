@@ -149,11 +149,14 @@ export function buildTripsRouter(io) {
     }
   });
 
-  // POST /api/trips — powers admin/TripScheduling.jsx. Rejects with 409 if
+  // POST /api/trips — powers TripScheduling.jsx for both admin (/admin/trips)
+  // and terminal staff (/staff/trips), since staff add departures at the
+  // counter too. Rejects with 409 if
   // the bus or driver is already assigned to another (non-cancelled) trip
   // whose time window overlaps this one — Table 4's Trip Scheduling
   // explicitly requires conflict prevention, not just a same-timestamp check.
-  tripsRouter.post("/", requireRole("admin"), async (req, res) => {
+  // Cancelling a trip stays admin-only (PATCH /:id/status below).
+  tripsRouter.post("/", requireRole("admin", "staff"), async (req, res) => {
     const { busId, driverId, routeId, departureTime, arrivalTime } = req.body;
     if (!busId || !driverId || !routeId || !departureTime || !arrivalTime) {
       return res.status(400).json({ error: "busId, driverId, routeId, departureTime and arrivalTime are required" });
@@ -281,7 +284,7 @@ export function buildTripsRouter(io) {
   // departure/arrival time actually changes, notifies every passenger with
   // a live booking on it plus the assigned driver (Phase 0.3's Reliability
   // requirement) via notify.js.
-  tripsRouter.patch("/:id", requireRole("admin"), async (req, res) => {
+  tripsRouter.patch("/:id", requireRole("admin", "staff"), async (req, res) => {
     const { busId, driverId, routeId, departureTime, arrivalTime } = req.body;
 
     try {

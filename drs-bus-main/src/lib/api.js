@@ -92,8 +92,15 @@ export const updateTripStatus = (tripId, status) =>
 export const createBooking = ({ tripId, seatNumbers, passengerName }) =>
   request("/api/bookings", { method: "POST", body: { tripId, seatNumbers, passengerName } });
 
-export const createWalkInBooking = ({ tripId, passengerName, seatNumbers }) =>
-  request("/api/bookings/walk-in", { method: "POST", body: { tripId, passengerName, seatNumbers } });
+// cashReceived = the counter's payment confirmation; the server refuses a
+// sale when it doesn't cover the fare.
+export const createWalkInBooking = ({ tripId, passengerName, seatNumbers, cashReceived }) =>
+  request("/api/bookings/walk-in", { method: "POST", body: { tripId, passengerName, seatNumbers, cashReceived } });
+
+// Terminal staff collect the fare in cash for a Reserved online booking:
+// confirms the payment and the seat (Reserved -> Confirmed) in one step.
+export const confirmCounterPayment = (bookingId, cashReceived) =>
+  request(`/api/bookings/${bookingId}/counter-payment`, { method: "POST", body: { cashReceived } });
 
 export const getBookings = (params) => request("/api/bookings", { params });
 export const getBooking = (bookingId) => request(`/api/bookings/${bookingId}`);
@@ -182,7 +189,7 @@ export const createMaintenance = (payload) => request("/api/maintenance", { meth
 export const updateMaintenance = (maintenanceId, payload) =>
   request(`/api/maintenance/${maintenanceId}`, { method: "PATCH", body: payload });
 
-// ---- Trip scheduling (admin) -------------------------------------------------------------
+// ---- Trip scheduling (admin + terminal staff) -------------------------------------------------------------
 export const createTrip = (payload) => request("/api/trips", { method: "POST", body: payload });
 export const updateTrip = (tripId, payload) => request(`/api/trips/${tripId}`, { method: "PATCH", body: payload });
 export const getManifest = (tripId) => request(`/api/trips/${tripId}/manifest`);

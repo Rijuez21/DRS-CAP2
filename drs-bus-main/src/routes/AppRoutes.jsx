@@ -123,6 +123,7 @@ export default function AppRoutes() {
         <Route path="walk-in" element={<WalkInSales />} />
         <Route path="validate" element={<ReservationValidation />} />
         <Route path="payments" element={<PaymentReview />} />
+        <Route path="trips" element={<TripScheduling />} />            {/* staff can add/edit schedules; cancelling stays admin-only */}
       </Route>
 
       {/* Admin */}
