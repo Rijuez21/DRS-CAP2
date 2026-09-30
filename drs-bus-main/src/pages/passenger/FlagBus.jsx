@@ -11,6 +11,9 @@ import {
   XCircle,
   CalendarClock,
   WifiOff,
+  MapPin,
+  Crosshair,
+  Route as RouteIcon,
 } from "lucide-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -20,8 +23,10 @@ import { useAuth } from "../../context/AuthContext";
 import * as api from "../../lib/api";
 import { getSocket } from "../../lib/socket";
 import { useGeolocation } from "../../hooks/useGeolocation";
+import { useRoadRoute, etaRange } from "../../hooks/useRoadRoute";
 import LocationPermissionCard from "../../components/common/LocationPermissionCard";
 import { distanceKm, formatDistance, timeAgo } from "../../lib/geo";
+import { MANUAL_PIN_FLAG_KEY } from "../../lib/storageKeys";
 
 // Passenger Mode 2 — "Flag a Bus". For someone standing along the route
 // (not at the terminal) who wants to catch a bus that's already on the
@@ -52,6 +57,50 @@ const MAX_PICKUP_ACCURACY_M = 100;
 // passenger pacing at the roadside doesn't flood the driver with updates.
 const PIN_MOVE_THRESHOLD_KM = 0.02; // 20 m
 const PIN_UPDATE_MIN_INTERVAL_MS = 15000;
+
+// The passenger can also place the pickup pin by hand (tap the map, drag
+// the pin) — for when GPS puts them on the wrong side of the road, or a
+// laptop/indoor fix never gets under 100 m. The pin must stay inside the
+// area the device says they're in. Mirrors manualPinLimitMetres in
+// server/src/routes/bookings.js (the server enforces it).
+const MANUAL_PIN_MARGIN_M = 100;
+const MANUAL_PIN_MAX_DISTANCE_M = 5000;
+
+function manualPinLimitM(me) {
+  if (!me || me.accuracy == null) return 0;
+  return Math.min(Math.max(me.accuracy, MAX_PICKUP_ACCURACY_M) + MANUAL_PIN_MARGIN_M, MANUAL_PIN_MAX_DISTANCE_M);
+}
+
+// null = pin is fine (or there is no manual pin); otherwise how far off it is.
+function manualPinProblem(pin, me) {
+  if (!pin || !me) return null;
+  const offM = distanceKm(pin, me) * 1000;
+  const limitM = manualPinLimitM(me);
+  return offM > limitM ? { offM, limitM } : null;
+}
+
+const pinIcon = L.divIcon({
+  className: "",
+  html: `<div style="transform:translate(-50%,-100%);font-size:30px;line-height:1;filter:drop-shadow(0 2px 2px rgba(0,0,0,.45));cursor:grab">📍</div>`,
+  iconSize: [0, 0],
+});
+
+function readManualPinFlagId() {
+  try {
+    return Number(sessionStorage.getItem(MANUAL_PIN_FLAG_KEY)) || null;
+  } catch {
+    return null;
+  }
+}
+
+function writeManualPinFlagId(flagId) {
+  try {
+    if (flagId) sessionStorage.setItem(MANUAL_PIN_FLAG_KEY, String(flagId));
+    else sessionStorage.removeItem(MANUAL_PIN_FLAG_KEY);
+  } catch {
+    // storage unavailable (private mode) — the pin may follow GPS after a refresh
+  }
+}
 
 function isPreciseFix(me) {
   return Boolean(me) && me.accuracy != null && me.accuracy <= MAX_PICKUP_ACCURACY_M;
@@ -112,6 +161,9 @@ export default function FlagBus() {
 
   const [selectedTripId, setSelectedTripId] = useState(null);
   const [landmark, setLandmark] = useState("");
+  // A pickup point the passenger placed by hand ({ latitude, longitude }),
+  // or null to use the GPS fix as-is.
+  const [manualPin, setManualPin] = useState(null);
   const [flag, setFlag] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   // A clock held in state (ticked below) rather than Date.now() read during
@@ -123,6 +175,11 @@ export default function FlagBus() {
   const mapRef = useRef(null);
   const busMarkersRef = useRef(new Map()); // trip_id -> L.Marker
   const meMarkerRef = useRef(null);
+  const meAccuracyRef = useRef(null); // faint circle: how sure the GPS is
+  const pinMarkerRef = useRef(null);
+  const routeLayerRef = useRef(null); // road path from the tracked bus to the pickup pin
+  const lastFitKeyRef = useRef(null); // trip the map was last framed around
+  const canPinRef = useRef(true); // map taps place the pin only while no flag is open
   const hasFitRef = useRef(false);
   const meRef = useRef(null); // latest `me` for the socket handler, which is bound once per bus set
   const lastPinRef = useRef({ flagId: null, point: null, at: 0 }); // last pickup pin sent to the server
@@ -180,9 +237,12 @@ export default function FlagBus() {
   // The pickup point is always the phone's real, precise fix (your "exact
   // location" rule) — there is no typed-landmark substitute. Without it the
   // form shows LocationPermissionCard: why it's needed, and how to allow it.
+  // Distances and "getting closer" are measured from where the bus will
+  // actually stop: the hand-placed pin if there is one, else the GPS fix.
+  const pickup = manualPin ?? me;
   useEffect(() => {
-    meRef.current = me;
-  }, [me]);
+    meRef.current = pickup;
+  }, [pickup]);
 
   // ---- My flag request (restore + live updates) ------------------------
   const refreshMyFlag = useCallback(() => {
@@ -236,7 +296,16 @@ export default function FlagBus() {
   // momentary bad reading never replaces a good pin with a worse one.
   const openFlagId = isOpenFlag(flag) ? flag.flag_id : null;
   useEffect(() => {
+    canPinRef.current = !openFlagId;
+    if (pinMarkerRef.current) {
+      if (openFlagId) pinMarkerRef.current.dragging?.disable();
+      else pinMarkerRef.current.dragging?.enable();
+    }
+  }, [openFlagId]);
+  useEffect(() => {
     if (!openFlagId || !isPreciseFix(me)) return;
+    // A pin the passenger placed by hand stays exactly where they put it.
+    if (readManualPinFlagId() === openFlagId) return;
     const last = lastPinRef.current;
     if (last.flagId !== openFlagId) {
       // First look at this flag (just sent, or restored after a refresh):
@@ -311,12 +380,21 @@ export default function FlagBus() {
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "© OpenStreetMap contributors",
     }).addTo(mapRef.current);
+    // Tap anywhere to put the pickup pin exactly there. Bus markers don't
+    // pass their clicks through to the map, so tapping a bus still selects it.
+    mapRef.current.on("click", (e) => {
+      if (!canPinRef.current) return;
+      setManualPin({ latitude: e.latlng.lat, longitude: e.latlng.lng });
+    });
 
     const markers = busMarkersRef.current;
     return () => {
       mapRef.current?.remove();
       mapRef.current = null;
       meMarkerRef.current = null;
+      meAccuracyRef.current = null;
+      pinMarkerRef.current = null;
+      routeLayerRef.current = null;
       hasFitRef.current = false;
       markers.clear();
     };
@@ -325,6 +403,19 @@ export default function FlagBus() {
   useEffect(() => {
     if (!mapRef.current || !me) return;
     const latLng = [me.latitude, me.longitude];
+    if (!meAccuracyRef.current) {
+      meAccuracyRef.current = L.circle(latLng, {
+        radius: me.accuracy ?? 0,
+        color: "#2563eb",
+        weight: 1,
+        fillColor: "#2563eb",
+        fillOpacity: 0.08,
+        interactive: false, // taps inside it still place the pin
+      }).addTo(mapRef.current);
+    } else {
+      meAccuracyRef.current.setLatLng(latLng);
+      meAccuracyRef.current.setRadius(me.accuracy ?? 0);
+    }
     if (!meMarkerRef.current) {
       meMarkerRef.current = L.circleMarker(latLng, {
         radius: 8,
@@ -333,14 +424,90 @@ export default function FlagBus() {
         fillColor: "#2563eb",
         fillOpacity: 1,
       })
-        .bindTooltip("You — the bus stops here", { direction: "top", offset: [0, -8] })
+        .bindTooltip("Your GPS location", { direction: "top", offset: [0, -8] })
         .addTo(mapRef.current);
     } else {
       meMarkerRef.current.setLatLng(latLng);
     }
   }, [me]);
 
+  // Where the bus will stop. While a flag is open that's the point the
+  // server holds (it follows GPS unless the pin was placed by hand, and it
+  // survives a page refresh); before flagging it's the hand-placed pin, or
+  // the GPS fix when there isn't one.
+  const flagPickup =
+    isOpenFlag(flag) && flag.pickup_latitude != null ? toPoint(flag.pickup_latitude, flag.pickup_longitude) : null;
+  const pinPoint = flagPickup ?? manualPin; // shown as 📍 (the blue dot already marks plain GPS)
+  const routeTarget = flagPickup ?? pickup;
+  const pinLat = pinPoint?.latitude ?? null;
+  const pinLng = pinPoint?.longitude ?? null;
+
+  // The pickup pin: draggable to fine-tune while no flag is open.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (pinLat == null || pinLng == null) {
+      pinMarkerRef.current?.remove();
+      pinMarkerRef.current = null;
+      return;
+    }
+    const latLng = [pinLat, pinLng];
+    if (!pinMarkerRef.current) {
+      const marker = L.marker(latLng, { icon: pinIcon, draggable: canPinRef.current, zIndexOffset: 1000, keyboard: false })
+        .bindTooltip("The bus stops here", { direction: "top", offset: [0, -30] })
+        .addTo(map);
+      marker.on("dragend", () => {
+        const { lat, lng } = marker.getLatLng();
+        setManualPin({ latitude: lat, longitude: lng });
+      });
+      pinMarkerRef.current = marker;
+    } else {
+      pinMarkerRef.current.setLatLng(latLng);
+    }
+  }, [pinLat, pinLng]);
+
   const highlightTripId = isOpenFlag(flag) ? flag.trip_id : selectedTripId;
+
+  // ---- Live route: selected/flagged bus -> pickup pin ---------------------
+  // Like a delivery app's rider map: the bus's road path to the pin, redrawn
+  // as the bus moves (useRoadRoute throttles the router calls), plus an ETA.
+  const trackedBus = buses.find((b) => b.trip_id === highlightTripId && b.latitude != null) ?? null;
+  const { route, status: routeStatus } = useRoadRoute(trackedBus, routeTarget, trackedBus?.trip_id ?? null);
+
+  const fitTracked = useCallback(() => {
+    const map = mapRef.current;
+    if (!map || !trackedBus) return;
+    const points = route?.path?.length ? [...route.path] : [[trackedBus.latitude, trackedBus.longitude]];
+    if (routeTarget) points.push([routeTarget.latitude, routeTarget.longitude]);
+    if (points.length === 1) map.setView(points[0], 15);
+    else map.fitBounds(points, { padding: [50, 50], maxZoom: 16 });
+  }, [route, trackedBus, routeTarget]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    routeLayerRef.current?.remove();
+    routeLayerRef.current = null;
+    if (!route) return;
+    // White casing under a coloured line, so the path reads on any map tile.
+    const casing = L.polyline(route.path, { color: "#ffffff", weight: 9, opacity: 0.9, interactive: false });
+    const line = L.polyline(route.path, {
+      color: "#2f9e5c",
+      weight: 5,
+      opacity: 0.95,
+      dashArray: route.isFallback ? "8 10" : null, // dashed = straight line, not a real road
+      interactive: false,
+    });
+    routeLayerRef.current = L.layerGroup([casing, line]).addTo(map);
+    // Frame bus + pin once per bus, when its first route arrives; after
+    // that the passenger controls the map (the ⌖ button re-frames it).
+    if (lastFitKeyRef.current !== trackedBus?.trip_id) {
+      lastFitKeyRef.current = trackedBus?.trip_id ?? null;
+      fitTracked();
+    }
+    // fitTracked/trackedBus change on every bus GPS tick; only a new route redraws
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -393,14 +560,14 @@ export default function FlagBus() {
 
   // ---- Derived list ---------------------------------------------------------
   const sortedBuses = useMemo(() => {
-    const withDistance = buses.map((b) => ({ ...b, distance: distanceKm(me, b) }));
+    const withDistance = buses.map((b) => ({ ...b, distance: distanceKm(pickup, b) }));
     return withDistance.sort((a, b) => {
       if (a.distance == null && b.distance == null) return 0;
       if (a.distance == null) return 1;
       if (b.distance == null) return -1;
       return a.distance - b.distance;
     });
-  }, [buses, me]);
+  }, [buses, pickup]);
 
   const selectedBus = sortedBuses.find((b) => b.trip_id === selectedTripId) ?? null;
 
@@ -410,13 +577,27 @@ export default function FlagBus() {
     setError("");
     setIsSubmitting(true);
     try {
-      const created = await api.createFlagRequest({
-        tripId: selectedBus.trip_id,
-        pickupLatitude: me?.latitude,
-        pickupLongitude: me?.longitude,
-        pickupAccuracy: me?.accuracy,
-        pickupLandmark: landmark.trim() || undefined,
-      });
+      const created = await api.createFlagRequest(
+        manualPin
+          ? {
+              tripId: selectedBus.trip_id,
+              pickupLatitude: manualPin.latitude,
+              pickupLongitude: manualPin.longitude,
+              pinnedManually: true,
+              deviceLatitude: me?.latitude,
+              deviceLongitude: me?.longitude,
+              deviceAccuracy: me?.accuracy,
+              pickupLandmark: landmark.trim() || undefined,
+            }
+          : {
+              tripId: selectedBus.trip_id,
+              pickupLatitude: me?.latitude,
+              pickupLongitude: me?.longitude,
+              pickupAccuracy: me?.accuracy,
+              pickupLandmark: landmark.trim() || undefined,
+            }
+      );
+      writeManualPinFlagId(manualPin ? created.flag_id : null);
       setFlag(created);
     } catch (err) {
       setError(err.message);
@@ -436,8 +617,10 @@ export default function FlagBus() {
   }
 
   function handleDismissFlag() {
+    writeManualPinFlagId(null);
     setFlag(null);
     setSelectedTripId(null);
+    setManualPin(null);
   }
 
   const hasOpenFlag = isOpenFlag(flag);
@@ -507,9 +690,23 @@ export default function FlagBus() {
           <div className="relative isolate">
             <div
               ref={mapContainerRef}
-              className="w-full h-80 lg:h-[26rem] rounded-3xl overflow-hidden border border-slate-100 shadow-sm z-0"
+              className={`w-full ${trackedBus ? "h-[28rem] lg:h-[32rem]" : "h-80 lg:h-[26rem]"} rounded-3xl overflow-hidden border border-slate-100 shadow-sm z-0`}
             />
-            <LocationBadge status={geoStatus} me={me} />
+            <LocationBadge status={geoStatus} me={me} manualPin={manualPin} />
+            {trackedBus && (
+              <>
+                <button
+                  type="button"
+                  onClick={fitTracked}
+                  aria-label="Show the bus and my pin"
+                  title="Show the bus and my pin"
+                  className="absolute top-3 right-3 z-[400] rounded-full bg-white shadow p-2.5 text-ink-900 hover:bg-slate-50"
+                >
+                  <Crosshair className="w-5 h-5" />
+                </button>
+                <TrackingCard bus={trackedBus} target={routeTarget} route={route} routeStatus={routeStatus} flag={flag} now={now} />
+              </>
+            )}
           </div>
 
           <section className="space-y-3">
@@ -552,6 +749,8 @@ export default function FlagBus() {
               bus={selectedBus}
               me={me}
               geoStatus={geoStatus}
+              manualPin={manualPin}
+              onClearPin={() => setManualPin(null)}
               landmark={landmark}
               onLandmarkChange={setLandmark}
               onSubmit={handleFlag}
@@ -564,13 +763,18 @@ export default function FlagBus() {
   );
 }
 
-function LocationBadge({ status, me }) {
-  const precise = status === "ok" && isPreciseFix(me);
+function LocationBadge({ status, me, manualPin }) {
+  const pinned = status === "ok" && Boolean(manualPin);
+  const precise = pinned ? !manualPinProblem(manualPin, me) : status === "ok" && isPreciseFix(me);
   const text =
     status === "ok"
-      ? precise
-        ? `Exact location · ±${Math.round(me.accuracy)} m`
-        : `Getting a precise fix… ±${Math.round(me?.accuracy ?? 0)} m`
+      ? pinned
+        ? precise
+          ? "Pickup pin placed by you"
+          : "Pin is too far from your location"
+        : precise
+          ? `Exact location · ±${Math.round(me.accuracy)} m`
+          : `GPS ±${Math.round(me?.accuracy ?? 0)} m — tap the map to pin your spot`
       : status === "locating"
         ? "Finding your location…"
         : status === "idle"
@@ -578,11 +782,76 @@ function LocationBadge({ status, me }) {
           : status === "denied"
             ? "Location blocked — needed to flag a bus"
             : "Location unavailable — needed to flag a bus";
-  const tone = precise ? "text-brand-green-600" : ["locating", "ok", "idle"].includes(status) ? "text-ink-600" : "text-rose-600";
+  const tone = precise
+    ? "text-brand-green-600"
+    : pinned
+      ? "text-rose-600"
+      : ["locating", "ok", "idle"].includes(status)
+        ? "text-ink-600"
+        : "text-rose-600";
   return (
     <div className="absolute top-3 left-3 z-[400] flex items-center gap-1.5 rounded-full bg-white/95 shadow px-3 py-1.5 text-xs font-medium">
-      <LocateFixed className={`w-3.5 h-3.5 ${tone}`} />
+      {pinned ? <MapPin className={`w-3.5 h-3.5 ${tone}`} /> : <LocateFixed className={`w-3.5 h-3.5 ${tone}`} />}
       <span className={tone}>{text}</span>
+    </div>
+  );
+}
+
+// Floating card over the bottom of the map: ETA range, what's happening,
+// and road distance — the "rider is on the way" card from delivery apps.
+function TrackingCard({ bus, target, route, routeStatus, flag, now }) {
+  const busName = `Bus ${bus.bus_number ?? bus.plate_num}`;
+  const isStale = bus.timestamp && now - new Date(bus.timestamp).getTime() > STALE_LOCATION_MS;
+  const open = isOpenFlag(flag) && flag.trip_id === bus.trip_id;
+  const eta = etaRange(route);
+
+  let headline;
+  if (!target) headline = "Pin your spot";
+  else if (routeStatus === "loading" && !route) headline = "Finding the road…";
+  else if (eta?.arriving) headline = "Arriving now";
+  else if (eta) headline = `${eta.low} — ${eta.high} mins`;
+  else if (route) headline = `${formatDistance(route.distanceKm)} away`;
+  else headline = "—";
+
+  let title;
+  let detail;
+  if (!target) {
+    title = `Tracking ${busName}`;
+    detail = "Share your location or tap the map where you're standing to see the bus's route to you.";
+  } else if (open && flag.status === "Acknowledged") {
+    title = `${busName} is on the way`;
+    detail = "The driver is stopping at your pin. Stay close to it.";
+  } else if (open) {
+    title = "Waiting for the driver to accept";
+    detail = `Estimated time if ${busName} stops for you.`;
+  } else {
+    title = `${busName} to your pin`;
+    detail = "Flag this bus below if you want it to stop for you.";
+  }
+
+  return (
+    <div className="absolute inset-x-3 bottom-3 z-[400] rounded-2xl bg-white/95 shadow-lg border border-slate-100 p-4 flex items-center gap-4">
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <p className="font-display text-2xl font-bold leading-tight text-ink-900">{headline}</p>
+        <p className="font-semibold text-sm text-ink-900">{title}</p>
+        <p className="text-xs text-ink-600">{detail}</p>
+        {route && (
+          <p className="text-xs text-ink-600 flex flex-wrap items-center gap-x-2">
+            <span className="inline-flex items-center gap-1">
+              <RouteIcon className="w-3.5 h-3.5" />
+              {route.isFallback ? `${formatDistance(route.distanceKm)} straight line — road route unavailable` : `${formatDistance(route.distanceKm)} by road`}
+            </span>
+            {isStale ? (
+              <span className="text-brand-sunrise-500">Bus last seen {timeAgo(bus.timestamp)}</span>
+            ) : (
+              bus.timestamp && <span>GPS {timeAgo(bus.timestamp)}</span>
+            )}
+          </p>
+        )}
+      </div>
+      <div className="shrink-0 w-14 h-14 rounded-full bg-brand-green-500/15 flex items-center justify-center text-2xl" aria-hidden="true">
+        🚌
+      </div>
     </div>
   );
 }
@@ -639,7 +908,7 @@ function BusRow({ bus, now, isSelected, disabled, onSelect }) {
   );
 }
 
-function FlagForm({ bus, me, geoStatus, landmark, onLandmarkChange, onSubmit, isSubmitting }) {
+function FlagForm({ bus, me, geoStatus, manualPin, onClearPin, landmark, onLandmarkChange, onSubmit, isSubmitting }) {
   if (!bus) {
     return (
       <div className="rounded-3xl bg-white border border-slate-100 shadow-sm p-5 text-sm text-ink-600 space-y-2">
@@ -652,13 +921,17 @@ function FlagForm({ bus, me, geoStatus, landmark, onLandmarkChange, onSubmit, is
   const left = seatsLeft(bus);
   const hasLocation = geoStatus === "ok" && Boolean(me);
   const precise = hasLocation && isPreciseFix(me);
+  const pinProblem = hasLocation ? manualPinProblem(manualPin, me) : null;
 
   // Order matters: tell the passenger the one thing they can act on.
   let blockReason = "";
   if (left == null) blockReason = "This bus's seating capacity isn't on file, so it can't take flag requests.";
   else if (left === 0) blockReason = "This bus is full. Try another bus.";
   else if (!hasLocation) blockReason = "location"; // rendered as LocationPermissionCard below
-  else if (!precise) blockReason = `Getting a precise fix (±${Math.round(me.accuracy)} m, need ±${MAX_PICKUP_ACCURACY_M} m). Stand in the open for a few seconds.`;
+  else if (pinProblem)
+    blockReason = `Your pin is ${formatDistance(pinProblem.offM / 1000)} from where your phone says you are (up to ${formatDistance(pinProblem.limitM / 1000)} allowed). Move it to where you're standing.`;
+  else if (!manualPin && !precise)
+    blockReason = `Your GPS is only accurate to ±${Math.round(me.accuracy)} m. Tap the map exactly where you're standing to drop a pin, or wait outdoors for a better fix.`;
 
   return (
     <div className="rounded-3xl bg-white border border-slate-100 shadow-sm p-5 space-y-4">
@@ -673,10 +946,23 @@ function FlagForm({ bus, me, geoStatus, landmark, onLandmarkChange, onSubmit, is
         </p>
       </div>
 
-      <p className="text-sm text-ink-600">
-        The bus stops at <strong className="text-ink-900">your exact GPS location</strong> (the blue dot). Stay where you are
-        — if you do move, your pickup point updates for the driver automatically.
-      </p>
+      {manualPin ? (
+        <div className="text-sm text-ink-600 space-y-1.5">
+          <p>
+            The bus stops at <strong className="text-ink-900">your pin</strong> (📍). Drag it or tap the map to move it. It stays put
+            after you send the flag.
+          </p>
+          <button type="button" onClick={onClearPin} className="text-xs font-semibold text-brand-green-600 hover:underline">
+            Use my GPS location instead
+          </button>
+        </div>
+      ) : (
+        <p className="text-sm text-ink-600">
+          The bus stops at <strong className="text-ink-900">your GPS location</strong> (the blue dot), and it follows you if you
+          move. Not quite right? <strong className="text-ink-900">Tap the map</strong> where you're standing to place the pin
+          yourself.
+        </p>
+      )}
 
       <label className="block">
         <span className="block text-xs font-semibold uppercase tracking-wide text-ink-600 mb-1.5">

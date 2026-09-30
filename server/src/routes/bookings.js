@@ -321,6 +321,27 @@ const FLAG_SWEEP_INTERVAL_MS = 60 * 1000;
 // 100 m is loose enough for a phone outdoors in the Cordillera to meet
 // within seconds, tight enough that the driver stops at the right spot.
 const MAX_PICKUP_ACCURACY_M = 100;
+// A GPS fix can still land on the wrong side of the road, and indoors or on
+// a laptop it may never get under 100 m at all. So the passenger can also
+// drop the pin by hand on the map — but only inside the area their device
+// says they're in: the fix's accuracy radius plus this margin, capped at
+// MANUAL_PIN_MAX_DISTANCE_M. The device fix itself is still required, so a
+// pin can't be dropped somewhere the passenger obviously isn't.
+// Mirrored in FlagBus.jsx (display only; this is the authoritative check).
+const MANUAL_PIN_MARGIN_M = 100;
+const MANUAL_PIN_MAX_DISTANCE_M = 5000;
+
+function distanceMetres(a, b) {
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(b.latitude - a.latitude);
+  const dLng = toRad(b.longitude - a.longitude);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.latitude)) * Math.cos(toRad(b.latitude)) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371000 * Math.asin(Math.sqrt(h));
+}
+
+function manualPinLimitMetres(deviceAccuracy) {
+  return Math.min(Math.max(deviceAccuracy, MAX_PICKUP_ACCURACY_M) + MANUAL_PIN_MARGIN_M, MANUAL_PIN_MAX_DISTANCE_M);
+}
 
 const FLAG_SELECT = `
   SELECT fr.flag_id, fr.trip_id, fr.passenger_id, fr.passenger_name,
@@ -388,7 +409,14 @@ function parseCoordinate(value, limit) {
 // Shared by POST / (the hail) and PATCH /:id/location (the pin following
 // the passenger), so both enforce the same "exact location" rule.
 // Returns { latitude, longitude } or { error }.
-function parsePickupFix({ pickupLatitude, pickupLongitude, pickupAccuracy }) {
+//
+// Two ways to set the pin:
+//   GPS    { pickupLatitude, pickupLongitude, pickupAccuracy }  — the fix itself, ±100 m or better
+//   Manual { pickupLatitude, pickupLongitude, pinnedManually: true,
+//            deviceLatitude, deviceLongitude, deviceAccuracy }  — a point the passenger tapped,
+//            accepted only within the device fix's accuracy area (see manualPinLimitMetres)
+function parsePickupFix(body) {
+  const { pickupLatitude, pickupLongitude, pickupAccuracy, pinnedManually } = body;
   const latitude = parseCoordinate(pickupLatitude, 90);
   const longitude = parseCoordinate(pickupLongitude, 180);
   if (latitude == null || longitude == null) {
@@ -397,6 +425,27 @@ function parsePickupFix({ pickupLatitude, pickupLongitude, pickupAccuracy }) {
   if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
     return { error: "pickupLatitude and pickupLongitude must be a valid coordinate pair" };
   }
+
+  if (pinnedManually === true) {
+    const deviceLatitude = parseCoordinate(body.deviceLatitude, 90);
+    const deviceLongitude = parseCoordinate(body.deviceLongitude, 180);
+    const deviceAccuracy = Number(body.deviceAccuracy);
+    if (deviceLatitude == null || deviceLongitude == null || Number.isNaN(deviceLatitude) || Number.isNaN(deviceLongitude)) {
+      return { error: "Your device's location is still needed when you place the pin yourself. Turn on location for this site and try again." };
+    }
+    if (!Number.isFinite(deviceAccuracy) || deviceAccuracy <= 0) {
+      return { error: "deviceAccuracy (metres) is required with a manually placed pin" };
+    }
+    const limit = manualPinLimitMetres(deviceAccuracy);
+    const off = distanceMetres({ latitude, longitude }, { latitude: deviceLatitude, longitude: deviceLongitude });
+    if (off > limit) {
+      return {
+        error: `Your pin is ${Math.round(off)} m from where your device says you are (limit ${Math.round(limit)} m). Place it where you're actually standing.`,
+      };
+    }
+    return { latitude, longitude };
+  }
+
   const accuracy = Number(pickupAccuracy);
   if (!Number.isFinite(accuracy) || accuracy <= 0) {
     return { error: "pickupAccuracy (metres, from the phone's GPS) is required" };

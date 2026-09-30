@@ -130,8 +130,13 @@ export const postLocationBatch = (points) => request("/api/tracking/batch", { me
 // Kept separate from the Bookings section above on purpose: the Book Ahead
 // flow (TripDetail -> createBooking) never calls any of these.
 export const getInTransitBuses = (params) => request("/api/tracking/in-transit", { params });
-export const createFlagRequest = ({ tripId, pickupLatitude, pickupLongitude, pickupAccuracy, pickupLandmark }) =>
-  request("/api/bookings/flags", { method: "POST", body: { tripId, pickupLatitude, pickupLongitude, pickupAccuracy, pickupLandmark } });
+// Pickup = the GPS fix itself, or (pinnedManually) a spot the passenger
+// tapped on the map plus the device fix it must stay close to.
+export const createFlagRequest = ({ tripId, pickupLatitude, pickupLongitude, pickupAccuracy, pickupLandmark, pinnedManually, deviceLatitude, deviceLongitude, deviceAccuracy }) =>
+  request("/api/bookings/flags", {
+    method: "POST",
+    body: { tripId, pickupLatitude, pickupLongitude, pickupAccuracy, pickupLandmark, pinnedManually, deviceLatitude, deviceLongitude, deviceAccuracy },
+  });
 export const updateFlagLocation = (flagId, { pickupLatitude, pickupLongitude, pickupAccuracy }) =>
   request(`/api/bookings/flags/${flagId}/location`, { method: "PATCH", body: { pickupLatitude, pickupLongitude, pickupAccuracy } });
 export const getMyFlagRequests = () => request("/api/bookings/flags/mine");
