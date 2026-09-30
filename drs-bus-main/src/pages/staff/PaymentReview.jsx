@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Wallet, Image as ImageIcon, AlertTriangle, X, RefreshCw } from "lucide-react";
+import { Wallet, Image as ImageIcon, AlertTriangle, X, RefreshCw, Search } from "lucide-react";
 import * as api from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import EmptyState from "../../components/common/EmptyState";
@@ -52,6 +52,7 @@ export default function PaymentReview() {
   const [reason, setReason] = useState("");
   const [rejectError, setRejectError] = useState("");
   const [proof, setProof] = useState(null); // { row, image } | { row, loading } | { row, error }
+  const [search, setSearch] = useState("");
 
   const load = useCallback(() => {
     return api
@@ -88,6 +89,15 @@ export default function PaymentReview() {
     return map;
   }, [rows]);
   const groupOf = (r) => groups.get(`${r.passenger_id}|${r.reference_number}|${r.status}`);
+
+  // Search by passenger name. Filtering happens in the browser on the rows
+  // already loaded for the selected status tab, so it's instant and the
+  // 30s auto-refresh keeps the search applied.
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) => (r.passenger_name ?? "").toLowerCase().includes(q));
+  }, [rows, search]);
 
   async function handleVerify(row) {
     const effect =
@@ -183,9 +193,22 @@ export default function PaymentReview() {
             {f.label}
           </button>
         ))}
-        <button type="button" onClick={() => load()} className="ml-auto inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800">
-          <RefreshCw className="w-3.5 h-3.5" /> Refresh
-        </button>
+        <div className="ml-auto flex items-center gap-4 w-full sm:w-auto">
+          <div className="relative flex-1 sm:flex-none sm:w-72">
+            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search passenger name…"
+              aria-label="Search payments by passenger name"
+              className="input pl-9 w-full"
+            />
+          </div>
+          <button type="button" onClick={() => load()} className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800 shrink-0">
+            <RefreshCw className="w-3.5 h-3.5" /> Refresh
+          </button>
+        </div>
       </div>
 
       <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
@@ -199,6 +222,8 @@ export default function PaymentReview() {
           title={status === "Pending" ? "No payments waiting for review" : "No payments here"}
           description={status === "Pending" ? "New submissions appear here automatically." : undefined}
         />
+      ) : filteredRows.length === 0 ? (
+        <EmptyState icon={Search} title={`No passengers matching "${search.trim()}"`} description="Check the spelling or try another tab." />
       ) : (
         <div className="bg-white rounded-lg border overflow-hidden overflow-x-auto">
           <table className="w-full text-sm">
@@ -214,7 +239,7 @@ export default function PaymentReview() {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {rows.map((r) => {
+              {filteredRows.map((r) => {
                 const group = groupOf(r);
                 const busy = busyId === r.payment_id;
                 return (
