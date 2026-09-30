@@ -93,6 +93,13 @@ async function main() {
   );
   const [[passengerRow]] = await pool.query(`SELECT commuter_id FROM commuters WHERE email = 'passenger@drs.local'`);
 
+  // ---- The walk-in placeholder (routes/bookings.js), created up front so
+  // the email is taken before anyone could register it. Empty password_hash
+  // = can never log in. INSERT IGNORE: an existing row is left untouched.
+  await pool.query(
+    `INSERT IGNORE INTO commuters (name, email, password_hash) VALUES ('Walk-in Counter', 'walk-in@drs.local', '')`
+  );
+
   // ---- Trips: a mix of past-completed, in-transit, and future-scheduled
   // so the Dashboard/Reports pages have real variety to chart. ----------
   const now = Date.now();

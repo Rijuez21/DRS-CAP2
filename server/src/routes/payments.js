@@ -455,12 +455,16 @@ export function buildPaymentsRouter(io) {
 
     // Side effects only after the commit succeeded (a rolled-back verify
     // must never tell a passenger they're confirmed). Both are non-fatal.
+    // Every verified payment gets an official receipt — the passenger's
+    // receipt page reads it straight from this payment row
+    // (GET /booking/:bookingId), and the bell links to it for
+    // "payment_verified" notifications.
     const peso = `₱${Number(payment.amount).toLocaleString("en-PH")}`;
     const message = bookingConfirmed
-      ? `Payment verified — booking #${payment.booking_id} (seat ${payment.seat_number}) is confirmed.`
+      ? `Payment verified — booking #${payment.booking_id} (seat ${payment.seat_number}) is confirmed. Your official receipt is ready.`
       : payment.booking_status === "Cancelled"
-        ? `Your ${peso} payment for booking #${payment.booking_id} was received, but that booking had already been cancelled. Please contact the terminal about it.`
-        : `Your ${peso} payment for booking #${payment.booking_id} has been verified.`;
+        ? `Your ${peso} payment for booking #${payment.booking_id} was received, but that booking had already been cancelled. Please contact the terminal about it — your receipt is ready as proof of payment.`
+        : `Your ${peso} payment for booking #${payment.booking_id} has been verified. Your official receipt is ready.`;
     await notifyRecipient(io, { type: "passenger", id: payment.passenger_id }, message, "payment_verified");
     await logAudit({
       staffId: req.user.id,

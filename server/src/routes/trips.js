@@ -203,12 +203,15 @@ export function buildTripsRouter(io) {
     }
   });
 
-  // GET /api/trips/:id — powers TripDetail.jsx
+  // GET /api/trips/:id — powers TripDetail.jsx and LiveTracking.jsx. The
+  // route's pin (stop_latitude/longitude, null when not pinned) is where
+  // this trip's stop actually is, so LiveTracking can show the bus relative to it.
   tripsRouter.get("/:id", async (req, res) => {
     try {
       const [rows] = await pool.query(
         `SELECT tr.trip_id, tr.departure_time, tr.arrival_time, tr.status,
                 rt.origin, rt.destination, rt.distance, rt.base_fare,
+                tr.route_id, rt.latitude AS stop_latitude, rt.longitude AS stop_longitude,
                 b.bus_id, b.plate_num, b.bus_number, b.capacity, b.type AS bus_type,
                 tr.driver_id, d.name AS driver_name
          FROM trips tr

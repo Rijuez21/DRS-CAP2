@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { QrCode, Clock, CheckCircle2, AlertTriangle, Download, ImagePlus, X, RefreshCw } from "lucide-react";
+import { Link } from "react-router-dom";
+import { QrCode, Clock, CheckCircle2, AlertTriangle, Download, ImagePlus, X, RefreshCw, ReceiptText } from "lucide-react";
 import * as api from "../../lib/api";
 import { IMAGE_ACCEPT, formatPeso, readImageFile } from "../../lib/image";
 import { formatTime } from "../../lib/format";
@@ -155,10 +156,27 @@ export default function PaymentPanel({ bookingIds, onStatus }) {
   if (payable.length === 0 && pending.length === 0) {
     if (verified.length === 0) return null;
     return (
-      <p className="flex gap-2 items-start text-sm rounded-2xl p-4 bg-brand-green-600/10 text-ink-900">
+      <div className="flex gap-2 items-start text-sm rounded-2xl p-4 bg-brand-green-600/10 text-ink-900">
         <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0 text-brand-green-600" />
-        Payment verified — {verified.length === 1 ? `booking #${verified[0].booking_id} is` : "your bookings are"} confirmed. Nothing left to pay.
-      </p>
+        <div className="space-y-2">
+          <p>
+            Payment verified — {verified.length === 1 ? `booking #${verified[0].booking_id} is` : "your bookings are"} confirmed. Nothing left to pay.
+          </p>
+          {/* one receipt per seat: each seat's payment is its own verified row */}
+          <div className="flex flex-wrap gap-2">
+            {verified.map((i) => (
+              <Link
+                key={i.booking_id}
+                to={`/passenger/my-bookings/${i.booking_id}/receipt`}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-white border border-brand-green-600/20 px-2.5 py-1 text-xs font-semibold text-brand-green-600 hover:bg-brand-green-600 hover:text-white transition-colors"
+              >
+                <ReceiptText className="w-3.5 h-3.5" />
+                {verified.length === 1 ? "View receipt" : `Receipt #${i.booking_id}`}
+              </Link>
+            ))}
+          </div>
+        </div>
+      </div>
     );
   }
 

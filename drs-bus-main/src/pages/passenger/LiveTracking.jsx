@@ -1,26 +1,18 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { ChevronLeft, Satellite, WifiOff, LocateFixed, Clock } from "lucide-react";
+import { useParams } from "react-router-dom";
+import { Satellite, WifiOff, LocateFixed, Clock, MapPin, MapPinned } from "lucide-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
-import markerIcon from "leaflet/dist/images/marker-icon.png";
-import markerShadow from "leaflet/dist/images/marker-shadow.png";
+import "../../lib/leafletDefaultIcon"; // makes the default pin marker load (see that file)
 import InlineAlert from "../../components/common/InlineAlert";
+import PageHeader from "../../components/passenger/PageHeader";
 import LocationPermissionCard from "../../components/common/LocationPermissionCard";
 import { useGeolocation } from "../../hooks/useGeolocation";
 import * as api from "../../lib/api";
 import { getSocket } from "../../lib/socket";
 import { mapTrip, formatTime } from "../../lib/format";
 import { distanceKm, formatDistance, timeAgo } from "../../lib/geo";
-
-// Bundlers rewrite the default Leaflet marker image URLs, which otherwise
-// 404 — this is the standard fix.
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: markerIcon2x,
-  iconUrl: markerIcon,
-  shadowUrl: markerShadow,
-});
+import { addStopMarker } from "../../lib/stopMarkers";
 
 const STALE_MS = 5 * 60 * 1000; // no fix for 5 min: likely a Cordillera dead zone — say so
 
@@ -41,6 +33,8 @@ export default function LiveTracking() {
   const mapRef = useRef(null);
   const busMarkerRef = useRef(null);
   const meMarkerRef = useRef(null);
+  const stopMarkerRef = useRef(null);
+  const stopFittedRef = useRef(false);
 
   // 1. Resolve the trip -> bus_id, then get the last known point.
   useEffect(() => {
@@ -114,9 +108,37 @@ export default function LiveTracking() {
       busMarkerRef.current = L.marker(latLng).bindTooltip("Bus").addTo(mapRef.current);
     } else {
       busMarkerRef.current.setLatLng(latLng);
-      if (!meMarkerRef.current) mapRef.current.panTo(latLng);
+      // Follow the bus only when nothing else is on screen to keep in view.
+      if (!meMarkerRef.current && !stopMarkerRef.current) mapRef.current.panTo(latLng);
     }
   }, [position]);
+
+  // The trip's stop, where the admin pinned it (trip.stop is null until they
+  // do — then nothing is drawn). Framed together with the bus once, so the
+  // passenger sees both; after that they control the map.
+  const stop = trip?.stop ?? null;
+  const stopLat = stop?.latitude ?? null;
+  const stopLng = stop?.longitude ?? null;
+  const stopName = stop?.name ?? null;
+  const hasBusPosition = Boolean(position);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (stopLat == null || stopLng == null) {
+      stopMarkerRef.current?.remove();
+      stopMarkerRef.current = null;
+      return;
+    }
+    if (!stopMarkerRef.current) {
+      stopMarkerRef.current = addStopMarker(map, { name: stopName, latitude: stopLat, longitude: stopLng }, { variant: "highlight" });
+    } else {
+      stopMarkerRef.current.setLatLng([stopLat, stopLng]);
+    }
+    if (!stopFittedRef.current && busMarkerRef.current) {
+      stopFittedRef.current = true;
+      map.fitBounds([busMarkerRef.current.getLatLng(), [stopLat, stopLng]], { padding: [40, 40], maxZoom: 15, animate: false });
+    }
+  }, [stopLat, stopLng, stopName, hasBusPosition]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -141,6 +163,7 @@ export default function LiveTracking() {
     () => () => {
       mapRef.current?.remove();
       mapRef.current = null;
+      stopMarkerRef.current = null;
     },
     []
   );
@@ -156,6 +179,9 @@ export default function LiveTracking() {
 
   const isStale = position && now - new Date(position.timestamp).getTime() > STALE_MS;
   const distance = wantsMe && me && position ? distanceKm(me, position) : null;
+  // Straight line, like every distance from geo.js — the Halsema road winds
+  // far more, so this is "how close", not road km or an arrival time.
+  const stopDistance = stop && position ? distanceKm(position, stop) : null;
 
   // What the trip's own status means for tracking, in plain words.
   const tripNotice = !trip
@@ -169,20 +195,17 @@ export default function LiveTracking() {
           : null;
 
   return (
-    <div className="max-w-md mx-auto lg:max-w-3xl px-4 py-6 space-y-4">
-      <Link to="/passenger/my-bookings" className="inline-flex items-center gap-1 text-sm text-ink-600 hover:text-brand-green-600">
-        <ChevronLeft className="w-4 h-4" /> My Bookings
-      </Link>
-
-      <header>
-        <h1 className="font-display text-xl font-bold">Track your bus</h1>
-        {trip && (
-          <p className="text-sm text-ink-600">
-            {trip.origin} → {trip.destination} · {trip.plateNumber ?? `Trip ${tripId}`}
-            {trip.status && ` · ${trip.status}`}
-          </p>
-        )}
-      </header>
+    <div className="page-enter max-w-md mx-auto lg:max-w-3xl px-4 py-6 lg:py-10 space-y-4">
+      <PageHeader
+        back={{ to: "/passenger/my-bookings", label: "My Bookings" }}
+        icon={MapPinned}
+        title="Track your bus"
+        subtitle={
+          trip
+            ? `${trip.origin} → ${trip.destination} · ${trip.plateNumber ?? `Trip ${tripId}`}${trip.status ? ` · ${trip.status}` : ""}`
+            : null
+        }
+      />
 
       <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
 
@@ -214,6 +237,15 @@ export default function LiveTracking() {
             {distance != null && <span className="font-semibold">{formatDistance(distance)} from you</span>}
             {position.sync_status === "buffered" && <span className="text-xs font-medium text-brand-sunrise-500">Catching up after a signal drop</span>}
           </div>
+          {stopDistance != null && (
+            <p className="flex items-center gap-2 rounded-2xl bg-white border border-slate-100 shadow-sm px-4 py-3 text-sm">
+              <MapPin className="w-4 h-4 text-blue-700 shrink-0" />
+              <span>
+                Bus is <span className="font-semibold">{formatDistance(stopDistance)}</span> from {stop.name}{" "}
+                <span className="text-ink-600">(straight line — not road distance or arrival time)</span>
+              </span>
+            </p>
+          )}
 
           {!wantsMe ? (
             <button

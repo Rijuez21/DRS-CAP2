@@ -27,6 +27,13 @@ const dataDir = path.join(__dirname, "data");
  *   SELECT t.trip_id FROM trips t
  *   LEFT JOIN routes r ON r.route_id = t.route_id WHERE r.route_id IS NULL;
  *
+ * Bus stop pins (routes.latitude/longitude) survive a reseed, in this order:
+ *   1. "latitude"/"longitude" on a fare-matrix row, when BOTH are real numbers
+ *      (add them to the JSON to make a pin permanent), else
+ *   2. the pin that stop already had in the database before the wipe,
+ *      matched by destination name ("KM 12", "Sayangan", ...), else
+ *   3. unpinned (NULL). No position is ever invented for a stop.
+ *
  * Driver password comes from SEED_DRIVER_PASSWORD (see .env.example);
  * falls back to a dev-only default if unset.
  *
@@ -34,23 +41,76 @@ const dataDir = path.join(__dirname, "data");
  *   node src/db/migrate.js
  *   node src/db/seed-baguio-bontoc.js
  */
+// A pin in the fare-matrix JSON counts only when BOTH coordinates are real,
+// in-range numbers — a half-filled or placeholder row stays unpinned.
+function pinFromJson(row) {
+  const lat = row.latitude;
+  const lng = row.longitude;
+  if (typeof lat !== "number" || typeof lng !== "number") return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return { latitude: lat, longitude: lng };
+}
+const hasAnyJsonPin = (rows) => rows.some((r) => pinFromJson(r) !== null);
+
 async function main() {
   const roster = JSON.parse(readFileSync(path.join(dataDir, "baguio-bontoc-roster.json"), "utf8"));
   const fareMatrix = JSON.parse(readFileSync(path.join(dataDir, "baguio-bontoc-fare-matrix.json"), "utf8"));
   const driverPasswordHash = await bcrypt.hash(process.env.SEED_DRIVER_PASSWORD || "driver123", 10);
+
+  // ---- Remember existing pins before the wipe ----------------------------
+  // An admin may have spent an afternoon pinning stops on the map; TRUNCATE
+  // would silently throw that away. Tolerates a database that migrate.js
+  // hasn't given the pin columns yet (nothing to keep in that case).
+  const existingPins = new Map(); // destination -> { latitude, longitude, pinnedAt }
+  try {
+    const [pinned] = await pool.query(
+      `SELECT destination, latitude, longitude, pinned_at FROM routes WHERE latitude IS NOT NULL AND longitude IS NOT NULL`
+    );
+    for (const r of pinned) existingPins.set(r.destination, { latitude: r.latitude, longitude: r.longitude, pinnedAt: r.pinned_at });
+  } catch (err) {
+    if (err.code !== "ER_BAD_FIELD_ERROR") throw err;
+    console.warn("routes has no latitude/longitude columns yet — run `node src/db/migrate.js` first to keep pins across reseeds.");
+  }
 
   // ---- Wipe + reload routes, one row per km post ------------------------
   await pool.query(`SET FOREIGN_KEY_CHECKS = 0`);
   await pool.query(`TRUNCATE TABLE routes`);
   await pool.query(`SET FOREIGN_KEY_CHECKS = 1`);
 
+  // Only touch the pin columns when there's a pin to write, so a seed on a
+  // database without them (migrate.js not run yet) still works as before.
+  const writePins = existingPins.size > 0 || hasAnyJsonPin(fareMatrix);
+  let pinsFromJson = 0;
+  let pinsKept = 0;
   for (const row of fareMatrix) {
     const destination = row.stopName || `KM ${row.km}`;
-    await pool.query(
-      `INSERT INTO routes (origin, destination, distance, base_fare, special_fare)
-       VALUES ('Baguio', ?, ?, ?, ?)`,
-      [destination, row.km, row.regularFare, row.specialFare]
-    );
+    const jsonPin = pinFromJson(row);
+    const pin = jsonPin ?? existingPins.get(destination) ?? null;
+    if (jsonPin) pinsFromJson += 1;
+    else if (pin) pinsKept += 1;
+
+    if (writePins) {
+      await pool.query(
+        `INSERT INTO routes (origin, destination, distance, base_fare, special_fare, latitude, longitude, pinned_at)
+         VALUES ('Baguio', ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          destination,
+          row.km,
+          row.regularFare,
+          row.specialFare,
+          pin?.latitude ?? null,
+          pin?.longitude ?? null,
+          pin ? (jsonPin ? new Date() : pin.pinnedAt ?? new Date()) : null,
+        ]
+      );
+    } else {
+      // The original insert.
+      await pool.query(
+        `INSERT INTO routes (origin, destination, distance, base_fare, special_fare)
+         VALUES ('Baguio', ?, ?, ?, ?)`,
+        [destination, row.km, row.regularFare, row.specialFare]
+      );
+    }
   }
 
   // ---- Drivers ---------------------------------------------------------
@@ -82,6 +142,7 @@ async function main() {
 
   console.log("Baguio–Bontoc seed complete.");
   console.log(`Routes reloaded: ${fareMatrix.length} (routes table was wiped first)`);
+  console.log(`Bus stop pins: ${pinsFromJson} from the fare-matrix JSON, ${pinsKept} kept from before the wipe.`);
   console.log(`Buses seeded: ${roster.buses.map((b) => b.busNumber).join(", ")}`);
   console.log("Edit server/src/db/data/baguio-bontoc-roster.json to fix placeholder license numbers/emails, then re-run.");
 

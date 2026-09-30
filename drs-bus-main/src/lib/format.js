@@ -69,5 +69,25 @@ export function mapTrip(row) {
     departureIso: row.departure_time,
     driverName: row.driver_name,
     busId: row.bus_id,
+    // Where this trip's stop is on the map (the admin's pin on the route),
+    // or null when it hasn't been pinned — never a guessed position.
+    stop:
+      row.stop_latitude != null && row.stop_longitude != null
+        ? { name: row.destination, latitude: Number(row.stop_latitude), longitude: Number(row.stop_longitude) }
+        : null,
   };
+}
+
+// Up to two initials for an avatar chip, e.g. "Juan dela Cruz" -> "JC".
+export function initials(name) {
+  const parts = String(name ?? "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  const first = parts[0][0];
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : "";
+  return (first + last).toUpperCase();
+}
+
+// Printable receipt number for a payment, e.g. 42 -> "OR-000042".
+export function receiptNumber(paymentId) {
+  return `OR-${String(paymentId ?? "").padStart(6, "0")}`;
 }

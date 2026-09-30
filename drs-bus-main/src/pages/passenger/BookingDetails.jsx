@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ChevronLeft, MapPin, Info } from "lucide-react";
+import { ChevronLeft, ChevronRight, MapPin, Info, Bus, ReceiptText } from "lucide-react";
 import StatusBadge from "../../components/common/StatusBadge";
 import InlineAlert from "../../components/common/InlineAlert";
 import PaymentPanel from "../../components/passenger/PaymentPanel";
 import * as api from "../../lib/api";
-import { formatDate, formatTime } from "../../lib/format";
+import { formatDate, formatTime, receiptNumber } from "../../lib/format";
 
 export default function BookingDetails() {
   const { bookingId } = useParams();
@@ -77,7 +77,7 @@ export default function BookingDetails() {
   }
 
   const back = (
-    <Link to="/passenger/my-bookings" className="inline-flex items-center gap-1 text-sm text-ink-600 hover:text-brand-green-600">
+    <Link to="/passenger/my-bookings" className="inline-flex items-center gap-1 text-sm font-medium text-ink-600 hover:text-brand-green-600 transition-colors">
       <ChevronLeft className="w-4 h-4" /> My Bookings
     </Link>
   );
@@ -118,51 +118,93 @@ export default function BookingDetails() {
           : null;
 
   return (
-    <div className="max-w-md mx-auto px-4 py-6 space-y-5">
+    <div className="page-enter max-w-md mx-auto px-4 py-6 lg:py-10 space-y-5">
       {back}
 
-      <div className="rounded-3xl bg-brand-forest-900 text-white p-5 space-y-3">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-xs text-white/60">Booking code</p>
-            <p className="font-display text-3xl font-bold">#{booking.booking_id}</p>
+      {/* the ticket: code + route on the stub, details below the perforation */}
+      <div className="card overflow-hidden">
+        <div className="hero-forest p-5 pb-6 space-y-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] uppercase tracking-wider text-white/50">Booking code</p>
+              <p className="font-display text-3xl font-bold tracking-wide">#{booking.booking_id}</p>
+            </div>
+            {/* white backing keeps the badge colours readable on the dark stub */}
+            <span className="rounded-full bg-white p-0.5 shadow-sm">
+              <StatusBadge status={booking.status} />
+            </span>
           </div>
-          <StatusBadge status={booking.status} />
+          <div className="flex items-center gap-3">
+            <div className="min-w-0">
+              <p className="text-[11px] uppercase tracking-wider text-white/50">From</p>
+              <p className="font-display font-semibold truncate">{booking.origin}</p>
+            </div>
+            <span className="flex-1 min-w-8 flex items-center" aria-hidden="true">
+              <span className="flex-1 border-t-2 border-dashed border-white/25" />
+              <Bus className="w-4 h-4 text-brand-sunrise-400 mx-1.5 shrink-0" />
+              <span className="flex-1 border-t-2 border-dashed border-white/25" />
+            </span>
+            <div className="min-w-0 text-right">
+              <p className="text-[11px] uppercase tracking-wider text-white/50">To</p>
+              <p className="font-display font-semibold truncate">{booking.destination}</p>
+            </div>
+          </div>
         </div>
-        <p className="text-sm text-white/80">
-          {booking.origin} → {booking.destination}
-        </p>
+
+        <div className="ticket-perforation" aria-hidden="true" />
+
+        <div className="p-5 grid grid-cols-2 gap-y-4 gap-x-4">
+          <Field label="Passenger" value={booking.passenger_name} />
+          <Field label="Seat" value={booking.seat_number} />
+          <Field label="Date" value={formatDate(booking.departure_time)} />
+          <Field label="Departs" value={formatTime(booking.departure_time)} />
+          <Field label="Bus" value={booking.plate_num} />
+          <Field label="Fare" value={booking.base_fare != null ? `₱${Number(booking.base_fare).toLocaleString("en-PH")}` : null} />
+          <Field label="Trip status" value={booking.trip_status} />
+          <Field label="Booked" value={`${formatDate(booking.booked_at)?.replace(/^\w+, /, "")} ${formatTime(booking.booked_at) ?? ""}`} />
+        </div>
       </div>
 
       <InlineAlert type="success" message={success} onDismiss={() => setSuccess("")} />
       <InlineAlert type="error" message={actionError} onDismiss={() => setActionError("")} />
 
       {notice && (
-        <p className={`flex gap-2 text-sm rounded-2xl p-4 ${booking.trip_status === "Cancelled" ? "bg-rose-50 text-rose-700" : "bg-brand-sunrise-400/15 text-ink-900"}`}>
+        <p
+          className={`flex gap-3 text-sm rounded-2xl p-4 border ${
+            booking.trip_status === "Cancelled" ? "bg-rose-50 text-rose-700 border-rose-200" : "bg-brand-sunrise-400/15 text-ink-900 border-brand-sunrise-400/40"
+          }`}
+        >
           <Info className="w-4 h-4 mt-0.5 shrink-0" />
           {notice}
         </p>
       )}
 
-      <div className="rounded-3xl bg-white border border-slate-100 shadow-sm p-5 grid grid-cols-2 gap-y-4 gap-x-4">
-        <Field label="Passenger" value={booking.passenger_name} />
-        <Field label="Seat" value={booking.seat_number} />
-        <Field label="Date" value={formatDate(booking.departure_time)} />
-        <Field label="Departs" value={formatTime(booking.departure_time)} />
-        <Field label="Bus" value={booking.plate_num} />
-        <Field label="Fare" value={booking.base_fare != null ? `₱${booking.base_fare}` : null} />
-        <Field label="Trip status" value={booking.trip_status} />
-        <Field label="Booked" value={`${formatDate(booking.booked_at)?.replace(/^\w+, /, "")} ${formatTime(booking.booked_at) ?? ""}`} />
-      </div>
-
       {booking.status === "Reserved" && booking.channel === "online" && busNotLeft && (
         <PaymentPanel bookingIds={[booking.booking_id]} onStatus={handlePaymentStatus} />
+      )}
+
+      {paymentInfo?.payment?.status === "Verified" && (
+        <Link
+          to={`/passenger/my-bookings/${booking.booking_id}/receipt`}
+          className="card card-interactive group flex items-center gap-3 rounded-2xl p-4"
+        >
+          <span className="w-10 h-10 shrink-0 rounded-xl bg-brand-green-600 text-white flex items-center justify-center">
+            <ReceiptText className="w-5 h-5" />
+          </span>
+          <span className="flex-1 min-w-0">
+            <span className="block font-display font-semibold">Official receipt</span>
+            <span className="block text-xs text-ink-600">
+              {receiptNumber(paymentInfo.payment.payment_id)} · Payment verified · view, print or save as PDF
+            </span>
+          </span>
+          <ChevronRight className="w-4 h-4 text-ink-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+        </Link>
       )}
 
       {canTrack && (
         <Link
           to={`/passenger/tracking/${booking.trip_id}`}
-          className="w-full flex items-center justify-center gap-2 bg-brand-green-600 hover:bg-brand-green-500 text-white font-display font-semibold rounded-xl py-3"
+          className="w-full flex items-center justify-center gap-2 bg-brand-green-600 hover:bg-brand-green-500 text-white font-display font-semibold rounded-xl py-3 shadow-lg shadow-brand-green-600/25 transition-colors"
         >
           <MapPin className="w-4 h-4" /> Track this bus live
         </Link>
@@ -172,7 +214,7 @@ export default function BookingDetails() {
           type="button"
           onClick={handleCancel}
           disabled={isCancelling}
-          className="w-full border border-rose-300 text-rose-600 bg-white hover:bg-rose-50 disabled:opacity-60 font-display font-semibold rounded-xl py-3"
+          className="w-full border border-rose-200 text-rose-600 bg-white hover:bg-rose-50 hover:border-rose-300 disabled:opacity-60 font-display font-semibold rounded-xl py-3 transition-colors"
         >
           {isCancelling ? "Cancelling…" : booking.channel === "flagged" ? "Cancel this ride" : "Cancel booking"}
         </button>
@@ -183,9 +225,9 @@ export default function BookingDetails() {
 
 function Field({ label, value }) {
   return (
-    <div>
-      <p className="text-xs text-ink-600">{label}</p>
-      <p className="font-medium">{value ?? "—"}</p>
+    <div className="min-w-0">
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-600/80">{label}</p>
+      <p className="font-medium mt-0.5">{value ?? "—"}</p>
     </div>
   );
 }

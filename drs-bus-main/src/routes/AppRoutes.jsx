@@ -22,6 +22,7 @@ import TripDetail from '../pages/passenger/TripDetail'
 import BookingConfirmed from '../pages/passenger/BookingConfirmed'
 import MyBookings from '../pages/passenger/MyBookings'
 import BookingDetails from '../pages/passenger/BookingDetails'
+import PaymentReceipt from '../pages/passenger/PaymentReceipt'
 import LiveTracking from '../pages/passenger/LiveTracking'
 import FlagBus from '../pages/passenger/FlagBus'          // NEW — Mode 2 "Flag a Bus"; separate from the Book Ahead pages above so that flow never loads GPS/map code of its own
 import Profile from '../pages/passenger/Profile'
@@ -83,6 +84,7 @@ export default function AppRoutes() {
         <Route path="booking-confirmed" element={<BookingConfirmed />} />
         <Route path="my-bookings" element={<MyBookings />} />
         <Route path="my-bookings/:bookingId" element={<BookingDetails />} />
+        <Route path="my-bookings/:bookingId/receipt" element={<PaymentReceipt />} />  {/* official receipt, once staff verify the QR Ph payment */}
         <Route path="tracking/:tripId" element={<LiveTracking />} />
         {/* Two ways to ride, two separate entry points:
               Book Ahead  = trips -> trips/:tripId (SeatMap) -> booking-confirmed — terminal departure, pick a seat, no map

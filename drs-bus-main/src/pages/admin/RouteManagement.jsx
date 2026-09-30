@@ -1,11 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
-import { Route as RouteIcon, Plus, Pencil, Power, Search } from "lucide-react";
+import { Route as RouteIcon, Plus, Pencil, Power, Search, MapPin } from "lucide-react";
 import * as api from "../../lib/api";
 import EmptyState from "../../components/common/EmptyState";
 import InlineAlert from "../../components/common/InlineAlert";
 import Modal from "../../components/admin/Modal";
+import StopPinMap from "../../components/admin/StopPinMap";
+import { hasPin } from "../../lib/stopMarkers";
 
 const emptyForm = { origin: "", destination: "", distance: "", baseFare: "", specialFare: "" };
+
+const PIN_FILTERS = [
+  { value: "all", label: "All" },
+  { value: "pinned", label: "Pinned" },
+  { value: "unpinned", label: "Not pinned" },
+];
 
 // Table 4's Route Management: add/edit routes, and "deactivate" (not
 // delete — routes.is_active) since past trips still reference the row.
@@ -14,6 +22,10 @@ const emptyForm = { origin: "", destination: "", distance: "", baseFare: "", spe
 // (161 of them, from the digitized fare chart) rather than a handful of
 // city-pair routes, so this page has a search box instead of assuming the
 // whole list fits on screen.
+//
+// Each row is also a bus stop: "Pin on map" (StopPinMap) sets where that
+// stop really is, and the tracking maps show it. The Pinned filter makes it
+// easy to work through the stops that still need a pin.
 export default function AdminRouteManagement() {
   const [routes, setRoutes] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -23,6 +35,8 @@ export default function AdminRouteManagement() {
   const [form, setForm] = useState(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
   const [search, setSearch] = useState("");
+  const [pinFilter, setPinFilter] = useState("all");
+  const [pinning, setPinning] = useState(null); // route whose pin dialog is open
 
   function load() {
     api.getAdminRoutes().then(setRoutes).catch((err) => setError(err.message)).finally(() => setIsLoading(false));
@@ -30,11 +44,26 @@ export default function AdminRouteManagement() {
 
   useEffect(load, []);
 
+  const pinnedCount = useMemo(() => routes.filter(hasPin).length, [routes]);
+
+  // Search and the Pinned filter narrow the list together.
   const filteredRoutes = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return routes;
-    return routes.filter((r) => r.origin.toLowerCase().includes(q) || r.destination.toLowerCase().includes(q));
-  }, [routes, search]);
+    return routes.filter((r) => {
+      if (pinFilter === "pinned" && !hasPin(r)) return false;
+      if (pinFilter === "unpinned" && hasPin(r)) return false;
+      return !q || r.origin.toLowerCase().includes(q) || r.destination.toLowerCase().includes(q);
+    });
+  }, [routes, search, pinFilter]);
+
+  // Patch the saved row in place (no reload) so the table keeps its scroll
+  // position while the admin works down the list pinning stops.
+  function handlePinSaved(updated, outcome) {
+    setRoutes((prev) => prev.map((r) => (r.route_id === updated.route_id ? { ...r, ...updated } : r)));
+    setPinning(null);
+    setError("");
+    setSuccess(outcome === "cleared" ? `Pin removed for ${updated.destination}.` : `${updated.destination} pinned on the map.`);
+  }
 
   function openNew() {
     setForm(emptyForm);
@@ -124,14 +153,32 @@ export default function AdminRouteManagement() {
       <InlineAlert type="success" message={success} onDismiss={() => setSuccess("")} />
 
       {!isLoading && routes.length > 0 && (
-        <div className="relative max-w-sm">
-          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by origin or destination…"
-            className="input pl-9"
-          />
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative w-full max-w-sm">
+            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by origin or destination…"
+              className="input pl-9"
+            />
+          </div>
+          <div className="inline-flex rounded-lg border bg-white p-0.5" role="group" aria-label="Filter by map pin">
+            {PIN_FILTERS.map((f) => (
+              <button
+                key={f.value}
+                type="button"
+                onClick={() => setPinFilter(f.value)}
+                aria-pressed={pinFilter === f.value}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md ${pinFilter === f.value ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"}`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <span className="text-xs text-gray-500">
+            {pinnedCount} of {routes.length} stops pinned
+          </span>
         </div>
       )}
 
@@ -140,7 +187,13 @@ export default function AdminRouteManagement() {
       ) : routes.length === 0 ? (
         <EmptyState icon={RouteIcon} title="No routes yet" description="Add a route to start scheduling trips." />
       ) : filteredRoutes.length === 0 ? (
-        <p className="text-sm text-gray-500">No routes match "{search}".</p>
+        <p className="text-sm text-gray-500">
+          {search.trim()
+            ? `No ${pinFilter === "pinned" ? "pinned " : pinFilter === "unpinned" ? "unpinned " : ""}routes match "${search.trim()}".`
+            : pinFilter === "pinned"
+              ? "No stops are pinned yet. Use the pin button on a row to place one."
+              : "Every stop is pinned."}
+        </p>
       ) : (
         <div className="bg-white rounded-lg border overflow-hidden overflow-x-auto">
           <table className="w-full text-sm">
@@ -152,6 +205,7 @@ export default function AdminRouteManagement() {
                 <th className="px-4 py-3">Regular Fare</th>
                 <th className="px-4 py-3">Student/Special Fare</th>
                 <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Pinned</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
@@ -168,7 +222,27 @@ export default function AdminRouteManagement() {
                       {r.is_active ? "Active" : "Inactive"}
                     </span>
                   </td>
+                  <td className="px-4 py-3">
+                    {hasPin(r) ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700" title={`${Number(r.latitude).toFixed(6)}, ${Number(r.longitude).toFixed(6)}`}>
+                        <MapPin className="w-4 h-4 fill-emerald-100" /> Pinned
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-xs text-slate-400">
+                        <MapPin className="w-4 h-4" /> Not pinned
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => setPinning(r)}
+                      aria-label={`Pin ${r.destination} on map`}
+                      title={hasPin(r) ? "Move or clear the map pin" : "Pin on map"}
+                      className={`inline-flex items-center ${hasPin(r) ? "text-emerald-700 hover:text-emerald-600" : "text-gray-500 hover:text-emerald-700"}`}
+                    >
+                      <MapPin className="w-4 h-4" />
+                    </button>
                     <button type="button" onClick={() => openEdit(r)} aria-label="Edit" title="Edit" className="text-gray-500 hover:text-emerald-700 inline-flex items-center">
                       <Pencil className="w-4 h-4" />
                     </button>
@@ -188,6 +262,8 @@ export default function AdminRouteManagement() {
           Showing {filteredRoutes.length} of {routes.length} routes.
         </p>
       )}
+
+      {pinning && <StopPinMap route={pinning} allRoutes={routes} onSaved={handlePinSaved} onClose={() => setPinning(null)} />}
 
       {editing && (
         <Modal

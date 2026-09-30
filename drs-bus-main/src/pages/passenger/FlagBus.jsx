@@ -19,6 +19,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import EmptyState from "../../components/common/EmptyState";
 import InlineAlert from "../../components/common/InlineAlert";
+import PageHeader from "../../components/passenger/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import * as api from "../../lib/api";
 import { getSocket } from "../../lib/socket";
@@ -27,6 +28,7 @@ import { useRoadRoute, etaRange } from "../../hooks/useRoadRoute";
 import LocationPermissionCard from "../../components/common/LocationPermissionCard";
 import { distanceKm, formatDistance, timeAgo } from "../../lib/geo";
 import { MANUAL_PIN_FLAG_KEY } from "../../lib/storageKeys";
+import { addStopMarker, toPinnedStops } from "../../lib/stopMarkers";
 
 // Passenger Mode 2 — "Flag a Bus". For someone standing along the route
 // (not at the terminal) who wants to catch a bus that's already on the
@@ -46,6 +48,11 @@ const BUS_LIST_REFRESH_MS = 30000; // picks up buses that just went In Transit +
 const STALE_LOCATION_MS = 5 * 60 * 1000; // older than this, the bus is probably in a dead zone — say so instead of implying it's parked there
 const FLAG_TTL_MINUTES = 15; // mirrors FLAG_TTL_MINUTES in server/src/routes/bookings.js — display only, the server sweeper is authoritative
 const RECENT_FLAG_WINDOW_MS = 30 * 60 * 1000; // after a refresh, still show a flag's outcome if it's this recent
+// Pinned bus stops within this straight-line distance of the pickup point
+// are named on the map and listed under it; farther ones are small unnamed
+// markers. Only the nearest few get labels so the map stays readable.
+const NEARBY_STOP_KM = 3;
+const MAX_NAMED_STOPS = 3;
 const TREND_THRESHOLD_KM = 0.05; // ignore GPS jitter smaller than ~50 m when deciding approaching vs moving away
 // The driver stops exactly where the passenger is, so a flag needs a real
 // GPS fix, never a typed description alone. Mirrors MAX_PICKUP_ACCURACY_M
@@ -178,6 +185,7 @@ export default function FlagBus() {
   const meAccuracyRef = useRef(null); // faint circle: how sure the GPS is
   const pinMarkerRef = useRef(null);
   const routeLayerRef = useRef(null); // road path from the tracked bus to the pickup pin
+  const stopLayerRef = useRef(null); // pinned bus stops (context only — see the stops effect)
   const lastFitKeyRef = useRef(null); // trip the map was last framed around
   const canPinRef = useRef(true); // map taps place the pin only while no flag is open
   const hasFitRef = useRef(false);
@@ -395,6 +403,7 @@ export default function FlagBus() {
       meAccuracyRef.current = null;
       pinMarkerRef.current = null;
       routeLayerRef.current = null;
+      stopLayerRef.current = null;
       hasFitRef.current = false;
       markers.clear();
     };
@@ -441,6 +450,37 @@ export default function FlagBus() {
   const routeTarget = flagPickup ?? pickup;
   const pinLat = pinPoint?.latitude ?? null;
   const pinLng = pinPoint?.longitude ?? null;
+
+  // ---- Pinned bus stops ---------------------------------------------------
+  // Where the admin pinned the real stops (routes rows with a lat/lng), so
+  // the passenger can see where buses actually pull over near them. Purely
+  // informational: the pickup is still their GPS fix or their own pin, under
+  // exactly the same rules as before. Unpinned stops have no position and
+  // aren't shown.
+  const pinnedStops = useMemo(() => toPinnedStops(routes), [routes]);
+  const nearbyStops = useMemo(() => {
+    if (!routeTarget) return [];
+    return pinnedStops
+      .map((s) => ({ ...s, km: distanceKm(routeTarget, s) }))
+      .filter((s) => s.km != null && s.km <= NEARBY_STOP_KM)
+      .sort((a, b) => a.km - b.km)
+      .slice(0, MAX_NAMED_STOPS);
+  }, [pinnedStops, routeTarget]);
+  const namedStopIds = nearbyStops.map((s) => s.routeId).join(",");
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!stopLayerRef.current) stopLayerRef.current = L.layerGroup().addTo(map);
+    const layer = stopLayerRef.current;
+    layer.clearLayers();
+    const named = new Set(namedStopIds ? namedStopIds.split(",").map(Number) : []);
+    for (const stop of pinnedStops) {
+      // interactive: false — taps go straight through to the map, so placing
+      // the pickup pin next to a stop works exactly as it did before.
+      addStopMarker(layer, stop, { interactive: false, label: named.has(stop.routeId) ? "permanent" : false, zIndexOffset: -500 });
+    }
+  }, [pinnedStops, namedStopIds]);
 
   // The pickup pin: draggable to fine-tune while no flag is open.
   useEffect(() => {
@@ -626,21 +666,19 @@ export default function FlagBus() {
   const hasOpenFlag = isOpenFlag(flag);
 
   return (
-    <div className="max-w-md mx-auto lg:max-w-5xl px-4 py-6 space-y-5">
-      <header className="space-y-1">
-        <h1 className="font-display text-xl font-bold flex items-center gap-2">
-          <Hand className="w-5 h-5 text-brand-green-600" /> Flag a Bus
-        </h1>
-        <p className="text-sm text-ink-600">
-          Waiting along the road? Pick a bus that's already on its way and let the driver know to stop for you.
-        </p>
+    <div className="page-enter max-w-md mx-auto lg:max-w-5xl px-4 py-6 lg:py-10 space-y-5">
+      <PageHeader
+        icon={Hand}
+        title="Flag a Bus"
+        subtitle="Waiting along the road? Pick a bus that's already on its way and let the driver know to stop for you."
+      >
         <p className="text-xs text-ink-600">
           At the terminal instead?{" "}
           <Link to="/passenger/trips" className="font-medium text-brand-green-600 hover:underline">
             Book ahead and choose your seat
           </Link>
         </p>
-      </header>
+      </PageHeader>
 
       <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
 
@@ -708,6 +746,22 @@ export default function FlagBus() {
               </>
             )}
           </div>
+
+          {nearbyStops.length > 0 && (
+            <div className="rounded-2xl bg-white border border-slate-100 shadow-sm px-4 py-3 text-sm space-y-1">
+              <p className="flex items-center gap-1.5 font-semibold">
+                <MapPin className="w-4 h-4 text-blue-700" /> Bus stops near your pickup point
+              </p>
+              <ul className="text-ink-600">
+                {nearbyStops.map((s) => (
+                  <li key={s.routeId}>
+                    {s.name} · {formatDistance(s.km)} away
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-ink-600">Straight-line distance. The bus still stops at your pin — walking to a stop is up to you.</p>
+            </div>
+          )}
 
           <section className="space-y-3">
             <h2 className="font-display font-semibold text-lg">Buses on the road</h2>

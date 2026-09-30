@@ -16,7 +16,10 @@ CREATE TABLE IF NOT EXISTS routes (
   distance DECIMAL(6,2),
   base_fare DECIMAL(8,2) NOT NULL, -- addition: in Table 4's narrative ("base fare and distance centrally stored") but not drawn in the Figure 10 box
   special_fare DECIMAL(8,2) NULL, -- addition: the printed fare charts show a two-tier REGULAR / SPECIAL (student/discounted) fare per route
-  is_active BOOLEAN NOT NULL DEFAULT TRUE -- addition: Table 4's Route Management says admin can "deactivate" a route; past trips still FK to it, so this is a soft-delete flag rather than a DELETE
+  is_active BOOLEAN NOT NULL DEFAULT TRUE, -- addition: Table 4's Route Management says admin can "deactivate" a route; past trips still FK to it, so this is a soft-delete flag rather than a DELETE
+  latitude DECIMAL(10,7) NULL, -- addition: exact map position of this stop (the km post a route row ends at), pinned by the admin in RouteManagement. NULL = not pinned yet; nothing guesses a position
+  longitude DECIMAL(10,7) NULL, -- addition: see latitude. Always set or cleared together with it (PATCH /api/routes/:id/pin)
+  pinned_at TIMESTAMP NULL DEFAULT NULL -- addition: when the pin was last placed, so the admin can tell an old pin from a fresh one
 );
 
 CREATE TABLE IF NOT EXISTS drivers (

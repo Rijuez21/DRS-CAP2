@@ -14,6 +14,18 @@ export const BOOKABLE_TRIP_STATUSES = ["Scheduled", "Boarding"];
 // /api/trips/:id/seats and the active_seat_number lock in schema.sql.
 export const SEAT_HOLDING_STATUSES = ["Reserved", "Confirmed", "Boarded"];
 
+// Every walk-in sale points at this one placeholder commuter (bookings.js).
+// It must never be a real, loginable account: if a passenger could register
+// it, every walk-in ticket would land in their My Bookings. /register refuses
+// it, and the placeholder is the row with an empty password_hash.
+export const WALK_IN_EMAIL = "walk-in@drs.local";
+
+// MySQL compares emails case-insensitively, so "Walk-In@DRS.local" is the
+// same account — compare the same way here.
+export function isReservedEmail(email) {
+  return String(email ?? "").trim().toLowerCase() === WALK_IN_EMAIL;
+}
+
 // Load the trip + bus facts every sale decision needs.
 export async function loadTripForSale(conn, tripId) {
   const [[trip]] = await conn.query(

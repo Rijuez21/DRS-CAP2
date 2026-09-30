@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { Bell } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Bell, ReceiptText } from "lucide-react";
 import * as api from "../../lib/api";
 import { getSocket } from "../../lib/socket";
+
+// A "payment_verified" notification means that booking now has an official
+// receipt. Notifications carry no link column, so the booking is read from
+// the message the server writes ("… booking #123 …", routes/payments.js).
+function receiptBookingId(n) {
+  if (n.type !== "payment_verified") return null;
+  return /booking #(\d+)/.exec(n.message)?.[1] ?? null;
+}
 
 // Phase 0.3's Reliability requirement: notify passengers/drivers of
 // schedule changes. Dropped into PassengerLayout/DriverLayout — mounted
@@ -83,12 +92,24 @@ export default function NotificationBell({ recipientType, recipientId }) {
             {notifications.length === 0 ? (
               <p className="text-sm text-gray-400 px-4 py-6 text-center">No notifications yet.</p>
             ) : (
-              notifications.map((n) => (
-                <div key={n.notification_id} className="px-4 py-3 text-sm">
-                  <p>{n.message}</p>
-                  <p className="text-xs text-gray-400 mt-1">{new Date(n.created_at).toLocaleString()}</p>
-                </div>
-              ))
+              notifications.map((n) => {
+                const receiptFor = receiptBookingId(n);
+                return (
+                  <div key={n.notification_id} className="px-4 py-3 text-sm">
+                    <p>{n.message}</p>
+                    {receiptFor && (
+                      <Link
+                        to={`/passenger/my-bookings/${receiptFor}/receipt`}
+                        onClick={() => setIsOpen(false)}
+                        className="inline-flex items-center gap-1 mt-1.5 text-xs font-semibold text-brand-green-600 hover:underline"
+                      >
+                        <ReceiptText className="w-3.5 h-3.5" /> View receipt
+                      </Link>
+                    )}
+                    <p className="text-xs text-gray-400 mt-1">{new Date(n.created_at).toLocaleString()}</p>
+                  </div>
+                );
+              })
             )}
           </div>
         </div>

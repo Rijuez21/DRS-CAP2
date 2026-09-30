@@ -136,6 +136,15 @@ const STATEMENTS = [
     KEY idx_payments_booking (booking_id),
     KEY idx_payments_status (status)
   )`,
+
+  // ---- Bus stop pins (routes/routes.js PATCH /:id/pin) -----------------
+  // addition: each routes row is one stop (km post) on the Baguio–Bontoc
+  // line; these hold where that stop actually is on the map. Nullable
+  // because every existing row starts unpinned, and nothing may guess a
+  // position for it. Re-running is a no-op (ER_DUP_FIELDNAME is ignored).
+  `ALTER TABLE routes ADD COLUMN latitude DECIMAL(10,7) NULL`,
+  `ALTER TABLE routes ADD COLUMN longitude DECIMAL(10,7) NULL`,
+  `ALTER TABLE routes ADD COLUMN pinned_at TIMESTAMP NULL DEFAULT NULL`,
 ];
 
 const IGNORABLE = new Set(["ER_DUP_FIELDNAME", "ER_TABLE_EXISTS_ERROR", "ER_DUP_KEYNAME", "ER_FK_DUP_NAME", "ER_DUP_KEY"]);

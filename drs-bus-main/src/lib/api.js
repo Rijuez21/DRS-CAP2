@@ -163,10 +163,15 @@ export const updateBusStatus = (busId, status) =>
 
 // ---- Routes (admin edits) -------------------------------------------------------------
 export const getAdminRoutes = () => request("/api/routes", { params: { includeInactive: 1 } });
+
 export const createRoute = (payload) => request("/api/routes", { method: "POST", body: payload });
 export const updateRoute = (routeId, payload) => request(`/api/routes/${routeId}`, { method: "PATCH", body: payload });
 export const setRouteActive = (routeId, isActive) =>
   request(`/api/routes/${routeId}/deactivate`, { method: "PATCH", body: { isActive } });
+
+// Admin pins where a stop (a routes row) is on the map; both null clears it.
+export const pinRoute = (routeId, { latitude, longitude }) =>
+  request(`/api/routes/${routeId}/pin`, { method: "PATCH", body: { latitude, longitude } });
 
 // ---- Drivers (admin) -------------------------------------------------------------
 export const getDrivers = () => request("/api/drivers");
