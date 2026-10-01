@@ -104,9 +104,7 @@ src/
 │   ├── driver/
 │   │   ├── Dashboard.jsx
 │   │   ├── RouteSchedule.jsx
-│   │   ├── Manifest.jsx
-│   │   ├── VehicleChecklist.jsx
-│   │   └── IssueReports.jsx
+│   │   └── Manifest.jsx
 │   ├── staff/
 │   │   ├── WalkInSales.jsx
 │   │   └── ReservationValidation.jsx
@@ -117,7 +115,6 @@ src/
 │       ├── DriverManagement.jsx
 │       ├── TripScheduling.jsx
 │       ├── ReservationsManagement.jsx
-│       ├── MaintenanceTracking.jsx
 │       └── UserManagement.jsx
 ├── routes/
 │   └── AppRoutes.jsx
@@ -156,9 +153,9 @@ All routes are defined centrally in `src/routes/AppRoutes.jsx`.
 | Role | Base Path | Routes |
 |---|---|---|
 | Passenger | `/passenger` | `home`, `trips`, `trips/:tripId`, `booking-confirmed`, `my-bookings`, `my-bookings/:bookingId`, `tracking/:tripId`, `profile` |
-| Driver | `/driver` | `dashboard`, `route-schedule`, `manifest`, `vehicle-checklist`, `issue-reports` |
+| Driver | `/driver` | `dashboard`, `route-schedule`, `manifest` |
 | Terminal Staff | `/staff` | `walk-in`, `validate` |
-| Admin | `/admin` | `dashboard`, `fleet`, `routes`, `drivers`, `trips`, `reservations`, `maintenance`, `users` |
+| Admin | `/admin` | `dashboard`, `fleet`, `routes`, `drivers`, `trips`, `reservations`, `users` |
 
 Each role's base path redirects to that role's default page. Unmatched URLs redirect to `/`. `PassengerLayout` is mobile-first: bottom tab bar below the `lg` breakpoint, fixed left sidebar at `lg` and above.
 

@@ -129,11 +129,6 @@ function TripGroup({ title, trips, onAdvance, updatingId, empty, muted = false }
                 <Link to={`/driver/manifest?tripId=${t.trip_id}`} className="text-emerald-700 font-medium underline">
                   Passenger list
                 </Link>
-                {t.status !== "In Transit" && (
-                  <Link to={`/driver/vehicle-checklist?tripId=${t.trip_id}`} className="text-emerald-700 font-medium underline">
-                    Pre-trip checklist
-                  </Link>
-                )}
                 {NEXT[t.status] && (
                   <button
                     type="button"

@@ -188,12 +188,6 @@ export const updateStaff = (staffId, payload) =>
   request(`/api/staff/${staffId}`, { method: "PATCH", body: payload });
 export const deleteStaff = (staffId) => request(`/api/staff/${staffId}`, { method: "DELETE" });
 
-// ---- Maintenance (admin) -------------------------------------------------------------
-export const getMaintenance = () => request("/api/maintenance");
-export const createMaintenance = (payload) => request("/api/maintenance", { method: "POST", body: payload });
-export const updateMaintenance = (maintenanceId, payload) =>
-  request(`/api/maintenance/${maintenanceId}`, { method: "PATCH", body: payload });
-
 // ---- Trip scheduling (admin + terminal staff) -------------------------------------------------------------
 export const createTrip = (payload) => request("/api/trips", { method: "POST", body: payload });
 export const updateTrip = (tripId, payload) => request(`/api/trips/${tripId}`, { method: "PATCH", body: payload });
@@ -206,7 +200,6 @@ export const searchBookings = (q, tripId) => request("/api/bookings/search", { p
 export const getDashboardSummary = () => request("/api/dashboard/summary");
 export const getOnTimeReport = (params) => request("/api/reports/on-time-performance", { params });
 export const getFleetUtilizationReport = (params) => request("/api/reports/fleet-utilization", { params });
-export const getMaintenanceCostReport = (params) => request("/api/reports/maintenance-costs", { params });
 export const getReservationTrendsReport = (params) => request("/api/reports/reservation-trends", { params });
 export const getReportExportUrl = (type, params) => {
   const url = new URL(`${BASE_URL}/api/reports/export`);
@@ -223,17 +216,6 @@ export const markNotificationRead = (notificationId) =>
   request(`/api/notifications/${notificationId}/read`, { method: "PATCH" });
 export const markAllNotificationsRead = (recipientType, recipientId) =>
   request("/api/notifications/read-all", { method: "PATCH", body: { recipientType, recipientId } });
-
-// ---- Vehicle checklists -------------------------------------------------------------
-export const getChecklist = (tripId) => request("/api/checklists", { params: { tripId } });
-export const submitChecklist = (payload) => request("/api/checklists", { method: "POST", body: payload });
-
-// ---- Issue reports -------------------------------------------------------------
-// Driver: their own reports. Admin: every report (optionally { status }).
-export const getIssues = (params) => request("/api/issues", { params });
-export const updateIssueStatus = (issueId, status) =>
-  request(`/api/issues/${issueId}`, { method: "PATCH", body: { status } });
-export const submitIssue = (payload) => request("/api/issues", { method: "POST", body: payload });
 
 // CSV export needs the admin's login header, which a plain <a href> can't
 // send (so the old link always failed with 401). Fetch it, then hand the

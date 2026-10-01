@@ -1,4 +1,4 @@
-import { LayoutDashboard, Bus, Map, Route, IdCard, CalendarClock, Ticket, Wrench, BarChart3, Users, Wallet, QrCode } from "lucide-react";
+import { LayoutDashboard, Bus, Map, Route, IdCard, CalendarClock, Ticket, BarChart3, Users, Wallet, QrCode } from "lucide-react";
 import RoleLayout from "./RoleLayout";
 
 // Admin work is mostly desktop, but the four most-checked screens are
@@ -13,7 +13,6 @@ const links = [
   { to: "fleet", label: "Fleet Management", icon: Bus },
   { to: "routes", label: "Route Management", icon: Route },
   { to: "drivers", label: "Driver Management", icon: IdCard },
-  { to: "maintenance", label: "Maintenance & Issues", icon: Wrench },
   { to: "reports", label: "Reports & Analytics", icon: BarChart3 },
   { to: "users", label: "User Management", icon: Users },
 ];

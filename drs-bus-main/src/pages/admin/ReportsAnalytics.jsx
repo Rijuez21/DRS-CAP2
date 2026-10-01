@@ -8,7 +8,6 @@ import { formatDate } from "../../lib/format";
 const REPORT_TYPES = [
   { key: "on-time-performance", label: "On-Time Performance" },
   { key: "fleet-utilization", label: "Fleet Utilization" },
-  { key: "maintenance-costs", label: "Maintenance Costs" },
   { key: "reservation-trends", label: "Reservation Trends" },
 ];
 
@@ -45,7 +44,6 @@ export default function ReportsAnalytics() {
     const loaders = {
       "on-time-performance": api.getOnTimeReport,
       "fleet-utilization": api.getFleetUtilizationReport,
-      "maintenance-costs": api.getMaintenanceCostReport,
       "reservation-trends": api.getReservationTrendsReport,
     };
     loaders[reportType](params)
@@ -107,7 +105,6 @@ export default function ReportsAnalytics() {
         <div className="bg-white rounded-xl border border-slate-200 p-4">
           {reportType === "on-time-performance" && <OnTimeChart rows={data} />}
           {reportType === "fleet-utilization" && <UtilizationChart rows={data} />}
-          {reportType === "maintenance-costs" && <MaintenanceCostChart data={data} />}
           {reportType === "reservation-trends" && <TrendsChart data={data} />}
         </div>
       )}
@@ -147,23 +144,6 @@ function UtilizationChart({ rows }) {
   );
 }
 
-function MaintenanceCostChart({ data }) {
-  if (!data?.byBus?.length) return <EmptyNote />;
-  return (
-    <>
-      <p className="text-sm text-gray-500 mb-3">Total: ₱{Number(data.grandTotal ?? 0).toLocaleString()}</p>
-      <ResponsiveContainer width="100%" height={280}>
-        <BarChart data={data.byBus}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-          <XAxis dataKey="plate_num" fontSize={12} />
-          <YAxis fontSize={12} />
-          <Tooltip />
-          <Bar dataKey="totalCost" name="Cost (₱)" fill="#f0a63a" radius={[4, 4, 0, 0]} />
-        </BarChart>
-      </ResponsiveContainer>
-    </>
-  );
-}
 
 function TrendsChart({ data }) {
   if (!data?.byDay?.length) return <EmptyNote />;

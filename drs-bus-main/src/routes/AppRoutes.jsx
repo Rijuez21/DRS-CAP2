@@ -32,8 +32,6 @@ import DriverDashboard from '../pages/driver/DriverDashboard'
 import AssignedBus from '../pages/driver/AssignedBus'      // NEW
 import RouteSchedule from '../pages/driver/RouteSchedule'
 import Manifest from '../pages/driver/Manifest'
-import VehicleChecklist from '../pages/driver/VehicleChecklist'
-import IssueReports from '../pages/driver/IssueReports'
 import DriverProfile from '../pages/driver/Profile'        // NEW — named DriverProfile, not Profile, to avoid colliding with the passenger Profile import already in this file
 
 // Staff pages
@@ -49,7 +47,6 @@ import RouteManagement from '../pages/admin/RouteManagement'
 import DriverManagement from '../pages/admin/DriverManagement'
 import TripScheduling from '../pages/admin/TripScheduling'
 import ReservationsManagement from '../pages/admin/ReservationsManagement'
-import MaintenanceTracking from '../pages/admin/MaintenanceTracking'
 import ReportsAnalytics from '../pages/admin/ReportsAnalytics'
 import UserManagement from '../pages/admin/UserManagement'
 import PaymentSettings from '../pages/admin/PaymentSettings'
@@ -107,8 +104,6 @@ export default function AppRoutes() {
         <Route path="assigned-bus" element={<AssignedBus />} />       {/* NEW */}
         <Route path="route-schedule" element={<RouteSchedule />} />
         <Route path="manifest" element={<Manifest />} />
-        <Route path="vehicle-checklist" element={<VehicleChecklist />} />
-        <Route path="issue-reports" element={<IssueReports />} />
         <Route path="profile" element={<DriverProfile />} />          {/* NEW */}
       </Route>
 
@@ -145,7 +140,6 @@ export default function AppRoutes() {
         <Route path="drivers" element={<DriverManagement />} />
         <Route path="trips" element={<TripScheduling />} />
         <Route path="reservations" element={<ReservationsManagement />} />
-        <Route path="maintenance" element={<MaintenanceTracking />} />
         <Route path="reports" element={<ReportsAnalytics />} />
         <Route path="users" element={<UserManagement />} />
         <Route path="payments" element={<PaymentReview />} />

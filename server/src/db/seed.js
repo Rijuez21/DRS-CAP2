@@ -156,16 +156,6 @@ async function main() {
     }
   }
 
-  // ---- Maintenance: one overdue record so the Dashboard's alert card
-  // and MaintenanceTracking's flag both have something to show. ----------
-  const maintenanceBus = busRows.find((b) => b.plate_num === "NXV-3456") ?? busRows[0];
-  await pool.query(
-    `INSERT INTO maintenance (bus_id, service_type, date, cost, next_service_date, status)
-     SELECT ?, 'Brake inspection', DATE_SUB(CURDATE(), INTERVAL 45 DAY), 3500.00, DATE_SUB(CURDATE(), INTERVAL 5 DAY), 'Completed'
-     WHERE NOT EXISTS (SELECT 1 FROM maintenance WHERE bus_id = ? AND service_type = 'Brake inspection')`,
-    [maintenanceBus.bus_id, maintenanceBus.bus_id]
-  );
-
   // ---- Audit log entry, so the Dashboard's activity feed isn't empty ----
   if (adminRow) {
     await pool.query(

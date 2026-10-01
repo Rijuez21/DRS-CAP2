@@ -114,55 +114,7 @@ CREATE TABLE IF NOT EXISTS location_tracking (
   KEY idx_location_bus_time (bus_id, timestamp) -- addition: "latest point per bus" lookups; see migrate.js for the measured reason
 );
 
-CREATE TABLE IF NOT EXISTS maintenance (
-  maintenance_id INT AUTO_INCREMENT PRIMARY KEY,
-  service_type VARCHAR(100) NOT NULL,
-  date DATE NOT NULL,
-  cost DECIMAL(10,2),
-  mechanic_notes TEXT, -- addition: in the narrative's attribute list, not drawn in the Figure 10 box
-  next_service_date DATE,
-  status ENUM('Scheduled', 'In Progress', 'Completed') NOT NULL DEFAULT 'Scheduled',
-  bus_id INT NOT NULL,
-  FOREIGN KEY (bus_id) REFERENCES buses(bus_id)
-);
 
--- addition: the ERD has no table for this at all. Section 3.2.3.3 describes
--- "Pre-Trip Vehicle Checklist -- digitizes the mandatory safety inspection,
--- requiring drivers to verify engine, tires, brakes, lights, fuel, and
--- cleanliness before starting a trip" as a Driver Module feature, so it
--- needs somewhere to persist even though Figure 10 doesn't model it.
-CREATE TABLE IF NOT EXISTS vehicle_checklists (
-  checklist_id INT AUTO_INCREMENT PRIMARY KEY,
-  trip_id INT NOT NULL,
-  driver_id INT NOT NULL,
-  engine_ok BOOLEAN NOT NULL DEFAULT FALSE,
-  tires_ok BOOLEAN NOT NULL DEFAULT FALSE,
-  brakes_ok BOOLEAN NOT NULL DEFAULT FALSE,
-  lights_ok BOOLEAN NOT NULL DEFAULT FALSE,
-  fuel_ok BOOLEAN NOT NULL DEFAULT FALSE,
-  cleanliness_ok BOOLEAN NOT NULL DEFAULT FALSE,
-  notes TEXT,
-  submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (trip_id) REFERENCES trips(trip_id),
-  FOREIGN KEY (driver_id) REFERENCES drivers(driver_id),
-  UNIQUE KEY one_checklist_per_trip (trip_id)
-);
-
--- addition: same situation as vehicle_checklists -- needed for the Driver
--- Module's safety/incident reporting but not part of the document's ERD.
-CREATE TABLE IF NOT EXISTS issue_reports (
-  issue_id INT AUTO_INCREMENT PRIMARY KEY,
-  trip_id INT,
-  bus_id INT NOT NULL,
-  driver_id INT NOT NULL,
-  category ENUM('mechanical', 'safety', 'passenger', 'route', 'other') NOT NULL DEFAULT 'other',
-  description TEXT NOT NULL,
-  status ENUM('Open', 'Acknowledged', 'Resolved') NOT NULL DEFAULT 'Open',
-  reported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (trip_id) REFERENCES trips(trip_id),
-  FOREIGN KEY (bus_id) REFERENCES buses(bus_id),
-  FOREIGN KEY (driver_id) REFERENCES drivers(driver_id)
-);
 -- addition: not in the ERD at all. Security non-functional requirement --
 -- "administrators must have audit trails for all critical actions" -- so
 -- every admin create/edit/delete/status-override writes a row here.
@@ -170,7 +122,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
   audit_id INT AUTO_INCREMENT PRIMARY KEY,
   staff_id INT NOT NULL,
   action VARCHAR(50) NOT NULL, -- e.g. 'create', 'update', 'delete', 'status_change'
-  entity_type VARCHAR(50) NOT NULL, -- e.g. 'bus', 'driver', 'route', 'trip', 'maintenance', 'staff'
+  entity_type VARCHAR(50) NOT NULL, -- e.g. 'bus', 'driver', 'route', 'trip', 'staff'
   entity_id INT,
   details JSON,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

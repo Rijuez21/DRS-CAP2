@@ -80,8 +80,8 @@ Feed that position into Leaflet/Mapbox exactly as the paper specifies
 
 `src/db/schema.sql` is built directly from the DRS Bus Management System
 proposal document, Chapter 3.3.4 (Entity-Relationship Diagram, Figure 10)
-and 3.3.5 (Database Design): 8 tables — `routes`, `buses`, `drivers`,
-`commuters`, `trips`, `bookings`, `location_tracking`, `maintenance` — using
+and 3.3.5 (Database Design): 7 tables — `routes`, `buses`, `drivers`,
+`commuters`, `trips`, `bookings`, `location_tracking` — using
 the exact primary keys and column names the document specifies (`plate_num`,
 `license_number`, `commuter_id`, etc.), including the document's specific
 `Booking.status` enum (`Reserved/Confirmed/Boarded/Cancelled/No-Show`) and
@@ -96,10 +96,9 @@ vs. implementation glue:
   Staff and Admin logins needed somewhere to authenticate against.
 - `drivers.password_hash` — the ERD's Driver box has no auth field, but
   DriverLogin.jsx needs one.
-- `routes.base_fare`, `trips.arrival_time`, `location_tracking.sync_status`,
-  `maintenance.mechanic_notes` — mentioned in the document's narrative text
+- `routes.base_fare`, `trips.arrival_time`, `location_tracking.sync_status` —
   but not drawn in the Figure 10 boxes; kept since the frontend already has
-  UI for them (fares, ETAs, offline sync, service notes).
+  UI for them (fares, ETAs, offline sync).
 
 ## API routes
 
@@ -120,8 +119,6 @@ vs. implementation glue:
 | GET    | `/api/buses`                  | FleetManagement                    |
 | POST   | `/api/buses`                  | admin: add a bus                   |
 | PATCH  | `/api/buses/:id/status`       | admin: flip Active/Idle/Maintenance|
-| GET    | `/api/maintenance`            | MaintenanceTracking                |
-| POST   | `/api/maintenance`            | admin: log a service event         |
 | POST   | `/api/tracking`               | driver device: post one GPS point  |
 | POST   | `/api/tracking/batch`         | driver device: flush buffered points after reconnecting |
 | GET    | `/api/tracking/:busId/latest` | LiveTracking (passenger map)       |

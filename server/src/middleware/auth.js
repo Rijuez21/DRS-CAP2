@@ -45,7 +45,7 @@ export function authenticate(req, res, next) {
 
 // requireRole('admin'), requireRole('admin', 'staff'), etc. — authenticates
 // first, then rejects if the token's role isn't one of the allowed roles.
-// Used on the admin-only writes (bus/route/maintenance/driver/staff
+// Used on the admin-only writes (bus/route/driver/staff
 // creation and edits) and the fleet-wide tracking endpoint.
 export function requireRole(...roles) {
   return (req, res, next) => {
