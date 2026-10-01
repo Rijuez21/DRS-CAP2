@@ -8,6 +8,7 @@ import InlineAlert from "../common/InlineAlert";
 import { useGeolocation } from "../../hooks/useGeolocation";
 import * as api from "../../lib/api";
 import { distanceKm, formatDistance } from "../../lib/geo";
+import { keepMapSized } from "../../lib/leafletAutoResize";
 import {
   CORRIDOR_CENTER,
   CORRIDOR_ZOOM,
@@ -120,12 +121,9 @@ export default function StopPinMap({ route, allRoutes, onSaved, onClose }) {
     map.on("mouseout", () => setCursor(null));
     mapRef.current = map;
 
-    const timer = setTimeout(() => map.invalidateSize(), 0);
-    const resizeObserver = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => map.invalidateSize()) : null;
-    resizeObserver?.observe(container);
+    const stopSizing = keepMapSized(map);
     return () => {
-      clearTimeout(timer);
-      resizeObserver?.disconnect();
+      stopSizing();
       map.remove();
       mapRef.current = null;
       pinMarkerRef.current = null;

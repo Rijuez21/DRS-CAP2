@@ -29,6 +29,7 @@ import LocationPermissionCard from "../../components/common/LocationPermissionCa
 import { distanceKm, formatDistance, timeAgo } from "../../lib/geo";
 import { MANUAL_PIN_FLAG_KEY } from "../../lib/storageKeys";
 import { addStopMarker, toPinnedStops } from "../../lib/stopMarkers";
+import { keepMapSized } from "../../lib/leafletAutoResize";
 
 // Passenger Mode 2 — "Flag a Bus". For someone standing along the route
 // (not at the terminal) who wants to catch a bus that's already on the
@@ -395,8 +396,13 @@ export default function FlagBus() {
       setManualPin({ latitude: e.latlng.lat, longitude: e.latlng.lng });
     });
 
+    // The map grows when a bus is tracked (see the container's height
+    // classes below); without this the added area stayed blank white.
+    const stopSizing = keepMapSized(mapRef.current);
+
     const markers = busMarkersRef.current;
     return () => {
+      stopSizing();
       mapRef.current?.remove();
       mapRef.current = null;
       meMarkerRef.current = null;
@@ -726,10 +732,14 @@ export default function FlagBus() {
               a local stacking context keeps them from painting over the
               sticky mobile header (z-20) when the page scrolls. */}
           <div className="relative isolate">
-            <div
-              ref={mapContainerRef}
-              className={`w-full ${trackedBus ? "h-[28rem] lg:h-[32rem]" : "h-80 lg:h-[26rem]"} rounded-3xl overflow-hidden border border-slate-100 shadow-sm z-0`}
-            />
+            {/* The height changes when a bus is tracked, so it lives on this
+                wrapper. Leaflet adds its own classes (leaflet-container, …)
+                to the map div; changing that div's className made React wipe
+                them, and the map tiles vanished (blank map, only the pin,
+                bus and route left). Keep the map div's className constant. */}
+            <div className={`w-full ${trackedBus ? "h-[28rem] lg:h-[32rem]" : "h-80 lg:h-[26rem]"} rounded-3xl overflow-hidden border border-slate-100 shadow-sm`}>
+              <div ref={mapContainerRef} className="w-full h-full z-0" />
+            </div>
             <LocationBadge status={geoStatus} me={me} manualPin={manualPin} />
             {trackedBus && (
               <>

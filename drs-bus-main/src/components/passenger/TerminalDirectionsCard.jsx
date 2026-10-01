@@ -6,6 +6,7 @@ import LocationPermissionCard from "../common/LocationPermissionCard";
 import { useGeolocation } from "../../hooks/useGeolocation";
 import { useRoadRoute } from "../../hooks/useRoadRoute";
 import { addStopMarker } from "../../lib/stopMarkers";
+import { keepMapSized } from "../../lib/leafletAutoResize";
 import { formatDistance } from "../../lib/geo";
 import { TERMINAL, terminalDirectionsUrl } from "../../lib/terminal";
 
@@ -36,7 +37,9 @@ export default function TerminalDirectionsCard() {
     }).addTo(map);
     addStopMarker(map, TERMINAL, { variant: "highlight", label: "permanent", zIndexOffset: 500 });
     mapRef.current = map;
+    const stopSizing = keepMapSized(map);
     return () => {
+      stopSizing();
       map.remove();
       mapRef.current = null;
       meMarkerRef.current = null;

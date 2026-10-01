@@ -13,6 +13,7 @@ import { getSocket } from "../../lib/socket";
 import { mapTrip, formatTime } from "../../lib/format";
 import { distanceKm, formatDistance, timeAgo } from "../../lib/geo";
 import { addStopMarker } from "../../lib/stopMarkers";
+import { keepMapSized } from "../../lib/leafletAutoResize";
 
 const STALE_MS = 5 * 60 * 1000; // no fix for 5 min: likely a Cordillera dead zone — say so
 
@@ -31,6 +32,7 @@ export default function LiveTracking() {
 
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
+  const stopSizingRef = useRef(null); // keepMapSized cleanup, set when the map is created
   const busMarkerRef = useRef(null);
   const meMarkerRef = useRef(null);
   const stopMarkerRef = useRef(null);
@@ -102,6 +104,7 @@ export default function LiveTracking() {
     const latLng = [position.latitude, position.longitude];
     if (!mapRef.current) {
       mapRef.current = L.map(mapContainerRef.current).setView(latLng, 13);
+      stopSizingRef.current = keepMapSized(mapRef.current);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: "© OpenStreetMap contributors",
       }).addTo(mapRef.current);
@@ -161,6 +164,8 @@ export default function LiveTracking() {
 
   useEffect(
     () => () => {
+      stopSizingRef.current?.();
+      stopSizingRef.current = null;
       mapRef.current?.remove();
       mapRef.current = null;
       stopMarkerRef.current = null;

@@ -1,8 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { Bell, ReceiptText } from "lucide-react";
 import * as api from "../../lib/api";
 import { getSocket } from "../../lib/socket";
+
+const PANEL_WIDTH = 288; // px — Tailwind w-72
 
 // A "payment_verified" notification means that booking now has an official
 // receipt. Notifications carry no link column, so the booking is read from
@@ -21,6 +24,9 @@ export default function NotificationBell({ recipientType, recipientId }) {
   const [notifications, setNotifications] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
+  const buttonRef = useRef(null);
+  const panelRef = useRef(null); // the panel is portalled to <body>, so it isn't inside containerRef
+  const [panelPos, setPanelPos] = useState(null); // { top, left, width } in viewport px
 
   const unreadCount = notifications.filter((n) => !n.read_at).length;
 
@@ -54,11 +60,41 @@ export default function NotificationBell({ recipientType, recipientId }) {
 
   useEffect(() => {
     function handleClickOutside(e) {
-      if (containerRef.current && !containerRef.current.contains(e.target)) setIsOpen(false);
+      if (containerRef.current?.contains(e.target) || panelRef.current?.contains(e.target)) return;
+      setIsOpen(false);
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // The panel is position: fixed and placed against the screen, not the
+  // bell. The bell sits at the right edge of a 240px desktop sidebar (or
+  // the phone top bar); a right-aligned 288px panel ran off the left of
+  // the screen there, and the sidebar's scroll area clipped it. Prefer
+  // lining up with the bell's right edge, else its left edge (opening into
+  // the page), and always keep a margin from both screen edges.
+  const placePanel = useCallback(() => {
+    const button = buttonRef.current;
+    if (!button) return;
+    const rect = button.getBoundingClientRect();
+    const margin = 8;
+    const width = Math.min(PANEL_WIDTH, window.innerWidth - margin * 2);
+    let left = rect.right - width;
+    if (left < margin) left = rect.left;
+    left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
+    setPanelPos({ top: rect.bottom + margin, left, width });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!isOpen) return undefined;
+    placePanel();
+    window.addEventListener("resize", placePanel);
+    window.addEventListener("scroll", placePanel, true);
+    return () => {
+      window.removeEventListener("resize", placePanel);
+      window.removeEventListener("scroll", placePanel, true);
+    };
+  }, [isOpen, placePanel]);
 
   async function handleOpen() {
     setIsOpen((v) => !v);
@@ -76,7 +112,7 @@ export default function NotificationBell({ recipientType, recipientId }) {
 
   return (
     <div className="relative" ref={containerRef}>
-      <button type="button" onClick={handleOpen} className="relative p-1.5 rounded-full hover:bg-white/10" aria-label="Notifications">
+      <button ref={buttonRef} type="button" onClick={handleOpen} aria-expanded={isOpen} className="relative p-1.5 rounded-full hover:bg-white/10" aria-label="Notifications">
         <Bell className="w-5 h-5" />
         {unreadCount > 0 && (
           <span className="absolute -top-0.5 -right-0.5 bg-rose-500 text-white text-[10px] font-bold rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center">
@@ -85,10 +121,19 @@ export default function NotificationBell({ recipientType, recipientId }) {
         )}
       </button>
 
-      {isOpen && (
-        <div className="absolute right-0 mt-2 w-72 bg-white text-ink-900 rounded-xl shadow-xl border border-slate-100 overflow-hidden z-30">
+      {/* Portalled to <body>: the desktop sidebar is position: sticky, which
+          traps anything inside it in its own stacking layer, so the panel
+          painted under the page content no matter its z-index. */}
+      {isOpen && panelPos && createPortal(
+        <div
+          ref={panelRef}
+          role="region"
+          aria-label="Notifications"
+          style={{ top: panelPos.top, left: panelPos.left, width: panelPos.width }}
+          className="fixed bg-white text-ink-900 rounded-xl shadow-xl border border-slate-100 overflow-hidden z-50"
+        >
           <div className="px-4 py-2.5 border-b font-semibold text-sm">Notifications</div>
-          <div className="max-h-72 overflow-y-auto divide-y">
+          <div className="max-h-[min(18rem,calc(100vh-8rem))] overflow-y-auto divide-y">
             {notifications.length === 0 ? (
               <p className="text-sm text-gray-400 px-4 py-6 text-center">No notifications yet.</p>
             ) : (
@@ -112,7 +157,8 @@ export default function NotificationBell({ recipientType, recipientId }) {
               })
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

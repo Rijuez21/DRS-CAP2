@@ -8,6 +8,7 @@ import * as api from "../../lib/api";
 import { getSocket } from "../../lib/socket";
 import EmptyState from "../../components/common/EmptyState";
 import { addStopMarker, bindStopLabelZoom, toPinnedStops } from "../../lib/stopMarkers";
+import { keepMapSized } from "../../lib/leafletAutoResize";
 
 const STATUS_COLORS = {
   Active: "#16a34a", // brand-green-ish
@@ -50,6 +51,7 @@ export default function FleetTracking() {
 
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
+  const stopSizingRef = useRef(null); // keepMapSized cleanup, set when the map is created
   const markersRef = useRef(new Map()); // busId -> L.Marker
   const stopLayerRef = useRef(null); // L.LayerGroup of pinned bus stops
   const [stops, setStops] = useState([]);
@@ -129,6 +131,7 @@ export default function FleetTracking() {
         [buses[0].latitude, buses[0].longitude],
         11
       );
+      stopSizingRef.current = keepMapSized(mapRef.current);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: "© OpenStreetMap contributors",
       }).addTo(mapRef.current);
@@ -170,6 +173,8 @@ export default function FleetTracking() {
   useEffect(() => {
     const markers = markersRef.current; // same Map for the component's lifetime
     return () => {
+      stopSizingRef.current?.();
+      stopSizingRef.current = null;
       mapRef.current?.remove();
       mapRef.current = null;
       stopLayerRef.current = null;
