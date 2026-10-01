@@ -7,25 +7,29 @@ export default function LocationPermissionCard({ status, reason, onRequest, comp
   if (status === "ok") return null;
 
   const isBlocked = status === "denied";
-  const isBroken = status === "unavailable" || status === "unsupported";
+  const isBroken = status === "unavailable" || status === "unsupported" || status === "insecure";
   const title = isBlocked
     ? "Location is blocked for this site"
-    : status === "unsupported"
-      ? "This browser can't share your location"
-      : status === "unavailable"
-        ? "We couldn't get your location"
-        : status === "locating"
-          ? "Waiting for your location…"
-          : "Share your location";
+    : status === "insecure"
+      ? "Location needs a secure (https://) link"
+      : status === "unsupported"
+        ? "This browser can't share your location"
+        : status === "unavailable"
+          ? "We couldn't get your location"
+          : status === "locating"
+            ? "Waiting for your location…"
+            : "Share your location";
   const help = isBlocked
     ? "Tap the lock or ⓘ icon next to the web address, set Location to Allow, then tap Try again."
-    : status === "unsupported"
-      ? "Open this page in Chrome, Safari or Firefox on your phone."
-      : status === "unavailable"
-        ? "Turn on your phone's Location/GPS and step outside or near a window, then try again."
-        : status === "locating"
-          ? "If your browser is asking, choose Allow."
-          : reason;
+    : status === "insecure"
+      ? "Browsers only share location on https:// pages (or localhost on this computer). Open the app through its https:// address instead."
+      : status === "unsupported"
+        ? "Open this page in Chrome, Safari or Firefox on your phone."
+        : status === "unavailable"
+          ? "Turn on your phone's Location/GPS and step outside or near a window, then try again."
+          : status === "locating"
+            ? "If your browser is asking, choose Allow."
+            : reason;
 
   return (
     <div role={isBlocked || isBroken ? "alert" : "status"} className={`rounded-2xl border ${isBlocked || isBroken ? "border-rose-200 bg-rose-50" : "border-slate-200 bg-white"} ${compact ? "p-3" : "p-4"} space-y-2`}>
@@ -34,7 +38,7 @@ export default function LocationPermissionCard({ status, reason, onRequest, comp
         {title}
       </p>
       {help && <p className="text-sm text-ink-600">{help}</p>}
-      {status !== "unsupported" && status !== "locating" && (
+      {status !== "unsupported" && status !== "insecure" && status !== "locating" && (
         <button
           type="button"
           onClick={onRequest}

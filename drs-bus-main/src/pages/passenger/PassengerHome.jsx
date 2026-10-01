@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { MapPin, CalendarClock, Hand, ArrowRight, Route, Bus, Ticket, Sunrise, Sun, Moon } from "lucide-react";
 import TripSearchPanel from "../../components/passenger/TripSearchPanel";
 import StatsRow from "../../components/passenger/StatsRow";
+import TerminalDirectionsCard from "../../components/passenger/TerminalDirectionsCard";
 import EmptyState from "../../components/common/EmptyState";
 import { useAuth } from "../../context/AuthContext";
 import * as api from "../../lib/api";
@@ -83,6 +84,8 @@ export default function PassengerHome() {
 
         <div className="space-y-6">
           <StatsRow stats={stats} />
+
+          <TerminalDirectionsCard />
 
           <section className="space-y-3">
             <div className="flex items-center justify-between">

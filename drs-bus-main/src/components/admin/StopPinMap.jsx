@@ -211,7 +211,9 @@ export default function StopPinMap({ route, allRoutes, onSaved, onClose }) {
           ? "Couldn't get a GPS fix. Step outside or turn on GPS, and it'll pin as soon as one arrives."
           : wantGps && gpsStatus === "unsupported"
             ? "This browser can't share its location."
-            : null;
+            : wantGps && gpsStatus === "insecure"
+              ? "Location only works on an https:// link (or localhost). Open the app through its https:// address."
+              : null;
 
   return (
     <Modal

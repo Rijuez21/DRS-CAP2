@@ -16,9 +16,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 //         "denied"      the user (or site settings) blocked location
 //         "unavailable" allowed, but no fix (GPS off, indoors, timed out)
 //         "unsupported" this browser has no geolocation at all
+//         "insecure"    page opened over plain http:// (e.g. a phone on
+//                       http://192.168.x.x:5173) — browsers refuse
+//                       location there without asking, which used to show
+//                       up as "denied" even though nothing was blocked
 export function useGeolocation({ highAccuracy = true } = {}) {
-  const supported = typeof navigator !== "undefined" && "geolocation" in navigator;
-  const [status, setStatus] = useState(supported ? "idle" : "unsupported");
+  const insecure = typeof window !== "undefined" && window.isSecureContext === false;
+  const supported = !insecure && typeof navigator !== "undefined" && "geolocation" in navigator;
+  const [status, setStatus] = useState(insecure ? "insecure" : supported ? "idle" : "unsupported");
   const [position, setPosition] = useState(null); // { latitude, longitude, accuracy, timestamp }
   const watchIdRef = useRef(null);
 

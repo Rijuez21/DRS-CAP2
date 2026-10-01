@@ -835,7 +835,9 @@ function LocationBadge({ status, me, manualPin }) {
           ? "Location not shared yet"
           : status === "denied"
             ? "Location blocked — needed to flag a bus"
-            : "Location unavailable — needed to flag a bus";
+            : status === "insecure"
+              ? "Location needs an https:// link — needed to flag a bus"
+              : "Location unavailable — needed to flag a bus";
   const tone = precise
     ? "text-brand-green-600"
     : pinned
