@@ -1,0 +1,58 @@
+diff --git a/drs-bus-main/src/pages/auth/AdminLogin.jsx b/drs-bus-main/src/pages/auth/AdminLogin.jsx
+index ece00c3..cc3a5fa 100644
+--- a/drs-bus-main/src/pages/auth/AdminLogin.jsx
++++ b/drs-bus-main/src/pages/auth/AdminLogin.jsx
+@@ -5,15 +5,6 @@ export default function AdminLogin() {
+   return (
+     <AuthShell roleLabel="Admin Login">
+       <LoginForm role="admin" redirectPath="/admin/dashboard" />
+-      <p className="text-center text-sm text-ink-600 mt-5">
+-        Not an admin?{" "}
+-        <a
+-          href="/"
+-          className="text-brand-green-600 font-medium underline underline-offset-2"
+-        >
+-          Choose a different login
+-        </a>
+-      </p>
+     </AuthShell>
+   );
+ }
+diff --git a/drs-bus-main/src/pages/auth/PassengerLogin.jsx b/drs-bus-main/src/pages/auth/PassengerLogin.jsx
+index d392e6f..1c2cf7c 100644
+--- a/drs-bus-main/src/pages/auth/PassengerLogin.jsx
++++ b/drs-bus-main/src/pages/auth/PassengerLogin.jsx
+@@ -5,15 +5,6 @@ export default function PassengerLogin() {
+   return (
+     <AuthShell roleLabel="Passenger Login">
+       <LoginForm role="passenger" redirectPath="/passenger/home" showSignUp />
+-      <p className="text-center text-sm text-ink-600 mt-5">
+-        Not a passenger?{" "}
+-        <a
+-          href="/"
+-          className="text-brand-green-600 font-medium underline underline-offset-2"
+-        >
+-          Choose a different login
+-        </a>
+-      </p>
+     </AuthShell>
+   );
+ }
+diff --git a/drs-bus-main/src/pages/auth/StaffLogin.jsx b/drs-bus-main/src/pages/auth/StaffLogin.jsx
+index cf222b1..8471a6c 100644
+--- a/drs-bus-main/src/pages/auth/StaffLogin.jsx
++++ b/drs-bus-main/src/pages/auth/StaffLogin.jsx
+@@ -41,13 +41,6 @@ export default function StaffLogin() {
+       </div>
+ 
+       <LoginForm key={subRole} role={active.role} redirectPath={active.redirectPath} />
+-
+-      <p className="text-center text-sm text-ink-600 mt-5">
+-        Not driver or terminal staff?{" "}
+-        <a href="/" className="text-brand-green-600 font-medium underline underline-offset-2">
+-          Go back
+-        </a>
+-      </p>
+     </AuthShell>
+   );
+ }

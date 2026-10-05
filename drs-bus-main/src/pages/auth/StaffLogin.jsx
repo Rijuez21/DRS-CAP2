@@ -41,13 +41,6 @@ export default function StaffLogin() {
       </div>
 
       <LoginForm key={subRole} role={active.role} redirectPath={active.redirectPath} />
-
-      <p className="text-center text-sm text-ink-600 mt-5">
-        Not driver or terminal staff?{" "}
-        <a href="/" className="text-brand-green-600 font-medium underline underline-offset-2">
-          Go back
-        </a>
-      </p>
     </AuthShell>
   );
 }
