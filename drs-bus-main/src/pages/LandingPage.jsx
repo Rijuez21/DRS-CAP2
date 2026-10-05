@@ -225,19 +225,18 @@ export default function LandingPage() {
       {/* 5. ROLE-BASED DASHBOARDS */}
       <RoleTabs />
 
-      {/* 6. TECH STACK — heading, then the 4 cards cascading in sequence */}
+      {/* 6. TECH STACK — heading, then the 3 cards cascading in sequence */}
       <section id="stack" className="border-t border-slate-200 bg-white">
         <div className="max-w-6xl mx-auto px-6 py-16">
           <h2 data-reveal className="font-landing font-semibold text-2xl sm:text-3xl max-w-xl text-brand-forest-900">
             Built on infrastructure that holds up on bad connections.
           </h2>
 
-          <div className="mt-10 grid sm:grid-cols-2 md:grid-cols-4 border-t border-l border-slate-200">
+          <div className="mt-10 grid md:grid-cols-3 border-t border-l border-slate-200">
             {[
               ["React + Tailwind CSS", "Responsive interfaces for passengers, staff, and administrators alike."],
               ["Node.js + Express + Socket.io", "Real-time, bidirectional updates between drivers, terminals, and dashboards."],
               ["MySQL + Redis", "ACID-compliant storage with caching, keeping bookings double-booking-proof."],
-              ["MQTT", "A lightweight protocol tuned for unstable, cellular-constrained routes."],
             ].map(([title, desc], i) => (
               <div
                 key={title}

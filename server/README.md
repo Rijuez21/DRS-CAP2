@@ -3,9 +3,7 @@
 Backend for the DRS Bus Management System, built with the stack the proposal
 document specifies (Ch. 2.4.3 / Tables 9–11): **Node.js + Express** for the
 API, **Socket.io** for real-time GPS push, **MySQL** as the primary database,
-**Redis** caching active trips and bus locations, and an optional **MQTT**
-listener for telemetry (the paper frames MQTT as "evaluated", not committed
-to — see below).
+and **Redis** caching active trips and bus locations.
 
 ## 1. Create the services on Railway
 
@@ -138,11 +136,10 @@ same way).
   (`/api/tracking/:busId/latest`, 30s TTL). Both fail open — if Redis is
   unreachable, routes fall back to querying MySQL directly instead of
   erroring.
-- **Socket.io** is live: posting to `/api/tracking` (or a message arriving
-  over MQTT) immediately emits `location:update` to any client subscribed
-  to that bus's room. This is what makes `LiveTracking.jsx` "real-time"
-  rather than a page that needs manual refreshing.
-- **MQTT** is implemented but dormant unless `MQTT_BROKER_URL` is set —
-  matching the paper's framing of MQTT as evaluated rather than committed.
-  The primary GPS path is still the driver's phone posting to
-  `/api/tracking` directly (2.5.2).
+- **Socket.io** is live: posting to `/api/tracking` (or flushing a buffered
+  batch to `/api/tracking/batch`) immediately emits `location:update` to any
+  client subscribed to that bus's room. This is what makes `LiveTracking.jsx`
+  "real-time" rather than a page that needs manual refreshing.
+- GPS arrives from the driver's phone posting to `/api/tracking` directly
+  (2.5.2), with an offline buffer that flushes in a batch once the phone
+  reconnects. There is no separate telemetry/MQTT path.

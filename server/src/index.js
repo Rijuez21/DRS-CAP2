@@ -21,7 +21,6 @@ import { notificationsRouter } from "./routes/notifications.js";
 import { dashboardRouter } from "./routes/dashboard.js";
 import { reportsRouter } from "./routes/reports.js";
 import { buildPaymentsRouter } from "./routes/payments.js";
-import { startMqttListener } from "./services/mqttListener.js";
 
 const app = express();
 const httpServer = createServer(app);
@@ -155,9 +154,6 @@ app.use((err, req, res, next) => {
   }
   next(err);
 });
-
-// Optional — only activates if MQTT_BROKER_URL is set (see mqttListener.js).
-startMqttListener(io);
 
 const port = process.env.PORT || 4000;
 httpServer.listen(port, () => {

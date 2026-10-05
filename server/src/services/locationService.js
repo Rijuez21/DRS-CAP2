@@ -2,10 +2,10 @@ import { pool } from "../db/pool.js";
 import { redis, CACHE_TTL_SECONDS } from "../cache/redis.js";
 
 /**
- * Single entry point for "a bus reported a GPS point", regardless of
- * whether it arrived via the REST endpoint (driver's phone, online) or the
- * MQTT listener (Table 11's IoT/telemetry path). Both write paths should
- * behave identically, so this is the one place that:
+ * Single entry point for "a bus reported a GPS point", whether it came in
+ * live from the driver's phone (POST /api/tracking) or as a buffered batch
+ * flushed after the phone was offline (POST /api/tracking/batch). Both
+ * paths should behave identically, so this is the one place that:
  *   1. persists to MySQL (location_tracking) — the durable record
  *   2. caches the latest point in Redis — what LiveTracking.jsx's initial
  *      page load reads, per the paper's "Redis caches... bus locations"
