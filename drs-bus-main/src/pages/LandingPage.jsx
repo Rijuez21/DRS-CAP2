@@ -323,9 +323,10 @@ export default function LandingPage() {
           <span>© 2026 D&apos; Rising Sun Transport. All rights reserved.</span>
           <div className="flex flex-wrap gap-6">
             <a href="#" className="hover:text-white">Developer Docs</a>
-            <a href="#" className="hover:text-white">Privacy Statement</a>
+            <Link to="/privacy-policy" className="hover:text-white">Privacy Statement</Link>
             <a href="#" className="hover:text-white">Contact Sales</a>
           </div>
+
         </div>
       </footer>
     </div>
@@ -347,7 +348,6 @@ function RoleTabs() {
     admins: [
       "Fleet-wide control across every route and vehicle",
       "Route configuration with scheduling conflict prevention",
-      "Maintenance logs linked directly to the vehicle record",
     ],
   };
   const [active, setActive] = useState("passengers");

@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 
 // Marketing
 import LandingPage from "../pages/LandingPage";
+import PrivacyPolicy from "../pages/PrivacyPolicy";
 
 // Auth
 import PassengerLogin from "../pages/auth/PassengerLogin";
@@ -58,6 +59,7 @@ export default function AppRoutes() {
           — no public role-picker page. /select-role redirects in case
           anything still links to the old URL. */}
       <Route path="/" element={<LandingPage />} />
+      <Route path="/privacy-policy" element={<PrivacyPolicy />} />
       <Route path="/select-role" element={<Navigate to="/login/passenger" replace />} />
       <Route path="/login/passenger" element={<PassengerLogin />} />
       <Route path="/login/driver" element={<Navigate to="/login/staff" replace />} />

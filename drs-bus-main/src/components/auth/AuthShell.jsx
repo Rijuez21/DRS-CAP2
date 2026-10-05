@@ -5,7 +5,7 @@ export default function AuthShell({ roleLabel, roleTag, children }) {
     <div className="min-h-screen flex items-center justify-center bg-surface px-4 py-10">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center text-center mb-6">
-          <img src={sunLogo} alt="D' Rising Sun logo" className="w-60 h-60 -mb-19" />
+          <img src={sunLogo} alt="D' Rising Sun logo" className="w-60 h-60 -mb-10" />
           <h1 className="font-display text-3xl font-bold text-brand-forest-900 mt-3">
             D&apos; Rising Sun
           </h1>
