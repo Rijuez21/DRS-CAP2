@@ -1,0 +1,56 @@
+diff --git a/drs-bus-main/src/pages/admin/Dashboard.jsx b/drs-bus-main/src/pages/admin/Dashboard.jsx
+index 185ece2..b57d7eb 100644
+--- a/drs-bus-main/src/pages/admin/Dashboard.jsx
++++ b/drs-bus-main/src/pages/admin/Dashboard.jsx
+@@ -5,6 +5,41 @@ import * as api from "../../lib/api";
+ import InlineAlert from "../../components/common/InlineAlert";
+ import { formatDate } from "../../lib/format";
+ 
++// The backend logs raw action codes (create, update, delete, status_change,
++// walk_in_sale, counter_payment, verify, reject, pin, unpin) against entity
++// types (bus, driver, route, trip, staff, booking, payment, payment_qr).
++// Gluing "d" onto the code used to produce "verifyd", "pind", "walk_in_saled"
++// — so each code gets its own phrase here, with a readable fallback for any
++// code added to the backend later.
++const ENTITY_LABEL = {
++  bus: "bus",
++  driver: "driver",
++  route: "route",
++  trip: "trip",
++  staff: "staff account",
++  booking: "booking",
++  payment: "payment",
++  payment_qr: "payment QR code",
++};
++
++function describeActivity({ action, entity_type: entityType, entity_id: entityId }) {
++  const entity = ENTITY_LABEL[entityType] ?? (entityType ?? "record").replaceAll("_", " ");
++  const ref = entityId ? ` #${entityId}` : "";
++  switch (action) {
++    case "create": return `added ${entity}${ref}`;
++    case "update": return `updated ${entity}${ref}`;
++    case "delete": return `deleted ${entity}${ref}`;
++    case "status_change": return `changed the status of ${entity}${ref}`;
++    case "walk_in_sale": return `sold a walk-in ticket (${entity}${ref})`;
++    case "counter_payment": return `took a counter payment for ${entity}${ref}`;
++    case "verify": return `verified ${entity}${ref}`;
++    case "reject": return `rejected ${entity}${ref}`;
++    case "pin": return `pinned the stop on ${entity}${ref}`;
++    case "unpin": return `removed the pinned stop from ${entity}${ref}`;
++    default: return `${String(action ?? "changed").replaceAll("_", " ")} ${entity}${ref}`;
++  }
++}
++
+ // Table 4's Dashboard and Reporting: metric cards + recent-activity feed
+ // (from audit_log) + a trend chart. Reuses recharts rather than adding a
+ // second charting library (Phase 5's ReportsAnalytics.jsx uses the same one).
+@@ -63,8 +98,7 @@ export default function AdminDashboard() {
+             {summary.recentActivity.map((a) => (
+               <li key={a.audit_id} className="flex flex-col">
+                 <span>
+-                  <span className="font-semibold">{a.staff_name}</span> {a.action}d a {a.entity_type}
+-                  {a.entity_id ? ` #${a.entity_id}` : ""}
++                  <span className="font-semibold">{a.staff_name}</span> {describeActivity(a)}
+                 </span>
+                 <span className="text-xs text-gray-400">{new Date(a.created_at).toLocaleString()}</span>
+               </li>
