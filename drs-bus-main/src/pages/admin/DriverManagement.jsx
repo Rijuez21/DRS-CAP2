@@ -23,7 +23,6 @@ export default function AdminDriverManagement() {
   const [isSaving, setIsSaving] = useState(false);
 
   function load() {
-    setIsLoading(true);
     api.getDrivers().then(setDrivers).catch((err) => setError(err.message)).finally(() => setIsLoading(false));
   }
 
@@ -40,6 +39,8 @@ export default function AdminDriverManagement() {
   }
 
   async function handleSave(e) {
+    setError("");
+    setSuccess("");
     e.preventDefault();
     if (!form.name || !form.email || (editing === "new" && (!form.licenseNumber || !form.password))) {
       setError("Name, email, and (for a new driver) license number and password are required.");
@@ -66,6 +67,8 @@ export default function AdminDriverManagement() {
   }
 
   async function handleDelete(driver) {
+    setError("");
+    setSuccess("");
     if (!window.confirm(`Remove ${driver.name}? This can't be undone.`)) return;
     try {
       await api.deleteDriver(driver.driver_id);
@@ -120,10 +123,10 @@ export default function AdminDriverManagement() {
                     <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${DUTY_STYLES[d.duty_status] ?? DUTY_STYLES.Active}`}>{d.duty_status}</span>
                   </td>
                   <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
-                    <button type="button" onClick={() => openEdit(d)} className="text-gray-500 hover:text-emerald-700 inline-flex items-center">
+                    <button type="button" onClick={() => openEdit(d)} aria-label="Edit" title="Edit" className="text-gray-500 hover:text-emerald-700 inline-flex items-center">
                       <Pencil className="w-4 h-4" />
                     </button>
-                    <button type="button" onClick={() => handleDelete(d)} className="text-gray-500 hover:text-rose-600 inline-flex items-center">
+                    <button type="button" onClick={() => handleDelete(d)} aria-label="Delete" title="Delete" className="text-gray-500 hover:text-rose-600 inline-flex items-center">
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </td>

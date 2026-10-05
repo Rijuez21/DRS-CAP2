@@ -1,27 +1,30 @@
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
-import { ChevronLeft, RouteOff } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
+import { RouteOff, CalendarClock, CircleDot, MapPin, CalendarDays, X } from "lucide-react";
 import TripCard from "../../components/passenger/TripCard";
+import PageHeader from "../../components/passenger/PageHeader";
 import EmptyState from "../../components/common/EmptyState";
+import InlineAlert from "../../components/common/InlineAlert";
 import * as api from "../../lib/api";
 import { mapTrip, isSameDay } from "../../lib/format";
 
+// Book Ahead, step 1: pick a departure. Only trips a seat can still be
+// bought on are listed (?scope=bookable — Scheduled before departure, or
+// Boarding). This page used to list every trip ever run, Completed and
+// Cancelled included, each claiming the bus's full capacity in "seats left".
 export default function TripListings() {
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const origin = searchParams.get("origin");
   const destination = searchParams.get("destination");
   const date = searchParams.get("date");
-
   const [allTrips, setAllTrips] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
-    setIsLoading(true);
     api
-      .getTrips()
+      .getTrips({ scope: "bookable" })
       .then((rows) => {
         if (!cancelled) setAllTrips(rows.map(mapTrip));
       })
@@ -36,59 +39,75 @@ export default function TripListings() {
     };
   }, []);
 
-  const trips = useMemo(() => {
-    return allTrips.filter((t) => {
-      if (origin && t.origin !== origin) return false;
-      if (destination && t.destination !== destination) return false;
-      if (date && !isSameDay(t.departureIso, date)) return false;
-      return true;
-    });
-  }, [allTrips, origin, destination, date]);
+  const trips = useMemo(
+    () =>
+      allTrips.filter((t) => {
+        if (origin && t.origin !== origin) return false;
+        if (destination && t.destination !== destination) return false;
+        if (date && !isSameDay(t.departureIso, date)) return false;
+        return true;
+      }),
+    [allTrips, origin, destination, date]
+  );
 
-  const formattedDate = useMemo(() => {
-    const d = date ? new Date(date) : new Date();
-    return d.toLocaleDateString("en-PH", {
-      weekday: "long",
-      month: "long",
-      day: "numeric",
-      year: "numeric",
-    });
-  }, [date]);
+  // Say what's actually being shown, instead of always printing today's date.
+  const filters = [
+    origin && { icon: CircleDot, text: `From ${origin}` },
+    destination && { icon: MapPin, text: `To ${destination}` },
+    date && { icon: CalendarDays, text: new Date(`${date}T00:00:00`).toLocaleDateString("en-PH", { weekday: "short", month: "short", day: "numeric" }) },
+  ].filter(Boolean);
+  const hasFilters = filters.length > 0;
 
   return (
-    <div className="max-w-md mx-auto lg:max-w-4xl px-4 py-6 space-y-5">
-      <button
-        type="button"
-        onClick={() => navigate(-1)}
-        className="flex items-center gap-1 text-sm text-ink-600 hover:text-brand-green-600"
+    <div className="page-enter max-w-md mx-auto lg:max-w-4xl px-4 py-6 lg:py-10 space-y-5">
+      <PageHeader
+        back={{ to: "/passenger/home", label: "Home" }}
+        icon={CalendarClock}
+        title="Book a seat"
+        subtitle={hasFilters ? "Departures matching your search" : "All upcoming departures"}
+        aside={
+          <span className="inline-block rounded-full bg-white border border-slate-200 px-3 py-1 text-xs font-semibold text-ink-600">
+            {isLoading ? "Loading…" : `${trips.length} trip${trips.length === 1 ? "" : "s"}`}
+          </span>
+        }
       >
-        <ChevronLeft className="w-4 h-4" /> Back to home
-      </button>
+        {hasFilters && (
+          <div className="flex flex-wrap items-center gap-2">
+            {filters.map(({ icon: Icon, text }) => (
+              <span key={text} className="inline-flex items-center gap-1.5 rounded-full bg-brand-forest-900/5 border border-brand-forest-900/10 px-3 py-1 text-xs font-medium text-brand-forest-800">
+                <Icon className="w-3.5 h-3.5 text-brand-green-600" /> {text}
+              </span>
+            ))}
+            <Link to="/passenger/trips" className="inline-flex items-center gap-1 text-xs font-medium text-ink-600 hover:text-rose-600 px-1">
+              <X className="w-3.5 h-3.5" /> Clear
+            </Link>
+          </div>
+        )}
+      </PageHeader>
 
-      <header className="flex items-end justify-between">
-        <div>
-          <h1 className="font-display text-xl font-bold">All Routes</h1>
-          <p className="text-sm text-ink-600">{formattedDate}</p>
+      <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
+
+      {isLoading ? (
+        <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0" aria-hidden="true">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="h-40 rounded-2xl bg-white border border-slate-100 animate-pulse" />
+          ))}
         </div>
-        <p className="text-sm font-medium text-ink-600">
-          {isLoading ? "Loading…" : `${trips.length} Trips Available`}
-        </p>
-      </header>
-
-      {error && (
-        <p role="alert" className="text-sm text-rose-600 font-medium">
-          {error}
-        </p>
-      )}
-
-      {!isLoading && trips.length === 0 ? (
+      ) : trips.length === 0 && !error ? (
         <EmptyState
           icon={RouteOff}
-          title="No trips found"
-          description="Try a different route or date."
+          title={hasFilters ? "No trips match your search" : "No upcoming trips"}
+          description={hasFilters ? "Try another date or destination." : "New departures appear here once they're scheduled."}
+          action={
+            hasFilters ? (
+              <Link to="/passenger/trips" className="text-sm font-medium text-brand-green-600 hover:underline">
+                Show all upcoming trips
+              </Link>
+            ) : null
+          }
         />
       ) : (
-        <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
+        <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0">
           {trips.map((t) => (
             <TripCard key={t.id} trip={t} />
           ))}

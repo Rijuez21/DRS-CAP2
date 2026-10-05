@@ -6,7 +6,8 @@ import InlineAlert from "../../components/common/InlineAlert";
 import { formatDate, formatTime } from "../../lib/format";
 
 const STATUS_OPTIONS = ["", "Reserved", "Confirmed", "Boarded", "Cancelled", "No-Show"];
-const CHANNEL_OPTIONS = ["", "online", "walk_in"];
+const CHANNEL_OPTIONS = ["", "online", "walk_in", "flagged"]; // "flagged" = roadside hail a driver acknowledged (Flag a Bus mode)
+const CHANNEL_LABELS = { "": "All channels", online: "Online", walk_in: "Walk-in", flagged: "Flagged (roadside)" };
 
 // Table 4's Reservations Oversight: filterable, read-only except cancel.
 export default function AdminReservationsManagement() {
@@ -18,10 +19,18 @@ export default function AdminReservationsManagement() {
   const [success, setSuccess] = useState("");
 
   function load() {
-    setIsLoading(true);
+    // No filters = every booking (newest 500). The old default silently
+    // swapped "All statuses" for Reserved-only because the API used to
+    // reject an unfiltered request.
     const params = { status: status || undefined, channel: channel || undefined };
-    if (!status && !channel) params.status = "Reserved"; // sane default instead of "at least one filter required" 400
-    api.getBookings(params).then(setBookings).catch((err) => setError(err.message)).finally(() => setIsLoading(false));
+    api
+      .getBookings(params)
+      .then((rows) => {
+        setBookings(rows);
+        setError("");
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setIsLoading(false));
   }
 
   useEffect(load, [status, channel]);
@@ -41,15 +50,15 @@ export default function AdminReservationsManagement() {
     <div className="p-6 space-y-4">
       <header>
         <h1 className="text-xl font-bold">Reservations Oversight</h1>
-        <p className="text-sm text-gray-500">Every booking across both channels, filterable by status.</p>
+        <p className="text-sm text-gray-500">Every booking across all channels, filterable by status.</p>
       </header>
 
       <div className="flex gap-3">
-        <select value={status} onChange={(e) => setStatus(e.target.value)} className="input max-w-[10rem]">
+        <select value={status} onChange={(e) => { setIsLoading(true); setStatus(e.target.value); }} className="input max-w-[10rem]">
           {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s || "All statuses"}</option>)}
         </select>
-        <select value={channel} onChange={(e) => setChannel(e.target.value)} className="input max-w-[10rem]">
-          {CHANNEL_OPTIONS.map((c) => <option key={c} value={c}>{c === "" ? "All channels" : c === "online" ? "Online" : "Walk-in"}</option>)}
+        <select value={channel} onChange={(e) => { setIsLoading(true); setChannel(e.target.value); }} className="input max-w-[10rem]">
+          {CHANNEL_OPTIONS.map((c) => <option key={c} value={c}>{CHANNEL_LABELS[c]}</option>)}
         </select>
       </div>
 
@@ -82,7 +91,7 @@ export default function AdminReservationsManagement() {
                     <div className="text-xs text-gray-400">{formatDate(b.departure_time)} · {formatTime(b.departure_time)}</div>
                   </td>
                   <td className="px-4 py-3 text-gray-600">{b.seat_number}</td>
-                  <td className="px-4 py-3 text-gray-600 capitalize">{b.channel?.replace("_", "-")}</td>
+                  <td className="px-4 py-3 text-gray-600">{CHANNEL_LABELS[b.channel] ?? b.channel}</td>
                   <td className="px-4 py-3">
                     <span className="inline-flex px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">{b.status}</span>
                   </td>

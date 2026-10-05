@@ -20,9 +20,6 @@ dashboardRouter.get("/summary", requireRole("admin", "staff"), async (req, res) 
     const [[todaysTrips]] = await pool.query(
       `SELECT COUNT(*) AS count FROM trips WHERE DATE(departure_time) = CURDATE() AND status != 'Cancelled'`
     );
-    const [[maintenanceAlerts]] = await pool.query(
-      `SELECT COUNT(*) AS count FROM maintenance WHERE next_service_date < CURDATE() AND status != 'Completed'`
-    );
     const [[reservationsToday]] = await pool.query(
       `SELECT COUNT(*) AS count FROM bookings WHERE DATE(booked_at) = CURDATE() AND status != 'Cancelled'`
     );
@@ -47,7 +44,6 @@ dashboardRouter.get("/summary", requireRole("admin", "staff"), async (req, res) 
     const summary = {
       activeFleetCount: activeFleet.count,
       todaysTripCount: todaysTrips.count,
-      pendingMaintenanceAlerts: maintenanceAlerts.count,
       reservationsToday: reservationsToday.count,
       reservationsThisWeek: reservationsThisWeek.count,
       dailyReservationTrend: dailyTrend,

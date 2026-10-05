@@ -21,7 +21,6 @@ export default function AdminUserManagement() {
   const [isSaving, setIsSaving] = useState(false);
 
   function load() {
-    setIsLoading(true);
     api.getStaff().then(setStaff).catch((err) => setError(err.message)).finally(() => setIsLoading(false));
   }
 
@@ -38,6 +37,8 @@ export default function AdminUserManagement() {
   }
 
   async function handleSave(e) {
+    setError("");
+    setSuccess("");
     e.preventDefault();
     if (!form.name || !form.email || (editing === "new" && !form.password)) {
       setError("Name, email, and (for a new account) a password are required.");
@@ -64,6 +65,8 @@ export default function AdminUserManagement() {
   }
 
   async function handleDelete(s) {
+    setError("");
+    setSuccess("");
     if (s.staff_id === currentUser?.id) {
       setError("You can't delete your own account while signed in as it.");
       return;
@@ -119,10 +122,10 @@ export default function AdminUserManagement() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
-                    <button type="button" onClick={() => openEdit(s)} className="text-gray-500 hover:text-emerald-700 inline-flex items-center">
+                    <button type="button" onClick={() => openEdit(s)} aria-label="Edit" title="Edit" className="text-gray-500 hover:text-emerald-700 inline-flex items-center">
                       <Pencil className="w-4 h-4" />
                     </button>
-                    <button type="button" onClick={() => handleDelete(s)} className="text-gray-500 hover:text-rose-600 inline-flex items-center">
+                    <button type="button" onClick={() => handleDelete(s)} aria-label="Delete" title="Delete" className="text-gray-500 hover:text-rose-600 inline-flex items-center">
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </td>

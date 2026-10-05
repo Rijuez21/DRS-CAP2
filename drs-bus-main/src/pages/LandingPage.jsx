@@ -25,7 +25,6 @@ export default function LandingPage() {
 
           <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-ink-600">
             <a href="#solution" className="hover:text-ink-900">Platform</a>
-            <a href="#driver-safety" className="hover:text-ink-900">Safety</a>
             <a href="#stack" className="hover:text-ink-900">Technology</a>
             <a href="#" className="hover:text-ink-900">Docs</a>
           </nav>
@@ -219,55 +218,6 @@ export default function LandingPage() {
                 for miles at a time.
               </p>
             </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 4. DRIVER SAFETY & COMPLIANCE HUB — text reveals, then its image */}
-      <section id="driver-safety" className="border-t border-slate-200 bg-white">
-        <div className="max-w-6xl mx-auto px-6 py-16 grid md:grid-cols-2 gap-10 items-center">
-          <div data-reveal>
-            <span className="text-xs font-semibold text-brand-sunrise-500">
-              Driver app
-            </span>
-            <h2 className="font-landing font-semibold text-2xl sm:text-3xl mt-2 text-brand-forest-900">
-              A safety checklist that's actually filled out.
-            </h2>
-            <p className="mt-4 text-sm leading-relaxed max-w-md text-ink-600">
-              The driver app stays deliberately simple — no clutter, no
-              distraction while a route is active. Before departure,
-              drivers work through a mandatory pre-trip checklist covering
-              the engine, tires, brakes, and lights, digitizing a compliance
-              step that paper checklists let slip.
-            </p>
-            <ul className="mt-6 space-y-3 text-sm">
-              <li className="flex items-center gap-3">
-                <span className="w-4 h-4 border border-brand-sunrise-500 rounded-sm" />
-                Engine — fluid levels, warning lights
-              </li>
-              <li className="flex items-center gap-3">
-                <span className="w-4 h-4 border border-brand-sunrise-500 rounded-sm" />
-                Tires — pressure, tread, visible damage
-              </li>
-              <li className="flex items-center gap-3">
-                <span className="w-4 h-4 border border-brand-sunrise-500 rounded-sm" />
-                Brakes — response, wear indicators
-              </li>
-              <li className="flex items-center gap-3">
-                <span className="w-4 h-4 border border-brand-sunrise-500 rounded-sm" />
-                Lights — headlights, signals, hazards
-              </li>
-            </ul>
-          </div>
-
-          <div
-            data-reveal="1"
-            style={stripeStyle}
-            className="rounded border border-slate-200 aspect-9/16 max-w-65 mx-auto flex items-center justify-center text-xs text-center p-4 text-ink-600"
-          >
-            Mobile mockup placeholder
-            <br />
-            375 × 667 — Pre-trip checklist screen
           </div>
         </div>
       </section>

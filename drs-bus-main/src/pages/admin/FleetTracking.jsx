@@ -1,23 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Satellite, WifiOff, RadioTower } from "lucide-react";
+import { Satellite, WifiOff, RadioTower, MapPin } from "lucide-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
-import markerIcon from "leaflet/dist/images/marker-icon.png";
-import markerShadow from "leaflet/dist/images/marker-shadow.png";
+import "../../lib/leafletDefaultIcon"; // makes the default pin marker load (see that file)
 import * as api from "../../lib/api";
 import { getSocket } from "../../lib/socket";
 import EmptyState from "../../components/common/EmptyState";
-
-// Same bundler marker-image-URL fix LiveTracking.jsx applies — kept here
-// for parity even though the fleet markers below use colored divIcons
-// rather than the default pin.
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: markerIcon2x,
-  iconUrl: markerIcon,
-  shadowUrl: markerShadow,
-});
+import { addStopMarker, bindStopLabelZoom, toPinnedStops } from "../../lib/stopMarkers";
+import { keepMapSized } from "../../lib/leafletAutoResize";
 
 const STATUS_COLORS = {
   Active: "#16a34a", // brand-green-ish
@@ -60,7 +51,28 @@ export default function FleetTracking() {
 
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
+  const stopSizingRef = useRef(null); // keepMapSized cleanup, set when the map is created
   const markersRef = useRef(new Map()); // busId -> L.Marker
+  const stopLayerRef = useRef(null); // L.LayerGroup of pinned bus stops
+  const [stops, setStops] = useState([]);
+  const [showStops, setShowStops] = useState(true);
+
+  // Pinned bus stops (routes rows the admin placed in Route Management), so
+  // each bus can be seen against the real stop locations. Unpinned stops
+  // have no position and just aren't drawn. Failure is non-fatal: the bus
+  // map is the point of this page.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getRoutes()
+      .then((rows) => {
+        if (!cancelled) setStops(toPinnedStops(rows));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // 1. Seed one marker per bus from the REST snapshot.
   useEffect(() => {
@@ -81,11 +93,12 @@ export default function FleetTracking() {
   // 2. Subscribe to the single "fleet" room instead of one room per bus.
   useEffect(() => {
     const socket = getSocket();
-    socket.emit("subscribe:fleet");
+    const join = () => socket.emit("subscribe:fleet");
+    join();
 
     function handleUpdate(point) {
       setBuses((prev) => {
-        const idx = prev.findIndex((b) => b.busId === point.busId);
+        const idx = prev.findIndex((b) => Number(b.busId) === Number(point.busId));
         if (idx === -1) return prev; // point for a bus not in the active-fleet snapshot (e.g. now Idle) — ignore
         const next = [...prev];
         next[idx] = {
@@ -99,10 +112,12 @@ export default function FleetTracking() {
       });
     }
     socket.on("location:update", handleUpdate);
+    socket.on("connect", join); // rooms are lost when the connection drops — rejoin
 
     return () => {
       socket.emit("unsubscribe:fleet");
       socket.off("location:update", handleUpdate);
+      socket.off("connect", join);
     };
   }, []);
 
@@ -116,6 +131,7 @@ export default function FleetTracking() {
         [buses[0].latitude, buses[0].longitude],
         11
       );
+      stopSizingRef.current = keepMapSized(mapRef.current);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: "© OpenStreetMap contributors",
       }).addTo(mapRef.current);
@@ -137,11 +153,32 @@ export default function FleetTracking() {
     }
   }, [buses]);
 
+  // Stops layer: drawn once the map exists (it's created with the first
+  // bus), under the bus dots, with labels hidden when zoomed far out.
   useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return undefined;
+    if (!stopLayerRef.current) stopLayerRef.current = L.layerGroup();
+    const layer = stopLayerRef.current;
+    layer.clearLayers();
+    if (!showStops || stops.length === 0) {
+      layer.remove();
+      return undefined;
+    }
+    for (const stop of stops) addStopMarker(layer, stop, { zIndexOffset: -500 });
+    layer.addTo(map);
+    return bindStopLabelZoom(map);
+  }, [stops, showStops, buses.length]);
+
+  useEffect(() => {
+    const markers = markersRef.current; // same Map for the component's lifetime
     return () => {
+      stopSizingRef.current?.();
+      stopSizingRef.current = null;
       mapRef.current?.remove();
       mapRef.current = null;
-      markersRef.current.clear();
+      stopLayerRef.current = null;
+      markers.clear();
     };
   }, []);
 
@@ -168,20 +205,26 @@ export default function FleetTracking() {
 
   return (
     <div className="p-6 space-y-4">
-      <header className="flex items-center justify-between">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold">Live Fleet Tracking</h1>
           <p className="text-sm text-gray-500">
             Real-time GPS for every active bus — click a bus to jump to it on the map.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => navigate("/admin/fleet")}
-          className="text-sm text-emerald-700 underline underline-offset-2"
-        >
-          Back to Fleet Management
-        </button>
+        <div className="flex flex-wrap items-center gap-4">
+          <label className="inline-flex items-center gap-2 text-sm text-gray-700" title={stops.length === 0 ? "No stops are pinned yet — pin them in Route Management" : undefined}>
+            <input type="checkbox" checked={showStops} onChange={(e) => setShowStops(e.target.checked)} disabled={stops.length === 0} />
+            <MapPin className="w-4 h-4 text-blue-600" /> Show stops ({stops.length} pinned)
+          </label>
+          <button
+            type="button"
+            onClick={() => navigate("/admin/fleet")}
+            className="text-sm text-emerald-700 underline underline-offset-2"
+          >
+            Back to Fleet Management
+          </button>
+        </div>
       </header>
 
       {error && <p className="text-sm text-rose-600 font-medium">{error}</p>}

@@ -1,52 +1,30 @@
-// src/components/layout/AdminLayout.jsx
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { useAuth } from '../../context/AuthContext'
+import { LayoutDashboard, Bus, Map, Route, IdCard, CalendarClock, Ticket, BarChart3, Users, Wallet, QrCode } from "lucide-react";
+import RoleLayout from "./RoleLayout";
 
+// Admin work is mostly desktop, but the four most-checked screens are
+// bottom tabs on a phone; everything else is in the menu.
 const links = [
-  { to: 'dashboard', label: 'Dashboard' },
-  { to: 'fleet', label: 'Fleet Management' },
-  { to: 'tracking', label: 'Live Tracking' },
-  { to: 'routes', label: 'Route Management' },
-  { to: 'drivers', label: 'Driver Management' },
-  { to: 'trips', label: 'Trip Scheduling' },
-  { to: 'reservations', label: 'Reservations' },
-  { to: 'maintenance', label: 'Maintenance' },
-  { to: 'reports', label: 'Reports & Analytics' },
-  { to: 'users', label: 'User Management' },
-]
+  { to: "dashboard", label: "Dashboard", icon: LayoutDashboard, tab: true },
+  { to: "trips", label: "Trip Scheduling", short: "Trips", icon: CalendarClock, tab: true },
+  { to: "reservations", label: "Reservations", short: "Bookings", icon: Ticket, tab: true },
+  { to: "payments", label: "Online Payments", icon: Wallet },
+  { to: "payment-settings", label: "Payment QR", icon: QrCode },
+  { to: "tracking", label: "Live Tracking", short: "Tracking", icon: Map, tab: true },
+  { to: "fleet", label: "Fleet Management", icon: Bus },
+  { to: "routes", label: "Route Management", icon: Route },
+  { to: "drivers", label: "Driver Management", icon: IdCard },
+  { to: "reports", label: "Reports & Analytics", icon: BarChart3 },
+  { to: "users", label: "User Management", icon: Users },
+];
+
+const theme = {
+  sidebar: "bg-slate-800",
+  activeLink: "bg-slate-950 text-white",
+  idleLink: "text-white/80 hover:bg-slate-700 hover:text-white",
+  muted: "text-slate-400",
+  tabActive: "text-slate-900",
+};
 
 export default function AdminLayout() {
-  const { user, signOut } = useAuth()
-  const navigate = useNavigate()
-
-  return (
-    <div className="flex min-h-screen">
-      <aside className="w-56 bg-slate-800 text-white p-4 space-y-1 overflow-y-auto flex flex-col">
-        <h2 className="font-bold text-lg mb-4">DRS Admin</h2>
-        {links.map((l) => (
-          <NavLink
-            key={l.to}
-            to={l.to}
-            className={({ isActive }) =>
-              `block px-3 py-2 rounded text-sm ${isActive ? 'bg-slate-950' : 'hover:bg-slate-700'}`
-            }
-          >
-            {l.label}
-          </NavLink>
-        ))}
-        <div className="flex-1" />
-        {user && <p className="text-xs text-slate-400 px-3">{user.name}</p>}
-        <button
-          type="button"
-          onClick={() => { signOut(); navigate('/') }}
-          className="text-left px-3 py-2 rounded hover:bg-slate-700 text-sm"
-        >
-          Log Out
-        </button>
-      </aside>
-      <main className="flex-1 bg-gray-50">
-        <Outlet />
-      </main>
-    </div>
-  )
+  return <RoleLayout title="DRS Admin" links={links} theme={theme} />;
 }

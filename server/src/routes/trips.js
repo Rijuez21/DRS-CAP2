@@ -1,11 +1,58 @@
 import { Router } from "express";
 import { pool } from "../db/pool.js";
 import { redis, CACHE_TTL_SECONDS } from "../cache/redis.js";
-import { requireRole } from "../middleware/auth.js";
+import { requireRole, authenticate } from "../middleware/auth.js";
 import { logAudit } from "../services/audit.js";
 import { notifyTripChange } from "../services/notify.js";
 
 const TRIPS_CACHE_KEY = "cache:trips:active";
+// The passenger / walk-in list (?scope=bookable) is cached on its own. It used
+// to be filtered in JavaScript AFTER loading and caching every trip ever
+// scheduled, so each passenger request re-parsed that whole (ever-growing)
+// cached list just to keep a handful of rows. Measured with 50,000 trips:
+// see the note in the query below.
+const TRIPS_BOOKABLE_CACHE_KEY = "cache:trips:bookable";
+// Any change to a trip must clear both cached lists.
+const clearTripsCache = () => redis.del(TRIPS_CACHE_KEY, TRIPS_BOOKABLE_CACHE_KEY).catch(() => {});
+
+// Fresh (never cached) seat counts, overlaid on the cached trip list — the
+// list itself changes rarely, but "seats left" changes with every booking,
+// and a 15-second-stale count would let passengers pick sold-out trips.
+async function attachBookedCounts(rows) {
+  if (rows.length === 0) return rows;
+  const [counts] = await pool.query(
+    `SELECT trip_id, COUNT(*) AS booked_count FROM bookings
+     WHERE trip_id IN (?) AND status NOT IN ('Cancelled', 'No-Show') GROUP BY trip_id`,
+    [rows.map((r) => r.trip_id)]
+  );
+  const byTrip = new Map(counts.map((c) => [c.trip_id, Number(c.booked_count)]));
+  return rows.map((r) => ({ ...r, booked_count: byTrip.get(r.trip_id) ?? 0 }));
+}
+
+// Trip status machine. A driver moves only their own trip forward, one step
+// at a time; an admin can also cancel a trip that hasn't left yet. Before,
+// anyone could set any status (Completed -> Scheduled included) with no login.
+const DRIVER_NEXT = { Scheduled: "Boarding", Boarding: "In Transit", "In Transit": "Completed" };
+const BOARDING_OPENS_HOURS_BEFORE = 3; // a driver can't start boarding a trip that leaves tomorrow
+
+function whyTripStatusChangeNotAllowed({ user, trip, next, otherActiveTrip }) {
+  if (trip.status === next) return `This trip is already ${next}`;
+  if (trip.status === "Completed" || trip.status === "Cancelled") return `This trip is ${trip.status.toLowerCase()} and can't be changed`;
+
+  if (next === "Cancelled") {
+    if (user.role !== "admin") return "Only an administrator can cancel a trip";
+    if (trip.status === "In Transit") return "This bus is already on the road — it can't be cancelled now";
+    return null;
+  }
+  if (user.role === "driver" && trip.driver_id !== user.id) return "This trip isn't assigned to you";
+  if (DRIVER_NEXT[trip.status] !== next) return `A ${trip.status} trip can only move to ${DRIVER_NEXT[trip.status]}`;
+  if (next === "Boarding") {
+    const opensAt = new Date(new Date(trip.departure_time).getTime() - BOARDING_OPENS_HOURS_BEFORE * 3600 * 1000);
+    if (new Date() < opensAt) return `Boarding opens ${BOARDING_OPENS_HOURS_BEFORE} hours before departure`;
+  }
+  if (next === "In Transit" && otherActiveTrip) return "You already have a trip in transit. Complete it first.";
+  return null;
+}
 
 // Wrapped in a builder (like tracking.js/bookings.js's io-aware routes)
 // since scheduling/editing a trip needs to push notify.js's live
@@ -21,10 +68,19 @@ export function buildTripsRouter(io) {
   // paper's Table 10 describes Redis caching to reduce MySQL load, since
   // TripListings is the page passengers hit most often. The driverId-
   // filtered path skips the cache — it's a much smaller, less-hit query.
-  tripsRouter.get("/", async (req, res) => {
-    const { driverId } = req.query;
+  // GET /api/trips — ?driverId= (a driver's own schedule; admin may look up
+  // any driver), ?scope=bookable (TripListings / WalkInSales: only trips a
+  // seat can still be sold on), or no params (admin: everything).
+  // Only the ?driverId= view needs a login (it's a person's work schedule);
+  // the timetable itself is public.
+  const authIfDriverQuery = (req, res, next) => (req.query.driverId ? authenticate(req, res, next) : next());
+  tripsRouter.get("/", authIfDriverQuery, async (req, res) => {
+    const { driverId, scope } = req.query;
 
     if (driverId) {
+      if (!(req.user.role === "admin" || (req.user.role === "driver" && req.user.id === Number(driverId)))) {
+        return res.status(403).json({ error: "You can only view your own trips" });
+      }
       try {
         const [rows] = await pool.query(
           `SELECT tr.trip_id, tr.departure_time, tr.arrival_time, tr.status,
@@ -48,39 +104,59 @@ export function buildTripsRouter(io) {
     }
 
     try {
-      const cached = await redis.get(TRIPS_CACHE_KEY).catch(() => null);
+      let rows;
+      const bookableOnly = scope === "bookable";
+      const cacheKey = bookableOnly ? TRIPS_BOOKABLE_CACHE_KEY : TRIPS_CACHE_KEY;
+      const cached = await redis.get(cacheKey).catch(() => null);
       if (cached) {
-        return res.json(JSON.parse(cached));
+        rows = JSON.parse(cached);
+      } else {
+        // bookableOnly narrows to Boarding trips and Scheduled ones that haven't
+        // left, in SQL, so old Completed/Cancelled trips are never loaded or
+        // cached for passengers. The exact per-request check (a Scheduled trip
+        // whose departure time passed during the 15 s cache window) still runs
+        // below, so this is only a coarser first cut of the same rule.
+        [rows] = await pool.query(
+          `SELECT tr.trip_id, tr.departure_time, tr.arrival_time, tr.status,
+                  rt.origin, rt.destination, rt.distance, rt.base_fare,
+                  b.bus_id, b.plate_num, b.bus_number, b.capacity, b.type AS bus_type,
+                  tr.driver_id, tr.route_id, d.name AS driver_name
+           FROM trips tr
+           JOIN routes rt ON rt.route_id = tr.route_id
+           JOIN buses b ON b.bus_id = tr.bus_id
+           JOIN drivers d ON d.driver_id = tr.driver_id
+           ${bookableOnly ? "WHERE tr.status = 'Boarding' OR (tr.status = 'Scheduled' AND tr.departure_time > NOW())" : ""}
+           ORDER BY tr.departure_time ASC`
+        );
+        redis.set(cacheKey, JSON.stringify(rows), "EX", CACHE_TTL_SECONDS.activeTrips).catch((err) =>
+          console.error("Redis set failed (non-fatal):", err.message)
+        );
       }
 
-      const [rows] = await pool.query(
-        `SELECT tr.trip_id, tr.departure_time, tr.arrival_time, tr.status,
-                rt.origin, rt.destination, rt.base_fare,
-                b.plate_num, b.capacity, b.type AS bus_type,
-                d.name AS driver_name
-         FROM trips tr
-         JOIN routes rt ON rt.route_id = tr.route_id
-         JOIN buses b ON b.bus_id = tr.bus_id
-         JOIN drivers d ON d.driver_id = tr.driver_id
-         ORDER BY tr.departure_time ASC`
-      );
+      if (scope === "bookable") {
+        // Same rule the booking API enforces (bookingRules.whyTripNotBookable),
+        // so a listed trip is always one you can actually book.
+        const now = Date.now();
+        rows = rows.filter(
+          (t) => t.capacity != null && (t.status === "Boarding" || (t.status === "Scheduled" && new Date(t.departure_time).getTime() > now))
+        );
+      }
 
-      redis.set(TRIPS_CACHE_KEY, JSON.stringify(rows), "EX", CACHE_TTL_SECONDS.activeTrips).catch((err) =>
-        console.error("Redis set failed (non-fatal):", err.message)
-      );
-
-      res.json(rows);
+      res.json(await attachBookedCounts(rows));
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: "Failed to load trips" });
     }
   });
 
-  // POST /api/trips — powers admin/TripScheduling.jsx. Rejects with 409 if
+  // POST /api/trips — powers TripScheduling.jsx for both admin (/admin/trips)
+  // and terminal staff (/staff/trips), since staff add departures at the
+  // counter too. Rejects with 409 if
   // the bus or driver is already assigned to another (non-cancelled) trip
   // whose time window overlaps this one — Table 4's Trip Scheduling
   // explicitly requires conflict prevention, not just a same-timestamp check.
-  tripsRouter.post("/", requireRole("admin"), async (req, res) => {
+  // Cancelling a trip stays admin-only (PATCH /:id/status below).
+  tripsRouter.post("/", requireRole("admin", "staff"), async (req, res) => {
     const { busId, driverId, routeId, departureTime, arrivalTime } = req.body;
     if (!busId || !driverId || !routeId || !departureTime || !arrivalTime) {
       return res.status(400).json({ error: "busId, driverId, routeId, departureTime and arrivalTime are required" });
@@ -118,7 +194,7 @@ export function buildTripsRouter(io) {
          VALUES (?, ?, ?, ?, ?, 'Scheduled')`,
         [busId, driverId, routeId, departureTime, arrivalTime]
       );
-      await redis.del(TRIPS_CACHE_KEY).catch(() => {});
+      await clearTripsCache();
       await logAudit({ staffId: req.user.id, action: "create", entityType: "trip", entityId: result.insertId, details: req.body });
       res.status(201).json({ trip_id: result.insertId, busId, driverId, routeId, departureTime, arrivalTime, status: "Scheduled" });
     } catch (err) {
@@ -127,14 +203,17 @@ export function buildTripsRouter(io) {
     }
   });
 
-  // GET /api/trips/:id — powers TripDetail.jsx
+  // GET /api/trips/:id — powers TripDetail.jsx and LiveTracking.jsx. The
+  // route's pin (stop_latitude/longitude, null when not pinned) is where
+  // this trip's stop actually is, so LiveTracking can show the bus relative to it.
   tripsRouter.get("/:id", async (req, res) => {
     try {
       const [rows] = await pool.query(
         `SELECT tr.trip_id, tr.departure_time, tr.arrival_time, tr.status,
                 rt.origin, rt.destination, rt.distance, rt.base_fare,
-                b.bus_id, b.plate_num, b.capacity, b.type AS bus_type,
-                d.name AS driver_name
+                tr.route_id, rt.latitude AS stop_latitude, rt.longitude AS stop_longitude,
+                b.bus_id, b.plate_num, b.bus_number, b.capacity, b.type AS bus_type,
+                tr.driver_id, d.name AS driver_name
          FROM trips tr
          JOIN routes rt ON rt.route_id = tr.route_id
          JOIN buses b ON b.bus_id = tr.bus_id
@@ -143,7 +222,8 @@ export function buildTripsRouter(io) {
         [req.params.id]
       );
       if (rows.length === 0) return res.status(404).json({ error: "Trip not found" });
-      res.json(rows[0]);
+      const [withCount] = await attachBookedCounts(rows);
+      res.json(withCount);
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: "Failed to load trip" });
@@ -179,8 +259,15 @@ export function buildTripsRouter(io) {
   // GET /api/trips/:id/manifest — powers both driver/Manifest.jsx and
   // staff/ (terminal staff checking in the same trip), built once here
   // instead of duplicating the query in two route files (Phase 4.3).
-  tripsRouter.get("/:id/manifest", async (req, res) => {
+  // Passenger names are personal data: the trip's own driver, terminal
+  // staff and admins only.
+  tripsRouter.get("/:id/manifest", requireRole("driver", "staff", "admin"), async (req, res) => {
     try {
+      if (req.user.role === "driver") {
+        const [[trip]] = await pool.query(`SELECT driver_id FROM trips WHERE trip_id = ?`, [req.params.id]);
+        if (!trip) return res.status(404).json({ error: "Trip not found" });
+        if (trip.driver_id !== req.user.id) return res.status(403).json({ error: "This trip isn't assigned to you" });
+      }
       const [rows] = await pool.query(
         `SELECT booking_id, passenger_name, seat_number, status, channel, booked_at
          FROM bookings
@@ -200,12 +287,28 @@ export function buildTripsRouter(io) {
   // departure/arrival time actually changes, notifies every passenger with
   // a live booking on it plus the assigned driver (Phase 0.3's Reliability
   // requirement) via notify.js.
-  tripsRouter.patch("/:id", requireRole("admin"), async (req, res) => {
+  tripsRouter.patch("/:id", requireRole("admin", "staff"), async (req, res) => {
     const { busId, driverId, routeId, departureTime, arrivalTime } = req.body;
 
     try {
       const [[existing]] = await pool.query(`SELECT * FROM trips WHERE trip_id = ?`, [req.params.id]);
       if (!existing) return res.status(404).json({ error: "Trip not found" });
+      if (existing.status !== "Scheduled") {
+        return res.status(409).json({ error: `Only a Scheduled trip can be edited (this one is ${existing.status})` });
+      }
+      if (busId !== undefined && Number(busId) !== existing.bus_id) {
+        // Swapping to a smaller bus must not strand passengers whose seat
+        // number doesn't exist on it.
+        const [[bus]] = await pool.query(`SELECT capacity FROM buses WHERE bus_id = ?`, [busId]);
+        if (!bus) return res.status(404).json({ error: "Bus not found" });
+        const [[top]] = await pool.query(
+          `SELECT MAX(CAST(seat_number AS UNSIGNED)) AS highest FROM bookings WHERE trip_id = ? AND status NOT IN ('Cancelled', 'No-Show')`,
+          [req.params.id]
+        );
+        if (top.highest != null && (bus.capacity == null || top.highest > bus.capacity)) {
+          return res.status(409).json({ error: `That bus has ${bus.capacity ?? "no recorded"} seats, but seat ${top.highest} is already booked on this trip` });
+        }
+      }
 
       const nextBusId = busId ?? existing.bus_id;
       const nextDriverId = driverId ?? existing.driver_id;
@@ -236,7 +339,7 @@ export function buildTripsRouter(io) {
 
       params.push(req.params.id);
       await pool.query(`UPDATE trips SET ${fields.join(", ")} WHERE trip_id = ?`, params);
-      await redis.del(TRIPS_CACHE_KEY).catch(() => {});
+      await clearTripsCache();
       await logAudit({ staffId: req.user.id, action: "update", entityType: "trip", entityId: req.params.id, details: req.body });
 
       const scheduleChanged =
@@ -257,26 +360,55 @@ export function buildTripsRouter(io) {
   // Boarding/In Transit/Completed" and RouteSchedule.jsx, validated the same
   // way bookings.js/fleet.js validate their own enums. A Cancelled trip
   // notifies everyone holding a live booking on it.
-  tripsRouter.patch("/:id/status", async (req, res) => {
-    const { status } = req.body;
+  // PATCH /api/trips/:id/status — driver dashboard (Boarding -> In Transit
+  // -> Completed) and admin trip cancellation. Rules in
+  // whyTripStatusChangeNotAllowed above; side effects keep bookings honest:
+  //   Cancelled: every open booking is cancelled (passengers are notified
+  //              first, since notify targets still-active bookings).
+  //   Completed: bookings nobody boarded become No-Show, so they stop
+  //              showing as upcoming "Reserved" tickets forever.
+  tripsRouter.patch("/:id/status", requireRole("driver", "admin"), async (req, res) => {
+    const { status: next } = req.body;
     const allowed = ["Scheduled", "Boarding", "In Transit", "Completed", "Cancelled"];
-    if (!allowed.includes(status)) {
+    if (!allowed.includes(next)) {
       return res.status(400).json({ error: `status must be one of: ${allowed.join(", ")}` });
     }
 
     try {
-      const [result] = await pool.query(
-        `UPDATE trips SET status = ?, completed_at = IF(? = 'Completed', NOW(), completed_at) WHERE trip_id = ?`,
-        [status, status, req.params.id]
-      );
-      if (result.affectedRows === 0) return res.status(404).json({ error: "Trip not found" });
-      await redis.del(TRIPS_CACHE_KEY).catch(() => {});
+      const [[trip]] = await pool.query(`SELECT trip_id, status, driver_id, departure_time FROM trips WHERE trip_id = ?`, [req.params.id]);
+      if (!trip) return res.status(404).json({ error: "Trip not found" });
 
-      if (status === "Cancelled") {
-        await notifyTripChange(io, req.params.id, "Your trip has been cancelled. Please check your bookings for details.", "trip_cancelled");
+      let otherActiveTrip = null;
+      if (next === "In Transit") {
+        [[otherActiveTrip]] = await pool.query(
+          `SELECT trip_id FROM trips WHERE driver_id = ? AND status = 'In Transit' AND trip_id != ? LIMIT 1`,
+          [trip.driver_id, trip.trip_id]
+        );
+      }
+      const refusal = whyTripStatusChangeNotAllowed({ user: req.user, trip, next, otherActiveTrip });
+      if (refusal) return res.status(409).json({ error: refusal });
+
+      if (next === "Cancelled") {
+        await notifyTripChange(io, trip.trip_id, "Your trip has been cancelled. Your booking has been cancelled too — please book another trip.", "trip_cancelled");
       }
 
-      res.json({ trip_id: Number(req.params.id), status });
+      const [result] = await pool.query(
+        `UPDATE trips SET status = ?, completed_at = IF(? = 'Completed', NOW(), completed_at) WHERE trip_id = ? AND status = ?`,
+        [next, next, trip.trip_id, trip.status]
+      );
+      if (result.affectedRows === 0) return res.status(409).json({ error: "This trip was just updated by someone else — refresh and try again" });
+
+      if (next === "Cancelled") {
+        await pool.query(`UPDATE bookings SET status = 'Cancelled' WHERE trip_id = ? AND status IN ('Reserved', 'Confirmed')`, [trip.trip_id]);
+      } else if (next === "Completed") {
+        await pool.query(`UPDATE bookings SET status = 'No-Show' WHERE trip_id = ? AND status IN ('Reserved', 'Confirmed')`, [trip.trip_id]);
+      }
+      await clearTripsCache();
+      if (req.user.role === "admin") {
+        await logAudit({ staffId: req.user.id, action: "update", entityType: "trip", entityId: trip.trip_id, details: { status: next } });
+      }
+
+      res.json({ trip_id: trip.trip_id, status: next });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: "Failed to update trip status" });

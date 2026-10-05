@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "../lib/api";
 
 // Phase 3.4 — offline GPS buffering, a named Reliability requirement, not
@@ -35,64 +35,68 @@ async function queuePoint(point) {
   });
 }
 
-async function drainQueue() {
+
+async function readQueue() {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readonly");
+    const req = tx.objectStore(STORE_NAME).getAll();
+    req.onsuccess = () => resolve(req.result);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// Deletes exactly the points that were uploaded. The old version cleared
+// the whole store after uploading, so any point queued *during* the upload
+// (still offline in a dead zone) was silently lost.
+async function removeFromQueue(ids) {
+  if (ids.length === 0) return;
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");
     const store = tx.objectStore(STORE_NAME);
-    const points = [];
-    const cursorReq = store.openCursor();
-    cursorReq.onsuccess = (e) => {
-      const cursor = e.target.result;
-      if (cursor) {
-        points.push(cursor.value);
-        cursor.continue();
-      }
-    };
-    tx.oncomplete = () => resolve(points);
-    tx.onerror = () => reject(tx.error);
-    // Clear happens only after a successful flush (caller's responsibility)
-  });
-}
-
-async function clearQueue() {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, "readwrite");
-    tx.objectStore(STORE_NAME).clear();
+    ids.forEach((id) => store.delete(id));
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
 }
 
 /**
- * @param {number|null} busId - the bus this driver is currently assigned to.
- *   Pass null/undefined to disable tracking (e.g. no active trip).
+ * @param {number|null} busId - the bus on the driver's Boarding / In Transit
+ *   trip. Pass null to stop sharing (no active trip).
+ * @returns {{ status, queuedCount, retry }} status is one of
+ *   idle | locating | sharing | denied | unavailable | unsupported — shown on
+ *   the driver dashboard. Before, a blocked permission failed silently:
+ *   passengers saw no bus and the driver never knew why.
  */
 export function useDriverLocation(busId) {
-  const [status, setStatus] = useState("idle"); // idle | tracking | error
+  const supported = typeof navigator !== "undefined" && "geolocation" in navigator;
+  // Last result reported by the browser for the current watch; null = no
+  // answer yet. Derived into the public status below rather than reset
+  // inside the effect.
+  const [lastResult, setLastResult] = useState(null);
   const [queuedCount, setQueuedCount] = useState(0);
+  const [attempt, setAttempt] = useState(0); // bump to retry after the driver fixes permission
   const watchIdRef = useRef(null);
 
-  async function flush() {
+  const flush = useCallback(async () => {
     try {
-      const points = await drainQueue();
+      const points = await readQueue();
       if (points.length === 0) return;
-      await api.postLocationBatch(points.map((p) => ({ ...p, syncStatus: "buffered" })));
-      await clearQueue();
-      setQueuedCount(0);
+      // eslint-disable-next-line no-unused-vars -- `id` is the IndexedDB key, not part of the API payload
+      await api.postLocationBatch(points.map(({ id, ...p }) => ({ ...p, syncStatus: "buffered" })));
+      await removeFromQueue(points.map((p) => p.id));
+      setQueuedCount((n) => Math.max(0, n - points.length));
     } catch {
-      // still offline or the batch call failed — leave the queue intact, try again later
+      // Still offline (or server unreachable) — keep the queue for the next try.
     }
-  }
+  }, []);
 
   useEffect(() => {
-    if (!busId || !("geolocation" in navigator)) return;
-
-    setStatus("tracking");
-
+    if (!busId || !supported) return undefined;
     watchIdRef.current = navigator.geolocation.watchPosition(
       async (pos) => {
+        setLastResult({ key: `${busId}:${attempt}`, value: "sharing" });
         const point = {
           busId,
           latitude: pos.coords.latitude,
@@ -101,25 +105,36 @@ export function useDriverLocation(busId) {
         };
         try {
           await api.postLocation({ ...point, syncStatus: "synced" });
-        } catch {
+        } catch (err) {
+          // Only network trouble is worth buffering; a 4xx (e.g. the trip is
+          // no longer yours) would just be rejected again later.
+          if (err.status && err.status < 500) return;
           await queuePoint(point);
           setQueuedCount((n) => n + 1);
         }
       },
-      () => setStatus("error"),
+      (err) =>
+        setLastResult({ key: `${busId}:${attempt}`, value: err.code === err.PERMISSION_DENIED ? "denied" : "unavailable" }),
       { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
     );
-
     window.addEventListener("online", flush);
     const retryInterval = setInterval(flush, 30000); // safety net if the online event doesn't fire
-    flush(); // pick up anything queued from a previous session
-
+    const firstFlush = setTimeout(flush, 0); // pick up anything queued from a previous session
     return () => {
       if (watchIdRef.current != null) navigator.geolocation.clearWatch(watchIdRef.current);
       window.removeEventListener("online", flush);
       clearInterval(retryInterval);
+      clearTimeout(firstFlush);
     };
-  }, [busId]);
+  }, [busId, supported, flush, attempt]);
 
-  return { status, queuedCount };
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
+
+  let status;
+  if (!supported) status = "unsupported";
+  else if (!busId) status = "idle";
+  else if (lastResult?.key === `${busId}:${attempt}`) status = lastResult.value;
+  else status = "locating"; // waiting for the browser prompt / first fix
+
+  return { status, queuedCount, retry };
 }

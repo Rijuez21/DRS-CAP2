@@ -45,15 +45,14 @@ cd drs-bus-main
 npm install
 npm install lucide-react
 npm run dev
-  #if you want to try it on mobile do:
-    >make sure your pc and mobile are on the same network
-    >turn off your firewalls
-    >and finally run:
-npm run dev -- --host
-  >to see your pc's IPv4 address and host number, where you'll connect your mobile to.
 ```
 
 App runs at `http://localhost:5173`.
+
+To try it on a phone, don't open `http://<your PC's IP>:5173`. Location (GPS) is
+blocked on plain `http://` links, so the terminal map, Flag a Bus and live
+tracking won't work. Use the HTTPS tunnel in
+[Running on a Phone](#running-on-a-phone-https--needed-for-gps) instead.
 
 Also confirm `index.html` includes the Google Fonts link tags in `<head>`:
 
@@ -61,6 +60,124 @@ Also confirm `index.html` includes the Google Fonts link tags in `<head>`:
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 ```
+
+## Running on a Phone (HTTPS — needed for GPS)
+
+Browsers only share a phone's location on `https://` pages, or on `localhost`
+on the same computer. On a plain `http://192.168.x.x:5173` link, the app shows
+**"Location needs a secure (https://) link"** and every map feature that
+needs your position stops working.
+
+The fix is a free **Cloudflare quick tunnel**. It gives your dev server a
+temporary `https://….trycloudflare.com` address that works on any phone, even
+one that isn't on your Wi-Fi. `vite.config.js` is already set up for it: it
+allows `*.trycloudflare.com` hosts and forwards `/api` and live updates to the
+backend, so you only need **one** tunnel.
+
+### One-time setup: install cloudflared
+
+Open PowerShell or a VS Code terminal and run:
+
+```powershell
+winget install --id Cloudflare.cloudflared -e
+```
+
+Then **close and reopen VS Code** (or your terminal) so Windows picks up the
+new `cloudflared` command. Check it worked with `cloudflared --version`.
+
+> macOS: `brew install cloudflared`. Linux: see
+> https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
+
+### Every time: three terminals
+
+In VS Code, open each terminal with **Terminal → New Terminal** (or the **+**
+button in the terminal panel), starting from the project root.
+
+**Terminal 1: backend**
+
+```bash
+cd server
+npm run dev
+```
+
+Leave it running. See `server/README.md` for the first-time database setup.
+
+**Terminal 2: website**
+
+```bash
+cd drs-bus-main
+npm run dev
+```
+
+Wait for `Local: http://localhost:5173/`, then leave it running.
+
+**Terminal 3: HTTPS tunnel**
+
+```bash
+cloudflared tunnel --url http://localhost:5173
+```
+
+After about 10 seconds it prints a box like this:
+
+```
+Your quick Tunnel has been created! Visit it at:
+https://some-random-words.trycloudflare.com
+```
+
+Copy that `https://…trycloudflare.com` link and leave this terminal running.
+
+### On the phone
+
+1. Send yourself the link (for example, message it to yourself) and open it in
+   Chrome or Safari.
+2. Log in. The tunnel counts as a different site from `localhost`, so you start
+   logged out.
+3. When a page asks for your location (for example **Getting to the terminal**
+   on the passenger Home page), tap **Share my location**, then choose
+   **Allow**. Turn on precise location if the phone offers it.
+
+To stop everything, press **Ctrl + C** in each of the three terminals.
+
+### Good to know
+
+- **The link changes every time** you restart the tunnel. Send the new one to
+  whoever is testing.
+- The link only works while all three terminals are running and the PC is on.
+- **Anyone with the link can open your dev app** while the tunnel runs, so
+  don't post it publicly.
+- Quick tunnels are for testing and demos only. There's no uptime guarantee.
+
+### Troubleshooting
+
+| What you see | What to do |
+|---|---|
+| `cloudflared` is "not recognized" | Close and reopen VS Code, then run Terminal 3 again. |
+| The link shows a Cloudflare error page (e.g. 502) | Terminal 2 (`npm run dev` in `drs-bus-main`) has stopped. Start it again. |
+| Vite says "Blocked request. This host is not allowed" | Make sure `allowedHosts: ['.trycloudflare.com']` is still in `vite.config.js`. |
+| The page loads but login fails or there's no data | Terminal 1 (backend) has stopped. Start it again. |
+| "Location needs a secure (https://) link" | You opened an `http://` address. Use the `https://…trycloudflare.com` link. |
+| "Location is blocked for this site" | Tap the lock icon next to the address → **Permissions** → **Location** → **Allow**, then reload. |
+| No location prompt ever appears | Turn on Location in the phone's settings and allow it for Chrome or Safari. |
+| "We couldn't get your location" | Turn on GPS, step outside or near a window, then tap **Try again**. |
+
+## Terminal Directions Map
+
+The passenger Home page has a **Getting to the terminal** card. It shows the
+bus terminal on a map. Once the passenger shares their location, it also shows
+a blue "You" dot and the road route to the terminal, plus the distance and
+approximate driving time. A **Directions** link opens Google Maps for
+turn-by-turn navigation.
+
+- **Terminal location:** set in code in `src/lib/terminal.js` (`TERMINAL.latitude` /
+  `TERMINAL.longitude`, plus its name and address). To move the pin, open
+  Google Maps, right-click the terminal entrance, and click the `lat, lng` line
+  at the top of the menu to copy it.
+- **Routing:** uses the public OSRM demo server (`src/hooks/useRoadRoute.js`),
+  the same one Flag a Bus uses. It's free and needs no API key, but it's
+  rate-limited and its times are for a car. If it can't be reached, the map
+  draws a dashed straight line instead.
+- **Location:** needs HTTPS on phones (see
+  [Running on a Phone](#running-on-a-phone-https--needed-for-gps)).
 
 ## Folder Structure
 
@@ -85,7 +202,8 @@ src/
 │       ├── StatsRow.jsx
 │       ├── TripCard.jsx
 │       ├── SeatMap.jsx
-│       └── BookingSummaryCard.jsx
+│       ├── BookingSummaryCard.jsx
+│       └── TerminalDirectionsCard.jsx  # Home: map + route from you to the terminal
 ├── pages/
 │   ├── auth/
 │   │   ├── RoleSelect.jsx      # built — landing page, pick a role to log in as
@@ -104,9 +222,7 @@ src/
 │   ├── driver/
 │   │   ├── Dashboard.jsx
 │   │   ├── RouteSchedule.jsx
-│   │   ├── Manifest.jsx
-│   │   ├── VehicleChecklist.jsx
-│   │   └── IssueReports.jsx
+│   │   └── Manifest.jsx
 │   ├── staff/
 │   │   ├── WalkInSales.jsx
 │   │   └── ReservationValidation.jsx
@@ -117,8 +233,9 @@ src/
 │       ├── DriverManagement.jsx
 │       ├── TripScheduling.jsx
 │       ├── ReservationsManagement.jsx
-│       ├── MaintenanceTracking.jsx
 │       └── UserManagement.jsx
+├── lib/
+│   └── terminal.js         # bus terminal name + coordinates (edit to move the pin)
 ├── routes/
 │   └── AppRoutes.jsx
 ├── index.css       # Tailwind import + brand design tokens (@theme)
@@ -156,9 +273,9 @@ All routes are defined centrally in `src/routes/AppRoutes.jsx`.
 | Role | Base Path | Routes |
 |---|---|---|
 | Passenger | `/passenger` | `home`, `trips`, `trips/:tripId`, `booking-confirmed`, `my-bookings`, `my-bookings/:bookingId`, `tracking/:tripId`, `profile` |
-| Driver | `/driver` | `dashboard`, `route-schedule`, `manifest`, `vehicle-checklist`, `issue-reports` |
+| Driver | `/driver` | `dashboard`, `route-schedule`, `manifest` |
 | Terminal Staff | `/staff` | `walk-in`, `validate` |
-| Admin | `/admin` | `dashboard`, `fleet`, `routes`, `drivers`, `trips`, `reservations`, `maintenance`, `users` |
+| Admin | `/admin` | `dashboard`, `fleet`, `routes`, `drivers`, `trips`, `reservations`, `users` |
 
 Each role's base path redirects to that role's default page. Unmatched URLs redirect to `/`. `PassengerLayout` is mobile-first: bottom tab bar below the `lg` breakpoint, fixed left sidebar at `lg` and above.
 

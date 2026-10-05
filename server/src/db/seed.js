@@ -9,14 +9,19 @@ import { pool } from "./pool.js";
  * Safe to re-run — uses INSERT IGNORE / ON DUPLICATE KEY so it won't
  * duplicate rows on a second run.
  *
+ * Passwords come from SEED_*_PASSWORD env vars (see .env.example) so
+ * nothing sensitive is committed as a literal. If a var is unset, this
+ * falls back to the dev-only default named below — fine for local
+ * development, but set real values before seeding anything you'll deploy.
+ *
  * Run via `npm run db:seed` (after `npm run db:init`, or `npm run
  * db:migrate` if you're adding this to a database that already has data).
  */
 async function main() {
-  const driverPassword = await bcrypt.hash("driver123", 10);
-  const staffPassword = await bcrypt.hash("staff123", 10);
-  const adminPassword = await bcrypt.hash("admin123", 10);
-  const passengerPassword = await bcrypt.hash("passenger123", 10);
+  const driverPassword = await bcrypt.hash(process.env.SEED_DRIVER_PASSWORD || "driver123", 10);
+  const staffPassword = await bcrypt.hash(process.env.SEED_STAFF_PASSWORD || "staff123", 10);
+  const adminPassword = await bcrypt.hash(process.env.SEED_ADMIN_PASSWORD || "admin123", 10);
+  const passengerPassword = await bcrypt.hash(process.env.SEED_PASSENGER_PASSWORD || "passenger123", 10);
 
   // ---- Routes ---------------------------------------------------------
   const ROUTES = [
@@ -88,6 +93,13 @@ async function main() {
   );
   const [[passengerRow]] = await pool.query(`SELECT commuter_id FROM commuters WHERE email = 'passenger@drs.local'`);
 
+  // ---- The walk-in placeholder (routes/bookings.js), created up front so
+  // the email is taken before anyone could register it. Empty password_hash
+  // = can never log in. INSERT IGNORE: an existing row is left untouched.
+  await pool.query(
+    `INSERT IGNORE INTO commuters (name, email, password_hash) VALUES ('Walk-in Counter', 'walk-in@drs.local', '')`
+  );
+
   // ---- Trips: a mix of past-completed, in-transit, and future-scheduled
   // so the Dashboard/Reports pages have real variety to chart. ----------
   const now = Date.now();
@@ -124,11 +136,14 @@ async function main() {
   // ---- A handful of bookings across a few of those trips ---------------
   if (insertedTripIds.length > 0) {
     const bookingPlan = [
-      { tripId: insertedTripIds[0], seat: "A1", status: "Boarded", channel: "online" },
-      { tripId: insertedTripIds[0], seat: "A2", status: "Boarded", channel: "walk_in" },
-      { tripId: insertedTripIds[3], seat: "B1", status: "Confirmed", channel: "online" },
-      { tripId: insertedTripIds[3], seat: "B2", status: "Reserved", channel: "online" },
-      { tripId: insertedTripIds[4], seat: "A1", status: "Reserved", channel: "walk_in" },
+      // Seat numbers are plain integers ("1".."capacity") -- the same ids
+      // SeatMap.jsx renders and the booking API validates. The earlier "A1"
+      // style never matched a seat on the map, so seeded seats showed as free.
+      { tripId: insertedTripIds[0], seat: "1", status: "Boarded", channel: "online" },
+      { tripId: insertedTripIds[0], seat: "2", status: "Boarded", channel: "walk_in" },
+      { tripId: insertedTripIds[3], seat: "5", status: "Confirmed", channel: "online" },
+      { tripId: insertedTripIds[3], seat: "6", status: "Reserved", channel: "online" },
+      { tripId: insertedTripIds[4], seat: "1", status: "Reserved", channel: "walk_in" },
     ];
     for (const b of bookingPlan) {
       if (!b.tripId) continue;
@@ -141,16 +156,6 @@ async function main() {
     }
   }
 
-  // ---- Maintenance: one overdue record so the Dashboard's alert card
-  // and MaintenanceTracking's flag both have something to show. ----------
-  const maintenanceBus = busRows.find((b) => b.plate_num === "NXV-3456") ?? busRows[0];
-  await pool.query(
-    `INSERT INTO maintenance (bus_id, service_type, date, cost, next_service_date, status)
-     SELECT ?, 'Brake inspection', DATE_SUB(CURDATE(), INTERVAL 45 DAY), 3500.00, DATE_SUB(CURDATE(), INTERVAL 5 DAY), 'Completed'
-     WHERE NOT EXISTS (SELECT 1 FROM maintenance WHERE bus_id = ? AND service_type = 'Brake inspection')`,
-    [maintenanceBus.bus_id, maintenanceBus.bus_id]
-  );
-
   // ---- Audit log entry, so the Dashboard's activity feed isn't empty ----
   if (adminRow) {
     await pool.query(
@@ -161,11 +166,11 @@ async function main() {
     );
   }
 
-  console.log("Seed complete. Demo accounts:");
-  console.log("  Driver          — driver@drs.local / driver123 (and driver2@/driver3@drs.local)");
-  console.log("  Terminal Staff  — staff@drs.local / staff123");
-  console.log("  Admin           — admin@drs.local / admin123");
-  console.log("  Passenger       — passenger@drs.local / passenger123");
+  console.log("Seed complete. Demo accounts (password = env var if set, else the dev default shown):");
+  console.log("  Driver          — driver@drs.local / SEED_DRIVER_PASSWORD or 'driver123' (and driver2@/driver3@drs.local)");
+  console.log("  Terminal Staff  — staff@drs.local / SEED_STAFF_PASSWORD or 'staff123'");
+  console.log("  Admin           — admin@drs.local / SEED_ADMIN_PASSWORD or 'admin123'");
+  console.log("  Passenger       — passenger@drs.local / SEED_PASSENGER_PASSWORD or 'passenger123'");
 
   await pool.end();
 }

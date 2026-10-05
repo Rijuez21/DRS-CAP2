@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { pool } from "../db/pool.js";
 import { JWT_SECRET } from "../middleware/auth.js";
+import { isReservedEmail } from "../services/bookingRules.js";
 
 export const authRouter = Router();
 
@@ -61,6 +62,11 @@ authRouter.post("/register", async (req, res) => {
   const { name, email, phoneno, password } = req.body;
   if (!name || !email || !password) {
     return res.status(400).json({ error: "name, email and password are required" });
+  }
+  // The walk-in placeholder account (see bookingRules.js) — answered like
+  // any taken email so it doesn't advertise itself.
+  if (isReservedEmail(email)) {
+    return res.status(409).json({ error: "An account with that email already exists" });
   }
 
   try {

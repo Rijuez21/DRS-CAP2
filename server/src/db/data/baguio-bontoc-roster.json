@@ -1,0 +1,19 @@
+{
+  "_readme": "Fill in the real values here, then run `npm run db:seed:baguio-bontoc`. Fields still holding a PENDING-*, guessed, or 'unconfirmed'-flagged value below were never given to me — this file is the one place to fix them. Routes are no longer defined here — every row of baguio-bontoc-fare-matrix.json becomes its own route (Baguio -> that stop) when seeded.",
+
+  "drivers": [
+    { "busNumber": "108", "name": "Jullie Makil", "licenseNumber": "PENDING-108", "email": "jullie.makil@drs.local", "phoneno": null },
+    { "busNumber": "208", "name": "Cyril",        "licenseNumber": "PENDING-208", "email": "cyril@drs.local",        "phoneno": null },
+    { "busNumber": "408", "name": "Boyet Marzan", "licenseNumber": "PENDING-408", "email": "boyet.marzan@drs.local", "phoneno": null },
+    { "busNumber": "508", "name": "Bong Marzan",  "licenseNumber": "PENDING-508", "email": "bong.marzan@drs.local",  "phoneno": null },
+    { "busNumber": "608", "name": "Emanuel",      "licenseNumber": "PENDING-608", "email": "emanuel@drs.local",      "phoneno": null }
+  ],
+
+  "buses": [
+    { "busNumber": "108", "plateNum": "NAE 4260", "capacity": 45, "type": "air_conditioned", "boardingPoint": null, "_note": "capacity is a guess, not measured" },
+    { "busNumber": "208", "plateNum": "AYV 583",  "capacity": 50, "type": "ordinary",        "boardingPoint": "Riken Star", "_note": "capacity is a guess, not measured" },
+    { "busNumber": "408", "plateNum": "AYT 932",  "capacity": 50, "type": "ordinary",        "boardingPoint": null, "_note": "type unconfirmed — was never stated as ordinary or aircon; capacity is a guess" },
+    { "busNumber": "508", "plateNum": "NBS 2329", "capacity": 45, "type": "air_conditioned", "boardingPoint": null, "_note": "capacity is a guess, not measured" },
+    { "busNumber": "608", "plateNum": "141209",   "capacity": 50, "type": "ordinary",        "boardingPoint": null, "_note": "plate has no letters, looks incomplete — verify; capacity is a guess" }
+  ]
+}

@@ -1,0 +1,968 @@
+[
+  {
+    "km": 1,
+    "stopName": null,
+    "regularFare": 15,
+    "specialFare": 15
+  },
+  {
+    "km": 2,
+    "stopName": null,
+    "regularFare": 15,
+    "specialFare": 15
+  },
+  {
+    "km": 3,
+    "stopName": null,
+    "regularFare": 15,
+    "specialFare": 15
+  },
+  {
+    "km": 4,
+    "stopName": null,
+    "regularFare": 15,
+    "specialFare": 15
+  },
+  {
+    "km": 5,
+    "stopName": null,
+    "regularFare": 15,
+    "specialFare": 15
+  },
+  {
+    "km": 6,
+    "stopName": null,
+    "regularFare": 20,
+    "specialFare": 15
+  },
+  {
+    "km": 7,
+    "stopName": null,
+    "regularFare": 20,
+    "specialFare": 15
+  },
+  {
+    "km": 8,
+    "stopName": null,
+    "regularFare": 25,
+    "specialFare": 20
+  },
+  {
+    "km": 9,
+    "stopName": null,
+    "regularFare": 30,
+    "specialFare": 20
+  },
+  {
+    "km": 10,
+    "stopName": null,
+    "regularFare": 30,
+    "specialFare": 25
+  },
+  {
+    "km": 11,
+    "stopName": null,
+    "regularFare": 35,
+    "specialFare": 25
+  },
+  {
+    "km": 12,
+    "stopName": null,
+    "regularFare": 35,
+    "specialFare": 30
+  },
+  {
+    "km": 13,
+    "stopName": null,
+    "regularFare": 40,
+    "specialFare": 30
+  },
+  {
+    "km": 14,
+    "stopName": null,
+    "regularFare": 45,
+    "specialFare": 35
+  },
+  {
+    "km": 15,
+    "stopName": null,
+    "regularFare": 45,
+    "specialFare": 40
+  },
+  {
+    "km": 16,
+    "stopName": "KING SOLOMON",
+    "regularFare": 50,
+    "specialFare": 40
+  },
+  {
+    "km": 17,
+    "stopName": null,
+    "regularFare": 55,
+    "specialFare": 45
+  },
+  {
+    "km": 18,
+    "stopName": "AMBASADOR",
+    "regularFare": 55,
+    "specialFare": 45
+  },
+  {
+    "km": 19,
+    "stopName": null,
+    "regularFare": 60,
+    "specialFare": 50
+  },
+  {
+    "km": 20,
+    "stopName": null,
+    "regularFare": 65,
+    "specialFare": 50
+  },
+  {
+    "km": 21,
+    "stopName": "TABEYOC/CAGUI-ING",
+    "regularFare": 65,
+    "specialFare": 55
+  },
+  {
+    "km": 22,
+    "stopName": null,
+    "regularFare": 70,
+    "specialFare": 55
+  },
+  {
+    "km": 23,
+    "stopName": "CALIKING",
+    "regularFare": 75,
+    "specialFare": 60
+  },
+  {
+    "km": 24,
+    "stopName": null,
+    "regularFare": 75,
+    "specialFare": 60
+  },
+  {
+    "km": 25,
+    "stopName": "SAYET",
+    "regularFare": 80,
+    "specialFare": 65
+  },
+  {
+    "km": 26,
+    "stopName": "SADDLE",
+    "regularFare": 80,
+    "specialFare": 65
+  },
+  {
+    "km": 27,
+    "stopName": null,
+    "regularFare": 85,
+    "specialFare": 70
+  },
+  {
+    "km": 28,
+    "stopName": "LOSONG",
+    "regularFare": 85,
+    "specialFare": 70
+  },
+  {
+    "km": 29,
+    "stopName": "SAPIANGAO",
+    "regularFare": 90,
+    "specialFare": 75
+  },
+  {
+    "km": 30,
+    "stopName": null,
+    "regularFare": 90,
+    "specialFare": 75
+  },
+  {
+    "km": 31,
+    "stopName": null,
+    "regularFare": 95,
+    "specialFare": 75
+  },
+  {
+    "km": 32,
+    "stopName": "TOPDAC",
+    "regularFare": 100,
+    "specialFare": 80
+  },
+  {
+    "km": 33,
+    "stopName": null,
+    "regularFare": 100,
+    "specialFare": 80
+  },
+  {
+    "km": 34,
+    "stopName": "JAPASON",
+    "regularFare": 105,
+    "specialFare": 85
+  },
+  {
+    "km": 35,
+    "stopName": "AGDEYTO",
+    "regularFare": 110,
+    "specialFare": 90
+  },
+  {
+    "km": 36,
+    "stopName": null,
+    "regularFare": 115,
+    "specialFare": 90
+  },
+  {
+    "km": 37,
+    "stopName": null,
+    "regularFare": 115,
+    "specialFare": 95
+  },
+  {
+    "km": 38,
+    "stopName": "ADOYONAN",
+    "regularFare": 120,
+    "specialFare": 95
+  },
+  {
+    "km": 39,
+    "stopName": "ABIANG (BRGY. HALL)",
+    "regularFare": 125,
+    "specialFare": 100
+  },
+  {
+    "km": 40,
+    "stopName": "GEWENG",
+    "regularFare": 125,
+    "specialFare": 100
+  },
+  {
+    "km": 41,
+    "stopName": null,
+    "regularFare": 130,
+    "specialFare": 105
+  },
+  {
+    "km": 42,
+    "stopName": "BALANGABANG",
+    "regularFare": 135,
+    "specialFare": 110
+  },
+  {
+    "km": 43,
+    "stopName": null,
+    "regularFare": 135,
+    "specialFare": 115
+  },
+  {
+    "km": 44,
+    "stopName": "BOGAO",
+    "regularFare": 140,
+    "specialFare": 115
+  },
+  {
+    "km": 45,
+    "stopName": null,
+    "regularFare": 145,
+    "specialFare": 115
+  },
+  {
+    "km": 46,
+    "stopName": "BONGLO",
+    "regularFare": 145,
+    "specialFare": 120
+  },
+  {
+    "km": 47,
+    "stopName": "BONDO",
+    "regularFare": 150,
+    "specialFare": 120
+  },
+  {
+    "km": 48,
+    "stopName": null,
+    "regularFare": 155,
+    "specialFare": 120
+  },
+  {
+    "km": 49,
+    "stopName": null,
+    "regularFare": 155,
+    "specialFare": 125
+  },
+  {
+    "km": 50,
+    "stopName": "SAYANGAN",
+    "regularFare": 160,
+    "specialFare": 125
+  },
+  {
+    "km": 51,
+    "stopName": null,
+    "regularFare": 160,
+    "specialFare": 130
+  },
+  {
+    "km": 52,
+    "stopName": null,
+    "regularFare": 165,
+    "specialFare": 130
+  },
+  {
+    "km": 53,
+    "stopName": "HIGHEST POINT",
+    "regularFare": 170,
+    "specialFare": 135
+  },
+  {
+    "km": 54,
+    "stopName": "KABAYAN JUNCTION",
+    "regularFare": 170,
+    "specialFare": 135
+  },
+  {
+    "km": 55,
+    "stopName": "TIMBAK",
+    "regularFare": 175,
+    "specialFare": 140
+  },
+  {
+    "km": 56,
+    "stopName": null,
+    "regularFare": 180,
+    "specialFare": 145
+  },
+  {
+    "km": 57,
+    "stopName": "BAGUINGEY",
+    "regularFare": 180,
+    "specialFare": 145
+  },
+  {
+    "km": 58,
+    "stopName": null,
+    "regularFare": 185,
+    "specialFare": 150
+  },
+  {
+    "km": 59,
+    "stopName": null,
+    "regularFare": 190,
+    "specialFare": 150
+  },
+  {
+    "km": 60,
+    "stopName": "CALASIPAN",
+    "regularFare": 190,
+    "specialFare": 155
+  },
+  {
+    "km": 61,
+    "stopName": null,
+    "regularFare": 195,
+    "specialFare": 155
+  },
+  {
+    "km": 62,
+    "stopName": "NAN-AGTO",
+    "regularFare": 195,
+    "specialFare": 160
+  },
+  {
+    "km": 63,
+    "stopName": "NATUBLENG",
+    "regularFare": 200,
+    "specialFare": 160
+  },
+  {
+    "km": 64,
+    "stopName": null,
+    "regularFare": 205,
+    "specialFare": 165
+  },
+  {
+    "km": 65,
+    "stopName": "COLIDENG",
+    "regularFare": 205,
+    "specialFare": 165
+  },
+  {
+    "km": 66,
+    "stopName": null,
+    "regularFare": 210,
+    "specialFare": 170
+  },
+  {
+    "km": 67,
+    "stopName": "PAKPAKITAN",
+    "regularFare": 215,
+    "specialFare": 170
+  },
+  {
+    "km": 68,
+    "stopName": null,
+    "regularFare": 215,
+    "specialFare": 175
+  },
+  {
+    "km": 69,
+    "stopName": null,
+    "regularFare": 220,
+    "specialFare": 175
+  },
+  {
+    "km": 70,
+    "stopName": "SINIPSIP",
+    "regularFare": 225,
+    "specialFare": 180
+  },
+  {
+    "km": 71,
+    "stopName": "SOOKAN",
+    "regularFare": 225,
+    "specialFare": 180
+  },
+  {
+    "km": 72,
+    "stopName": null,
+    "regularFare": 230,
+    "specialFare": 185
+  },
+  {
+    "km": 73,
+    "stopName": "BUGUIAS JUNCTION",
+    "regularFare": 235,
+    "specialFare": 185
+  },
+  {
+    "km": 74,
+    "stopName": "ALIBAKONG",
+    "regularFare": 235,
+    "specialFare": 190
+  },
+  {
+    "km": 75,
+    "stopName": "PILANDO",
+    "regularFare": 240,
+    "specialFare": 190
+  },
+  {
+    "km": 76,
+    "stopName": "LENGAOAN",
+    "regularFare": 240,
+    "specialFare": 195
+  },
+  {
+    "km": 77,
+    "stopName": null,
+    "regularFare": 245,
+    "specialFare": 195
+  },
+  {
+    "km": 78,
+    "stopName": "BAYOYO",
+    "regularFare": 250,
+    "specialFare": 200
+  },
+  {
+    "km": 79,
+    "stopName": "TANEG TRAIL",
+    "regularFare": 250,
+    "specialFare": 200
+  },
+  {
+    "km": 80,
+    "stopName": null,
+    "regularFare": 255,
+    "specialFare": 205
+  },
+  {
+    "km": 81,
+    "stopName": null,
+    "regularFare": 260,
+    "specialFare": 205
+  },
+  {
+    "km": 82,
+    "stopName": "BEKES",
+    "regularFare": 260,
+    "specialFare": 210
+  },
+  {
+    "km": 83,
+    "stopName": null,
+    "regularFare": 265,
+    "specialFare": 210
+  },
+  {
+    "km": 84,
+    "stopName": null,
+    "regularFare": 270,
+    "specialFare": 215
+  },
+  {
+    "km": 85,
+    "stopName": "ABATAN",
+    "regularFare": 270,
+    "specialFare": 215
+  },
+  {
+    "km": 86,
+    "stopName": "BANGAO",
+    "regularFare": 275,
+    "specialFare": 220
+  },
+  {
+    "km": 87,
+    "stopName": null,
+    "regularFare": 275,
+    "specialFare": 220
+  },
+  {
+    "km": 88,
+    "stopName": "BANGAO",
+    "regularFare": 280,
+    "specialFare": 225
+  },
+  {
+    "km": 89,
+    "stopName": null,
+    "regularFare": 285,
+    "specialFare": 225
+  },
+  {
+    "km": 90,
+    "stopName": "COTCOT ASO",
+    "regularFare": 285,
+    "specialFare": 230
+  },
+  {
+    "km": 91,
+    "stopName": null,
+    "regularFare": 290,
+    "specialFare": 230
+  },
+  {
+    "km": 92,
+    "stopName": null,
+    "regularFare": 295,
+    "specialFare": 235
+  },
+  {
+    "km": 93,
+    "stopName": null,
+    "regularFare": 295,
+    "specialFare": 235
+  },
+  {
+    "km": 94,
+    "stopName": null,
+    "regularFare": 300,
+    "specialFare": 240
+  },
+  {
+    "km": 95,
+    "stopName": "SINTO",
+    "regularFare": 305,
+    "specialFare": 240
+  },
+  {
+    "km": 96,
+    "stopName": "MT. DATA HOTEL",
+    "regularFare": 305,
+    "specialFare": 245
+  },
+  {
+    "km": 97,
+    "stopName": null,
+    "regularFare": 310,
+    "specialFare": 250
+  },
+  {
+    "km": 98,
+    "stopName": "SAWMILL 102",
+    "regularFare": 315,
+    "specialFare": 250
+  },
+  {
+    "km": 99,
+    "stopName": "BOGAO",
+    "regularFare": 315,
+    "specialFare": 255
+  },
+  {
+    "km": 100,
+    "stopName": "MT. DATA CLIFF",
+    "regularFare": 320,
+    "specialFare": 255
+  },
+  {
+    "km": 101,
+    "stopName": null,
+    "regularFare": 320,
+    "specialFare": 260
+  },
+  {
+    "km": 102,
+    "stopName": "LOW CAVE",
+    "regularFare": 325,
+    "specialFare": 260
+  },
+  {
+    "km": 103,
+    "stopName": null,
+    "regularFare": 330,
+    "specialFare": 265
+  },
+  {
+    "km": 104,
+    "stopName": "SADSDAN",
+    "regularFare": 330,
+    "specialFare": 265
+  },
+  {
+    "km": 105,
+    "stopName": "BANSA",
+    "regularFare": 335,
+    "specialFare": 270
+  },
+  {
+    "km": 106,
+    "stopName": null,
+    "regularFare": 340,
+    "specialFare": 270
+  },
+  {
+    "km": 107,
+    "stopName": null,
+    "regularFare": 340,
+    "specialFare": 275
+  },
+  {
+    "km": 108,
+    "stopName": null,
+    "regularFare": 345,
+    "specialFare": 275
+  },
+  {
+    "km": 109,
+    "stopName": "MABA-AY",
+    "regularFare": 350,
+    "specialFare": 280
+  },
+  {
+    "km": 110,
+    "stopName": null,
+    "regularFare": 350,
+    "specialFare": 280
+  },
+  {
+    "km": 111,
+    "stopName": null,
+    "regularFare": 355,
+    "specialFare": 285
+  },
+  {
+    "km": 112,
+    "stopName": null,
+    "regularFare": 355,
+    "specialFare": 285
+  },
+  {
+    "km": 113,
+    "stopName": "LIBO/AW-AWIGAN",
+    "regularFare": 360,
+    "specialFare": 290
+  },
+  {
+    "km": 114,
+    "stopName": null,
+    "regularFare": 365,
+    "specialFare": 290
+  },
+  {
+    "km": 115,
+    "stopName": "TABAK, NAMATEC",
+    "regularFare": 365,
+    "specialFare": 295
+  },
+  {
+    "km": 116,
+    "stopName": null,
+    "regularFare": 370,
+    "specialFare": 295
+  },
+  {
+    "km": 117,
+    "stopName": null,
+    "regularFare": 375,
+    "specialFare": 300
+  },
+  {
+    "km": 118,
+    "stopName": "BUSA/CAPINITAN",
+    "regularFare": 375,
+    "specialFare": 300
+  },
+  {
+    "km": 119,
+    "stopName": null,
+    "regularFare": 380,
+    "specialFare": 305
+  },
+  {
+    "km": 120,
+    "stopName": "CAMATAGAN",
+    "regularFare": 385,
+    "specialFare": 305
+  },
+  {
+    "km": 121,
+    "stopName": "PINGAD, BUN-AYAN",
+    "regularFare": 385,
+    "specialFare": 310
+  },
+  {
+    "km": 122,
+    "stopName": null,
+    "regularFare": 390,
+    "specialFare": 310
+  },
+  {
+    "km": 123,
+    "stopName": null,
+    "regularFare": 395,
+    "specialFare": 315
+  },
+  {
+    "km": 124,
+    "stopName": null,
+    "regularFare": 395,
+    "specialFare": 315
+  },
+  {
+    "km": 125,
+    "stopName": null,
+    "regularFare": 400,
+    "specialFare": 320
+  },
+  {
+    "km": 126,
+    "stopName": null,
+    "regularFare": 400,
+    "specialFare": 320
+  },
+  {
+    "km": 127,
+    "stopName": "CAPUGPUGAN",
+    "regularFare": 405,
+    "specialFare": 325
+  },
+  {
+    "km": 128,
+    "stopName": null,
+    "regularFare": 410,
+    "specialFare": 325
+  },
+  {
+    "km": 129,
+    "stopName": "SABANGAN",
+    "regularFare": 410,
+    "specialFare": 330
+  },
+  {
+    "km": 130,
+    "stopName": null,
+    "regularFare": 415,
+    "specialFare": 330
+  },
+  {
+    "km": 131,
+    "stopName": null,
+    "regularFare": 420,
+    "specialFare": 335
+  },
+  {
+    "km": 132,
+    "stopName": "GONGOGON",
+    "regularFare": 420,
+    "specialFare": 335
+  },
+  {
+    "km": 133,
+    "stopName": null,
+    "regularFare": 425,
+    "specialFare": 340
+  },
+  {
+    "km": 134,
+    "stopName": null,
+    "regularFare": 430,
+    "specialFare": 340
+  },
+  {
+    "km": 135,
+    "stopName": "MALETEP",
+    "regularFare": 430,
+    "specialFare": 345
+  },
+  {
+    "km": 136,
+    "stopName": null,
+    "regularFare": 435,
+    "specialFare": 345
+  },
+  {
+    "km": 137,
+    "stopName": "ALAB",
+    "regularFare": 435,
+    "specialFare": 350
+  },
+  {
+    "km": 138,
+    "stopName": null,
+    "regularFare": 440,
+    "specialFare": 350
+  },
+  {
+    "km": 139,
+    "stopName": "DANTAY",
+    "regularFare": 445,
+    "specialFare": 355
+  },
+  {
+    "km": 140,
+    "stopName": null,
+    "regularFare": 445,
+    "specialFare": 360
+  },
+  {
+    "km": 141,
+    "stopName": null,
+    "regularFare": 450,
+    "specialFare": 360
+  },
+  {
+    "km": 142,
+    "stopName": null,
+    "regularFare": 455,
+    "specialFare": 365
+  },
+  {
+    "km": 143,
+    "stopName": null,
+    "regularFare": 455,
+    "specialFare": 365
+  },
+  {
+    "km": 144,
+    "stopName": null,
+    "regularFare": 460,
+    "specialFare": 370
+  },
+  {
+    "km": 145,
+    "stopName": "PEGEO",
+    "regularFare": 465,
+    "specialFare": 370
+  },
+  {
+    "km": 146,
+    "stopName": "BONTOC",
+    "regularFare": 465,
+    "specialFare": 375
+  },
+  {
+    "km": 147,
+    "stopName": "ANTADAO/KILONG",
+    "regularFare": 470,
+    "specialFare": 375
+  },
+  {
+    "km": 148,
+    "stopName": null,
+    "regularFare": 475,
+    "specialFare": 380
+  },
+  {
+    "km": 149,
+    "stopName": null,
+    "regularFare": 475,
+    "specialFare": 380
+  },
+  {
+    "km": 150,
+    "stopName": null,
+    "regularFare": 480,
+    "specialFare": 385
+  },
+  {
+    "km": 151,
+    "stopName": "SAGADA",
+    "regularFare": 480,
+    "specialFare": 385
+  },
+  {
+    "km": 152,
+    "stopName": null,
+    "regularFare": 485,
+    "specialFare": 390
+  },
+  {
+    "km": 153,
+    "stopName": null,
+    "regularFare": 490,
+    "specialFare": 390
+  },
+  {
+    "km": 154,
+    "stopName": "BANAO",
+    "regularFare": 490,
+    "specialFare": 395
+  },
+  {
+    "km": 155,
+    "stopName": null,
+    "regularFare": 495,
+    "specialFare": 395
+  },
+  {
+    "km": 156,
+    "stopName": "GOSING",
+    "regularFare": 500,
+    "specialFare": 400
+  },
+  {
+    "km": 157,
+    "stopName": null,
+    "regularFare": 500,
+    "specialFare": 400
+  },
+  {
+    "km": 158,
+    "stopName": "KIN-IWAY",
+    "regularFare": 505,
+    "specialFare": 405
+  },
+  {
+    "km": 159,
+    "stopName": null,
+    "regularFare": 510,
+    "specialFare": 405
+  },
+  {
+    "km": 160,
+    "stopName": null,
+    "regularFare": 510,
+    "specialFare": 410
+  },
+  {
+    "km": 161,
+    "stopName": "BESAO",
+    "regularFare": 515,
+    "specialFare": 410
+  }
+]

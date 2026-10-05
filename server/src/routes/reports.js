@@ -64,34 +64,6 @@ reportsRouter.get("/fleet-utilization", async (req, res) => {
   }
 });
 
-// GET /api/reports/maintenance-costs?from=&to= — total + per-bus cost,
-// grouped by service type.
-reportsRouter.get("/maintenance-costs", async (req, res) => {
-  const { from, to } = resolveRange(req);
-  try {
-    const [byBus] = await pool.query(
-      `SELECT b.bus_id, b.plate_num, SUM(m.cost) AS totalCost, COUNT(*) AS serviceCount
-       FROM maintenance m JOIN buses b ON b.bus_id = m.bus_id
-       WHERE m.date BETWEEN ? AND ?
-       GROUP BY b.bus_id, b.plate_num
-       ORDER BY totalCost DESC`,
-      [from, to]
-    );
-    const [byType] = await pool.query(
-      `SELECT service_type, SUM(cost) AS totalCost, COUNT(*) AS serviceCount
-       FROM maintenance
-       WHERE date BETWEEN ? AND ?
-       GROUP BY service_type
-       ORDER BY totalCost DESC`,
-      [from, to]
-    );
-    res.json({ byBus, byType, grandTotal: byType.reduce((sum, r) => sum + Number(r.totalCost || 0), 0) });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to build maintenance cost report" });
-  }
-});
-
 // GET /api/reports/reservation-trends?from=&to= — bookings per day, per
 // route, and per channel over the period.
 reportsRouter.get("/reservation-trends", async (req, res) => {
@@ -130,7 +102,6 @@ const CSV_BUILDERS = {
   "on-time-performance": (rows) => toCsv(rows, ["origin", "destination", "completedTrips", "onTimeTrips", "onTimePercentage", "avgDelayMinutes"]),
   "fleet-utilization": (rows) => toCsv(rows, ["plate_num", "capacity", "status", "tripsRun", "activeDays", "idleDays"]),
   "reservation-trends": (data) => toCsv(data.byDay, ["day", "count"]),
-  "maintenance-costs": (data) => toCsv(data.byBus, ["plate_num", "totalCost", "serviceCount"]),
 };
 
 function toCsv(rows, columns) {
@@ -189,14 +160,6 @@ reportsRouter.get("/export", async (req, res) => {
         [from, to]
       );
       data = { byDay };
-    } else if (type === "maintenance-costs") {
-      const [byBus] = await pool.query(
-        `SELECT b.plate_num, SUM(m.cost) AS totalCost, COUNT(*) AS serviceCount
-         FROM maintenance m JOIN buses b ON b.bus_id = m.bus_id
-         WHERE m.date BETWEEN ? AND ? GROUP BY b.bus_id, b.plate_num`,
-        [from, to]
-      );
-      data = { byBus };
     }
 
     const csv = CSV_BUILDERS[type](data);

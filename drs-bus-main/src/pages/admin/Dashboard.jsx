@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Bus, CalendarClock, AlertTriangle, Ticket } from "lucide-react";
+import { Bus, CalendarClock, Ticket } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import * as api from "../../lib/api";
 import InlineAlert from "../../components/common/InlineAlert";
@@ -22,7 +22,6 @@ export default function AdminDashboard() {
   const cards = [
     { icon: Bus, label: "Active Fleet", value: summary.activeFleetCount },
     { icon: CalendarClock, label: "Today's Trips", value: summary.todaysTripCount },
-    { icon: AlertTriangle, label: "Maintenance Alerts", value: summary.pendingMaintenanceAlerts, alert: summary.pendingMaintenanceAlerts > 0 },
     { icon: Ticket, label: "Reservations (This Week)", value: summary.reservationsThisWeek },
   ];
 
@@ -33,7 +32,7 @@ export default function AdminDashboard() {
         <p className="text-sm text-gray-500">Fleet, trips, and reservations at a glance.</p>
       </header>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         {cards.map(({ icon: Icon, label, value, alert }) => (
           <div key={label} className={`rounded-xl border p-4 bg-white ${alert ? "border-rose-300" : "border-slate-200"}`}>
             <Icon className={`w-5 h-5 mb-2 ${alert ? "text-rose-600" : "text-emerald-700"}`} />
