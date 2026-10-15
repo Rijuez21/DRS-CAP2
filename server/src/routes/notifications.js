@@ -8,9 +8,12 @@ export const notificationsRouter = Router();
 // the login role). Every route now reads "who" from the login token, not
 // the query — before, ?recipientType=driver&recipientId=1 read anyone's.
 notificationsRouter.use(authenticate);
+// Terminal staff and admins share recipient_type 'staff' (both are
+// staff_accounts rows) — used for payment review alerts.
 function recipientOf(req, res) {
+  if (req.user.role === "staff" || req.user.role === "admin") return { type: "staff", id: req.user.id };
   if (req.user.role !== "passenger" && req.user.role !== "driver") {
-    res.status(403).json({ error: "Only passengers and drivers receive notifications" });
+    res.status(403).json({ error: "Only signed-in accounts receive notifications" });
     return null;
   }
   return { type: req.user.role, id: req.user.id };

@@ -17,7 +17,21 @@ import { pool } from "./pool.js";
  * Run via `npm run db:seed` (after `npm run db:init`, or `npm run
  * db:migrate` if you're adding this to a database that already has data).
  */
+// The fallback demo passwords are public (they're in this file and the
+// README). Seeding them into a deployed database would create admin/staff
+// logins anyone could use, so a deployed server must supply every password.
+function assertSafeToSeed() {
+  const deployed = process.env.NODE_ENV === "production" || Boolean(process.env.RAILWAY_ENVIRONMENT_NAME || process.env.RAILWAY_ENVIRONMENT);
+  const missing = ["SEED_DRIVER_PASSWORD", "SEED_STAFF_PASSWORD", "SEED_ADMIN_PASSWORD", "SEED_PASSENGER_PASSWORD"].filter((k) => !process.env[k]);
+  if (deployed && missing.length) {
+    console.error(`Refusing to seed a deployed database with the public demo passwords. Set: ${missing.join(", ")}`);
+    process.exit(1);
+  }
+  if (missing.length) console.warn(`WARNING: using demo passwords for ${missing.join(", ")} — development only.`);
+}
+
 async function main() {
+  assertSafeToSeed();
   const driverPassword = await bcrypt.hash(process.env.SEED_DRIVER_PASSWORD || "driver123", 10);
   const staffPassword = await bcrypt.hash(process.env.SEED_STAFF_PASSWORD || "staff123", 10);
   const adminPassword = await bcrypt.hash(process.env.SEED_ADMIN_PASSWORD || "admin123", 10);

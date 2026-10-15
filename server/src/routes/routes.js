@@ -2,6 +2,37 @@ import { Router } from "express";
 import { pool } from "../db/pool.js";
 import { requireRole } from "../middleware/auth.js";
 import { logAudit } from "../services/audit.js";
+import { requiredText, money, decimal } from "../services/validate.js";
+
+// Fares are what online passengers are charged, so they must be real
+// amounts: a ₱0 or negative fare would let a seat be "paid" for nothing.
+function parseRouteBody(body, { partial }) {
+  const out = {};
+  const has = (k) => Object.prototype.hasOwnProperty.call(body, k);
+  for (const [key, col, label] of [["origin", "origin", "Origin"], ["destination", "destination", "Destination"]]) {
+    if (!partial || has(key)) {
+      const r = requiredText(body[key], { max: 150, label });
+      if (r.error) return r;
+      out[col] = r.value;
+    }
+  }
+  if (!partial || has("baseFare")) {
+    const r = money(body.baseFare, { label: "Base fare", min: 1 });
+    if (r.error) return r;
+    out.base_fare = r.value;
+  }
+  if (has("specialFare")) {
+    const r = money(body.specialFare, { label: "Special fare", min: 1, nullable: true });
+    if (r.error) return r;
+    out.special_fare = r.value;
+  }
+  if (has("distance")) {
+    const r = decimal(body.distance, { label: "Distance", min: 0, max: 9999 });
+    if (r.error) return r;
+    out.distance = r.value;
+  }
+  return { fields: out };
+}
 
 export const busRoutesRouter = Router();
 
@@ -51,15 +82,19 @@ busRoutesRouter.get("/", async (req, res) => {
 
 // POST /api/routes — admin creates a new route
 busRoutesRouter.post("/", requireRole("admin"), async (req, res) => {
-  const { origin, destination, distance, baseFare, specialFare } = req.body;
-  if (!origin || !destination || baseFare == null) {
+  const body = req.body ?? {};
+  if (!body.origin || !body.destination || body.baseFare == null) {
     return res.status(400).json({ error: "origin, destination and baseFare are required" });
   }
+  const parsed = parseRouteBody(body, { partial: false });
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+  const f = parsed.fields;
+  const { origin, destination, distance, baseFare, specialFare } = body;
 
   try {
     const [result] = await pool.query(
       `INSERT INTO routes (origin, destination, distance, base_fare, special_fare) VALUES (?, ?, ?, ?, ?)`,
-      [origin, destination, distance ?? null, baseFare, specialFare ?? null]
+      [f.origin, f.destination, f.distance ?? null, f.base_fare, f.special_fare ?? null]
     );
     await logAudit({ staffId: req.user.id, action: "create", entityType: "route", entityId: result.insertId, details: req.body });
     res.status(201).json({ route_id: result.insertId, origin, destination, distance, baseFare, specialFare, is_active: true });
@@ -71,14 +106,10 @@ busRoutesRouter.post("/", requireRole("admin"), async (req, res) => {
 
 // PATCH /api/routes/:id — admin edits fare/distance/origin/destination
 busRoutesRouter.patch("/:id", requireRole("admin"), async (req, res) => {
-  const { origin, destination, distance, baseFare, specialFare } = req.body;
-  const fields = [];
-  const params = [];
-  if (origin !== undefined) { fields.push("origin = ?"); params.push(origin); }
-  if (destination !== undefined) { fields.push("destination = ?"); params.push(destination); }
-  if (distance !== undefined) { fields.push("distance = ?"); params.push(distance); }
-  if (baseFare !== undefined) { fields.push("base_fare = ?"); params.push(baseFare); }
-  if (specialFare !== undefined) { fields.push("special_fare = ?"); params.push(specialFare); }
+  const parsed = parseRouteBody(req.body ?? {}, { partial: true });
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+  const fields = Object.keys(parsed.fields).map((c) => `${c} = ?`);
+  const params = Object.values(parsed.fields);
 
   if (fields.length === 0) return res.status(400).json({ error: "No editable fields provided" });
 

@@ -72,7 +72,9 @@ export default function PaymentReceipt() {
           <p className="font-display font-semibold">No receipt yet</p>
           <p className="text-sm text-ink-600">
             {payment?.status === "Pending"
-              ? "Your payment is waiting for terminal staff to verify it. Your receipt is issued automatically once they do."
+              ? "Your payment is under review. Your receipt is issued once staff confirm the money arrived."
+              : payment?.status === "Refund Pending" || payment?.status === "Refunded"
+              ? "This payment is being refunded, so no receipt is shown."
               : "Receipts are issued for online payments once terminal staff verify them."}
           </p>
         </div>
@@ -81,7 +83,7 @@ export default function PaymentReceipt() {
   }
 
   const rows = [
-    ["Booking code", `#${payment.booking_id}`],
+    ["Booking reference", payment.booking_reference],
     ["Route", `${payment.origin} → ${payment.destination}`],
     ["Departure", `${formatDate(payment.departure_time) ?? "—"}, ${formatTime(payment.departure_time) ?? ""}`],
     ["Seat", payment.seat_number],
@@ -134,8 +136,8 @@ export default function PaymentReceipt() {
             <div className="text-right">
               <dt className="text-[11px] font-semibold uppercase tracking-wider text-ink-600/80">Date paid</dt>
               <dd className="font-medium mt-0.5">
-                {formatDate(payment.verified_at)?.replace(/^\w+, /, "")}
-                <span className="block text-xs text-ink-600">{formatTime(payment.verified_at)}</span>
+                {formatDate(payment.reviewed_at)?.replace(/^\w+, /, "")}
+                <span className="block text-xs text-ink-600">{formatTime(payment.reviewed_at)}</span>
               </dd>
             </div>
           </dl>
@@ -164,7 +166,7 @@ export default function PaymentReceipt() {
           <div className="grid grid-cols-2 gap-3 pt-1 text-sm">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-600/80">Payment method</p>
-              <p className="font-medium mt-0.5">QR Ph</p>
+              <p className="font-medium mt-0.5">{payment.method_name ?? payment.method_label ?? "Online"}</p>
             </div>
             <div className="text-right min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-600/80">Reference no.</p>
@@ -174,7 +176,7 @@ export default function PaymentReceipt() {
         </div>
 
         <footer className="px-6 py-4 border-t border-slate-100 text-center text-xs text-ink-600 space-y-0.5">
-          <p>Payment verified by D&apos; Rising Sun terminal staff.</p>
+          <p>Payment verified by D&apos; Rising Sun staff against our account records.</p>
           <p>Show booking code #{payment.booking_id} at the terminal to check in. Thank you for riding with us!</p>
         </footer>
       </article>

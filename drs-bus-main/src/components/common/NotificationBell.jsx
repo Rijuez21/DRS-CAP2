@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
-import { Bell, ReceiptText } from "lucide-react";
+import { Bell, ReceiptText, Wallet } from "lucide-react";
 import * as api from "../../lib/api";
 import { getSocket } from "../../lib/socket";
+import { useAuth } from "../../context/AuthContext";
 
 const PANEL_WIDTH = 288; // px — Tailwind w-72
 
@@ -15,12 +16,20 @@ function receiptBookingId(n) {
   return /booking #(\d+)/.exec(n.message)?.[1] ?? null;
 }
 
+// Staff payment alerts ("… submission #42 …", routes/payments.js) open
+// that payment in Payment Verification.
+function reviewSubmissionId(n) {
+  if (!String(n.type).startsWith("payment_review")) return null;
+  return /submission #(\d+)/.exec(n.message)?.[1] ?? null;
+}
+
 // Phase 0.3's Reliability requirement: notify passengers/drivers of
 // schedule changes. Dropped into PassengerLayout/DriverLayout — mounted
 // once per session, joins this user's own Socket.io room so
 // notify.js's "notification:new" events (from trips.js) show up live,
 // and marks everything read when the dropdown opens.
 export default function NotificationBell({ recipientType, recipientId }) {
+  const { user } = useAuth();
   const [notifications, setNotifications] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
@@ -138,7 +147,8 @@ export default function NotificationBell({ recipientType, recipientId }) {
               <p className="text-sm text-gray-400 px-4 py-6 text-center">No notifications yet.</p>
             ) : (
               notifications.map((n) => {
-                const receiptFor = receiptBookingId(n);
+                const receiptFor = recipientType === "passenger" ? receiptBookingId(n) : null;
+                const reviewFor = recipientType === "staff" ? reviewSubmissionId(n) : null;
                 return (
                   <div key={n.notification_id} className="px-4 py-3 text-sm">
                     <p>{n.message}</p>
@@ -149,6 +159,15 @@ export default function NotificationBell({ recipientType, recipientId }) {
                         className="inline-flex items-center gap-1 mt-1.5 text-xs font-semibold text-brand-green-600 hover:underline"
                       >
                         <ReceiptText className="w-3.5 h-3.5" /> View receipt
+                      </Link>
+                    )}
+                    {reviewFor && (
+                      <Link
+                        to={`/${user?.role === "admin" ? "admin" : "staff"}/payments?submission=${reviewFor}`}
+                        onClick={() => setIsOpen(false)}
+                        className="inline-flex items-center gap-1 mt-1.5 text-xs font-semibold text-brand-green-600 hover:underline"
+                      >
+                        <Wallet className="w-3.5 h-3.5" /> Open payment
                       </Link>
                     )}
                     <p className="text-xs text-gray-400 mt-1">{new Date(n.created_at).toLocaleString()}</p>

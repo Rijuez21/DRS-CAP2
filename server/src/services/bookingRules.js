@@ -80,7 +80,8 @@ export function parseSeatRequest(body, capacity, maxSeats) {
 // booked or none are. The unique (trip_id, active_seat_number) key is still
 // the real race guard — if someone else took a seat a moment ago, the whole
 // request rolls back and the caller learns exactly which seat.
-export async function insertSeatsAtomically(pool, { tripId, passengerId, passengerName, seats, status, channel }) {
+// paymentDeadline (optional): online seat hold — see services/paymentRules.js.
+export async function insertSeatsAtomically(pool, { tripId, passengerId, passengerName, seats, status, channel, paymentDeadline = null }) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -88,11 +89,11 @@ export async function insertSeatsAtomically(pool, { tripId, passengerId, passeng
     for (const seat of seats) {
       try {
         const [result] = await conn.query(
-          `INSERT INTO bookings (trip_id, passenger_id, passenger_name, seat_number, status, channel)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [tripId, passengerId, passengerName, seat, status, channel]
+          `INSERT INTO bookings (trip_id, passenger_id, passenger_name, seat_number, status, channel, payment_deadline)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [tripId, passengerId, passengerName, seat, status, channel, paymentDeadline]
         );
-        created.push({ booking_id: result.insertId, seat_number: seat, status, channel });
+        created.push({ booking_id: result.insertId, seat_number: seat, status, channel, payment_deadline: paymentDeadline });
       } catch (err) {
         if (err.code === "ER_DUP_ENTRY") {
           await conn.rollback();
@@ -117,8 +118,11 @@ export async function insertSeatsAtomically(pool, { tripId, passengerId, passeng
 //   passenger: own booking, Reserved/Confirmed -> Cancelled, before the bus leaves
 //   driver:    own trip, Reserved/Confirmed -> Boarded/No-Show, and fix a
 //              mis-tap between Boarded and No-Show
-//   staff/admin: terminal validation — Reserved -> Confirmed, Reserved/
-//              Confirmed -> Boarded/No-Show/Cancelled, No-Show -> Boarded (late arrival)
+//   staff/admin: terminal validation — Reserved/Confirmed -> Boarded/No-Show/
+//              Cancelled, No-Show -> Boarded (late arrival). Reserved -> Confirmed
+//              is NOT a bare status change: it only happens through a payment
+//              (POST /api/bookings/:id/counter-payment for cash, or verifying
+//              an online payment), so a seat is never confirmed unpaid.
 export function whyStatusChangeNotAllowed({ user, booking, trip, next }) {
   const from = booking.status;
   if (from === next) return `This booking is already ${next}`;
@@ -145,11 +149,14 @@ export function whyStatusChangeNotAllowed({ user, booking, trip, next }) {
 
   if (user.role === "staff" || user.role === "admin") {
     const allowed = {
-      Reserved: ["Confirmed", "Boarded", "No-Show", "Cancelled"],
+      Reserved: ["Boarded", "No-Show", "Cancelled"],
       Confirmed: ["Boarded", "No-Show", "Cancelled"],
       Boarded: ["No-Show"],
       "No-Show": ["Boarded"],
     };
+    if (from === "Reserved" && next === "Confirmed") {
+      return "Confirm a reserved seat by collecting the fare (Collect fare & confirm) or by verifying its online payment";
+    }
     return allowed[from]?.includes(next) ? null : `A ${from} booking can't be changed to ${next}`;
   }
 

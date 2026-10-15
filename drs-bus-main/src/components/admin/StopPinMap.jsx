@@ -9,6 +9,7 @@ import { useGeolocation } from "../../hooks/useGeolocation";
 import * as api from "../../lib/api";
 import { distanceKm, formatDistance } from "../../lib/geo";
 import { keepMapSized } from "../../lib/leafletAutoResize";
+import { escapeHtml } from "../../lib/escapeHtml";
 import {
   CORRIDOR_CENTER,
   CORRIDOR_ZOOM,
@@ -144,7 +145,7 @@ export default function StopPinMap({ route, allRoutes, onSaved, onClose }) {
     const latLng = [pin.latitude, pin.longitude];
     if (!pinMarkerRef.current) {
       const marker = L.marker(latLng, { draggable: true, autoPan: true, zIndexOffset: 1000 })
-        .bindTooltip(route.destination, { direction: "top", offset: [-16, -8] }) // default icon anchors tooltips top-right; this centres it above the pin
+        .bindTooltip(escapeHtml(route.destination), { direction: "top", offset: [-16, -8] }) // default icon anchors tooltips top-right; this centres it above the pin
         .addTo(map);
       marker.on("dragend", () => {
         const { lat, lng } = marker.getLatLng();

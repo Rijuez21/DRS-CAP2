@@ -1,4 +1,5 @@
 import L from "leaflet";
+import { escapeHtml } from "./escapeHtml";
 
 // One place for how a pinned bus stop looks and behaves on every Leaflet
 // map (admin RouteManagement pin picker, FleetTracking, passenger
@@ -82,7 +83,7 @@ export function addStopMarker(target, stop, { variant = "default", label = "perm
     title: interactive ? `Bus stop: ${stop.name}` : undefined,
   });
   if (label) {
-    marker.bindTooltip(stop.name, {
+    marker.bindTooltip(escapeHtml(stop.name), {
       permanent: label === "permanent",
       direction: "top",
       className: "drs-stop-label",

@@ -9,8 +9,7 @@ import { pingDatabase } from "./db/pool.js";
 import { redis } from "./cache/redis.js";
 import { buildTripsRouter } from "./routes/trips.js";
 import { bookingsRouter, buildFlagRequestsRouter, attachBookingsIo } from "./routes/bookings.js";
-import jwt from "jsonwebtoken";
-import { JWT_SECRET } from "./middleware/auth.js";
+import { verifyToken, isDeployed } from "./middleware/auth.js";
 import { busRoutesRouter } from "./routes/routes.js";
 import { authRouter } from "./routes/auth.js";
 import { busesRouter } from "./routes/fleet.js";
@@ -21,9 +20,19 @@ import { notificationsRouter } from "./routes/notifications.js";
 import { dashboardRouter } from "./routes/dashboard.js";
 import { reportsRouter } from "./routes/reports.js";
 import { buildPaymentsRouter } from "./routes/payments.js";
+import { startPaymentSweeper } from "./services/paymentSweeper.js";
 
 const app = express();
 const httpServer = createServer(app);
+app.disable("x-powered-by");
+
+// Railway (and most hosts) put a proxy in front of the app. Trusting exactly
+// one hop makes req.ip the real client address — required for per-IP rate
+// limits, which otherwise see every visitor as the same proxy IP. Never
+// "true": that would let clients spoof X-Forwarded-For. Override with
+// TRUST_PROXY (a hop count) if there are more proxies in front.
+const trustProxy = process.env.TRUST_PROXY !== undefined ? Number(process.env.TRUST_PROXY) : isDeployed ? 1 : 0;
+if (Number.isInteger(trustProxy) && trustProxy > 0) app.set("trust proxy", trustProxy);
 
 const allowedOrigins = (process.env.CORS_ORIGIN || "http://localhost:5173")
   .split(",")
@@ -38,14 +47,14 @@ const io = new Server(httpServer, { cors: { origin: allowedOrigins } });
 // sockets may watch public bus positions — but can't join private rooms.
 // Before, anyone could join driver:<id> / passenger:<id> and read
 // passenger names and pickup pins from Flag a Bus events.
-io.use((socket, next) => {
+io.use(async (socket, next) => {
   const token = socket.handshake.auth?.token;
-  if (token) {
-    try {
-      socket.data.user = jwt.verify(token, JWT_SECRET);
-    } catch {
-      socket.data.user = null;
-    }
+  socket.data.user = null;
+  if (typeof token === "string" && token) {
+    // Same checks as HTTP: signature, account still exists, same role,
+    // not suspended, password unchanged.
+    const result = await verifyToken(token).catch(() => ({ error: true }));
+    socket.data.user = result.user ?? null;
   }
   next();
 });
@@ -57,8 +66,11 @@ io.on("connection", (socket) => {
   //   const socket = io(VITE_API_URL);
   //   socket.emit("subscribe:bus", tripBusId);
   //   socket.on("location:update", (point) => setPosition(point));
+  // Live bus positions are for signed-in users (passengers tracking their
+  // bus, drivers, staff) — not anonymous scrapers following a bus all day.
   socket.on("subscribe:bus", (busId) => {
-    socket.join(`bus:${busId}`);
+    const id = Number(busId);
+    if (socket.data.user && Number.isInteger(id) && id > 0) socket.join(`bus:${id}`);
   });
   socket.on("unsubscribe:bus", (busId) => {
     socket.leave(`bus:${busId}`);
@@ -83,16 +95,42 @@ io.on("connection", (socket) => {
   // driver:<their id>. Anything else is ignored.
   socket.on("subscribe:notifications", ({ recipientType, recipientId } = {}) => {
     const me = socket.data.user;
-    if (me && me.role === recipientType && me.id === Number(recipientId)) {
+    // Staff and admins both use recipientType "staff" (staff_accounts ids).
+    const myType = me && (me.role === "admin" || me.role === "staff") ? "staff" : me?.role;
+    if (me && myType === recipientType && me.id === Number(recipientId)) {
       socket.join(`${recipientType}:${recipientId}`);
     }
   });
+  // Payment Verification page: live "something changed, refresh" pings.
+  // Staff/admin only — the event carries no passenger data, just a type.
+  socket.on("subscribe:payments", () => {
+    const role = socket.data.user?.role;
+    if (role === "admin" || role === "staff") socket.join("payments:staff");
+  });
+  socket.on("unsubscribe:payments", () => socket.leave("payments:staff"));
   socket.on("unsubscribe:notifications", ({ recipientType, recipientId } = {}) => {
     if (recipientType && recipientId) socket.leave(`${recipientType}:${recipientId}`);
   });
 });
 
 app.use(cors({ origin: allowedOrigins }));
+
+// Security headers for every API response (no extra dependency). The API
+// only returns JSON, CSV and receipt images, so the CSP forbids everything:
+// even if a response were opened directly in a browser, nothing in it runs.
+app.use((req, res, next) => {
+  res.set({
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Cross-Origin-Resource-Policy": "same-site",
+    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+    "Permissions-Policy": "geolocation=(), camera=(), microphone=()",
+  });
+  if (req.secure) res.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  if (req.path.startsWith("/api/") && !res.get("Cache-Control")) res.set("Cache-Control", "no-store");
+  next();
+});
 // gzip every response over 1 kB (JSON lists compress ~5-10x). Socket.io traffic
 // isn't affected, it compresses itself.
 app.use(compression());
@@ -101,26 +139,39 @@ app.use(compression());
 // encoded). Express's default 100 kb limit would reject them, so this one
 // path gets a larger limit; it runs first, and the general parser below
 // skips a body that's already been parsed. Every other route keeps 100 kb.
-app.use("/api/payments", express.json({ limit: "8mb" }));
-app.use(express.json());
+// The large limit is only for signed-in requests to the payment routes
+// that carry images; anonymous requests keep the 100 kb default, so nobody
+// can make the server buffer 8 MB bodies without logging in first.
+const bigJson = express.json({ limit: "8mb" });
+const smallJson = express.json({ limit: "100kb" });
+app.use("/api/payments", (req, res, next) => {
+  const carriesImage = req.method === "POST" || req.method === "PATCH";
+  if (!carriesImage || !(req.headers.authorization || "").startsWith("Bearer ")) return smallJson(req, res, next);
+  verifyToken(req.headers.authorization.slice(7))
+    .then((r) => (r.user && ["passenger", "admin"].includes(r.user.role) ? bigJson : smallJson)(req, res, next))
+    .catch(next);
+});
+app.use(smallJson);
 
 // Health check — hit this first to confirm the Railway DB/Redis connections work.
 app.get("/api/health", async (req, res) => {
   const health = { status: "ok", database: "unreachable", redis: "unreachable" };
 
+  // Public endpoint: report up/down only. Error details (host names,
+  // ports, driver messages) go to the server log, never to the caller.
   try {
     health.database = (await pingDatabase()) ? "connected" : "unreachable";
   } catch (err) {
-    health.database = `error: ${err.message}`;
+    console.error("Health check: database error:", err.message);
   }
 
   try {
     health.redis = (await redis.ping()) === "PONG" ? "connected" : "unreachable";
   } catch (err) {
-    health.redis = `error: ${err.message}`;
+    console.error("Health check: redis error:", err.message);
   }
 
-  res.json(health);
+  res.status(health.database === "connected" ? 200 : 503).json(health);
 });
 
 app.use("/api/auth", authRouter);
@@ -152,8 +203,19 @@ app.use((err, req, res, next) => {
   if (err?.type === "entity.parse.failed") {
     return res.status(400).json({ error: "The request body isn't valid JSON" });
   }
-  next(err);
+  // Anything else unexpected: log it, answer generically. Express's default
+  // handler would send an HTML stack trace whenever NODE_ENV isn't
+  // "production" (Railway doesn't set it by default).
+  console.error(err);
+  if (res.headersSent) return next(err);
+  res.status(err?.status && err.status < 500 ? err.status : 500).json({ error: err?.status && err.status < 500 ? "Bad request" : "Something went wrong. Please try again." });
 });
+
+app.use("/api", (req, res) => res.status(404).json({ error: "Not found" }));
+
+// Online seat holds: releases unpaid seats past their payment deadline,
+// warns passengers first, alerts staff about proofs on trips leaving soon.
+startPaymentSweeper(io);
 
 const port = process.env.PORT || 4000;
 httpServer.listen(port, () => {

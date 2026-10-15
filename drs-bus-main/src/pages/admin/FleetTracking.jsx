@@ -9,6 +9,7 @@ import { getSocket } from "../../lib/socket";
 import EmptyState from "../../components/common/EmptyState";
 import { addStopMarker, bindStopLabelZoom, toPinnedStops } from "../../lib/stopMarkers";
 import { keepMapSized } from "../../lib/leafletAutoResize";
+import { escapeHtml } from "../../lib/escapeHtml";
 
 const STATUS_COLORS = {
   Active: "#16a34a", // brand-green-ish
@@ -146,7 +147,7 @@ export default function FleetTracking() {
         existing.setIcon(icon);
       } else {
         const marker = L.marker([bus.latitude, bus.longitude], { icon }).addTo(mapRef.current);
-        marker.bindTooltip(bus.plateNum, { direction: "top", offset: [0, -10] });
+        marker.bindTooltip(escapeHtml(bus.plateNum), { direction: "top", offset: [0, -10] });
         marker.on("click", () => setSelectedBusId(bus.busId));
         markersRef.current.set(bus.busId, marker);
       }

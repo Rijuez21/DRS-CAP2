@@ -4,8 +4,9 @@ import { ChevronLeft, ChevronRight, MapPin, Info, Bus, ReceiptText } from "lucid
 import StatusBadge from "../../components/common/StatusBadge";
 import InlineAlert from "../../components/common/InlineAlert";
 import PaymentPanel from "../../components/passenger/PaymentPanel";
+import PaymentStatusCard from "../../components/passenger/PaymentStatusCard";
 import * as api from "../../lib/api";
-import { formatDate, formatTime, receiptNumber } from "../../lib/format";
+import { formatDate, formatTime, receiptNumber, bookingReference } from "../../lib/format";
 
 export default function BookingDetails() {
   const { bookingId } = useParams();
@@ -56,7 +57,7 @@ export default function BookingDetails() {
     const paymentStatus = paymentInfo?.payment?.status;
     const question = flagged
       ? "Cancel this ride? The driver will be told not to stop for you."
-      : paymentStatus === "Pending" || paymentStatus === "Verified"
+      : ["Pending", "Escalated", "Verified"].includes(paymentStatus)
         ? "Cancel this booking? You've already sent an online payment for it — cancelling releases your seat but does NOT refund that payment automatically. Contact the terminal about a refund. This can't be undone."
         : "Cancel this booking? Your seat will be released and this can't be undone.";
     if (!window.confirm(question)) return;
@@ -65,6 +66,7 @@ export default function BookingDetails() {
     try {
       await api.updateBookingStatus(bookingId, "Cancelled");
       setBooking((prev) => ({ ...prev, status: "Cancelled" }));
+      api.getBookingPayment(bookingId).then(setPaymentInfo).catch(() => {});
       setSuccess(flagged ? "Ride cancelled. The driver has been told." : "Booking cancelled. Your seat has been released.");
     } catch (err) {
       setActionError(err.message);
@@ -106,13 +108,16 @@ export default function BookingDetails() {
   // A position only exists once the driver is sharing GPS (Boarding onward).
   const canTrack = holdsSeat && ["Boarding", "In Transit"].includes(booking.trip_status);
 
+  const reference = paymentInfo?.booking_reference ?? bookingReference(booking.booking_id, booking.booked_at);
   const notice =
     booking.trip_status === "Cancelled"
       ? "This trip was cancelled by the operator. Please book another trip."
+      : booking.status === "Cancelled" && paymentInfo?.cancellation_reason === "payment_expired"
+        ? "The payment window closed without a payment, so this seat was released."
       : booking.status === "Reserved" && busNotLeft
-        ? paymentInfo?.payment?.status === "Pending"
-          ? "Your seat is held while staff verify your payment. It's confirmed automatically once they do."
-          : `Pay online below, or pay at the terminal with booking code #${booking.booking_id}. Either confirms your seat.`
+        ? ["Pending", "Escalated"].includes(paymentInfo?.payment?.status)
+          ? "Your seat is held while staff verify your payment. It's confirmed once they confirm the money arrived."
+          : `Pay online below, or pay at the terminal with booking reference ${reference}. Either confirms your seat.`
         : booking.status === "Confirmed" && booking.trip_status === "Scheduled"
           ? "Your seat is confirmed. Live bus tracking starts when boarding opens."
           : null;
@@ -128,6 +133,7 @@ export default function BookingDetails() {
             <div>
               <p className="text-[11px] uppercase tracking-wider text-white/50">Booking code</p>
               <p className="font-display text-3xl font-bold tracking-wide">#{booking.booking_id}</p>
+              <p className="text-xs font-mono text-white/70">{reference}</p>
             </div>
             {/* white backing keeps the badge colours readable on the dark stub */}
             <span className="rounded-full bg-white p-0.5 shadow-sm">
@@ -178,6 +184,8 @@ export default function BookingDetails() {
           {notice}
         </p>
       )}
+
+      <PaymentStatusCard info={paymentInfo} />
 
       {booking.status === "Reserved" && booking.channel === "online" && busNotLeft && (
         <PaymentPanel bookingIds={[booking.booking_id]} onStatus={handlePaymentStatus} />

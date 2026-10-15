@@ -5,6 +5,7 @@ import StatusBadge from "../../components/common/StatusBadge";
 import BookingSteps from "../../components/passenger/BookingSteps";
 import PaymentPanel from "../../components/passenger/PaymentPanel";
 import { LAST_BOOKING_KEY } from "../../lib/storageKeys";
+import { bookingReference } from "../../lib/format";
 
 function readLastBooking() {
   try {
@@ -46,7 +47,7 @@ export default function BookingConfirmed() {
   }
 
   const total = trip?.fare != null ? trip.fare * bookings.length : null;
-  const codes = bookings.map((b) => `#${b.booking_id}`).join(", ");
+  const codes = bookings.map((b) => b.booking_reference ?? bookingReference(b.booking_id)).join(", ");
   const statusOf = (b) => liveStatus[b.booking_id] ?? b.status;
   const allConfirmed = bookings.every((b) => statusOf(b) === "Confirmed");
 
@@ -70,7 +71,7 @@ export default function BookingConfirmed() {
             : bookings.length === 1 ? "Seat reserved" : `${bookings.length} seats reserved`}
         </h1>
         <p className="text-sm text-ink-600">
-          {allConfirmed ? "Your payment was verified." : "Your seat is held for you. Pay online below, or at the terminal."}
+          {allConfirmed ? "Your payment was verified." : "Your seat is held for a limited time. Pay online below and submit your proof, or pay at the terminal."}
         </p>
       </div>
 
@@ -94,6 +95,7 @@ export default function BookingConfirmed() {
               <div>
                 <p className="text-[11px] uppercase tracking-wider text-ink-600">Booking code</p>
                 <p className="font-display text-xl font-bold tracking-wide">#{b.booking_id}</p>
+                <p className="text-[11px] font-mono text-ink-600">{b.booking_reference ?? bookingReference(b.booking_id)}</p>
               </div>
               <div className="text-center">
                 <p className="text-[11px] uppercase tracking-wider text-ink-600">Seat</p>
@@ -125,7 +127,7 @@ export default function BookingConfirmed() {
           <p className="text-ink-600">
             {allConfirmed
               ? `At the terminal, show your booking code ${codes} to check in and board.`
-              : `Paid online? Your seat is confirmed automatically once staff verify it. Otherwise, pay at the terminal with your booking code ${codes}. Either way, show your code when you check in.`}
+              : `Paid online? Your seat is confirmed once staff verify the money arrived. Otherwise, pay at the terminal with your booking reference ${codes} before the deadline. Either way, show your reference when you check in.`}
           </p>
         </div>
       </div>

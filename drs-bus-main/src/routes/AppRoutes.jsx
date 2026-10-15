@@ -24,6 +24,7 @@ import BookingConfirmed from '../pages/passenger/BookingConfirmed'
 import MyBookings from '../pages/passenger/MyBookings'
 import BookingDetails from '../pages/passenger/BookingDetails'
 import PaymentReceipt from '../pages/passenger/PaymentReceipt'
+import PaymentHistory from '../pages/passenger/PaymentHistory'   // passenger payment status tracking
 import LiveTracking from '../pages/passenger/LiveTracking'
 import FlagBus from '../pages/passenger/FlagBus'          // NEW — Mode 2 "Flag a Bus"; separate from the Book Ahead pages above so that flow never loads GPS/map code of its own
 import Profile from '../pages/passenger/Profile'
@@ -38,7 +39,7 @@ import DriverProfile from '../pages/driver/Profile'        // NEW — named Driv
 // Staff pages
 import WalkInSales from '../pages/staff/WalkInSales'
 import ReservationValidation from '../pages/staff/ReservationValidation'
-import PaymentReview from '../pages/staff/PaymentReview'  // QR Ph review queue — shared by staff and admin
+import PaymentReview from '../pages/staff/PaymentReview'  // Payment Verification — shared by staff and admin
 
 // Admin pages
 import AdminDashboard from '../pages/admin/Dashboard'
@@ -84,6 +85,7 @@ export default function AppRoutes() {
         <Route path="my-bookings" element={<MyBookings />} />
         <Route path="my-bookings/:bookingId" element={<BookingDetails />} />
         <Route path="my-bookings/:bookingId/receipt" element={<PaymentReceipt />} />  {/* official receipt, once staff verify the QR Ph payment */}
+        <Route path="payments" element={<PaymentHistory />} />
         <Route path="tracking/:tripId" element={<LiveTracking />} />
         {/* Two ways to ride, two separate entry points:
               Book Ahead  = trips -> trips/:tripId (SeatMap) -> booking-confirmed — terminal departure, pick a seat, no map

@@ -4,7 +4,7 @@ import RoleLayout from "./RoleLayout";
 const links = [
   { to: "walk-in", label: "Walk-in Sales", short: "Sell Ticket", icon: Ticket, tab: true },
   { to: "validate", label: "Validate Reservation", short: "Validate", icon: ScanLine, tab: true },
-  { to: "payments", label: "Online Payments", short: "Payments", icon: Wallet, tab: true },
+  { to: "payments", label: "Payment Verification", short: "Payments", icon: Wallet, tab: true },
   { to: "trips", label: "Trip Schedules", short: "Schedules", icon: CalendarClock, tab: true },
 ];
 
@@ -17,5 +17,5 @@ const theme = {
 };
 
 export default function StaffLayout() {
-  return <RoleLayout title="DRS Terminal" links={links} theme={theme} />;
+  return <RoleLayout title="DRS Terminal" links={links} theme={theme} bell="staff" />;
 }

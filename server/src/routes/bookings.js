@@ -9,6 +9,8 @@ import {
   whyStatusChangeNotAllowed,
 } from "../services/bookingRules.js";
 import { notifyRecipient } from "../services/notify.js";
+import { likeEscape } from "../services/validate.js";
+import { initialPaymentDeadline, bookingReference } from "../services/paymentRules.js";
 import { logAudit } from "../services/audit.js";
 
 export const bookingsRouter = Router();
@@ -127,13 +129,14 @@ bookingsRouter.get("/", authenticate, async (req, res) => {
 // tells passengers to "show your booking code at the terminal", so staff
 // must be able to type that code — before, only names were searchable.
 bookingsRouter.get("/search", requireRole("staff", "admin"), async (req, res) => {
-  const q = String(req.query.q ?? "").trim();
+  const q = String(req.query.q ?? "").trim().slice(0, 100);
   const { tripId } = req.query;
   if (!q) return res.status(400).json({ error: "Enter a booking code or passenger name" });
 
-  const code = q.replace(/^#/, "");
+  // Accepts "12", "#12" and the booking reference "DRS-2026-00012".
+  const code = /^DRS-\d{4}-\d+$/i.test(q) ? String(Number(q.split("-")[2])) : q.replace(/^#/, "");
   const conditions = [/^\d+$/.test(code) ? "(bk.booking_id = ? OR bk.passenger_name LIKE ?)" : "bk.passenger_name LIKE ?"];
-  const params = /^\d+$/.test(code) ? [Number(code), `%${q}%`] : [`%${q}%`];
+  const params = /^\d+$/.test(code) ? [Number(code), `%${likeEscape(q)}%`] : [`%${likeEscape(q)}%`];
   if (tripId) { conditions.push("bk.trip_id = ?"); params.push(tripId); }
 
   try {
@@ -189,8 +192,12 @@ bookingsRouter.post("/", requireRole("passenger"), async (req, res) => {
     if (!commuter) return res.status(404).json({ error: "Passenger account not found" });
     const passengerName = String(req.body.passengerName ?? "").trim().slice(0, 150) || commuter.name;
 
+    // Seat hold: the seat is Reserved until this deadline while the
+    // passenger pays and uploads proof (PAYMENT_HOLD_MINUTES; never past
+    // departure). Once proof is submitted the seat no longer expires.
+    const paymentDeadline = initialPaymentDeadline(trip.departure_time);
     const result = await insertSeatsAtomically(pool, {
-      tripId, passengerId: req.user.id, passengerName, seats: parsed.seats, status: "Reserved", channel: "online",
+      tripId, passengerId: req.user.id, passengerName, seats: parsed.seats, status: "Reserved", channel: "online", paymentDeadline,
     });
     if (result.conflictSeat) {
       return res.status(409).json({
@@ -198,7 +205,13 @@ bookingsRouter.post("/", requireRole("passenger"), async (req, res) => {
         conflictSeat: result.conflictSeat,
       });
     }
-    res.status(201).json({ tripId: Number(tripId), passengerName, bookings: result.created });
+    const bookedAt = new Date();
+    res.status(201).json({
+      tripId: Number(tripId),
+      passengerName,
+      paymentDeadline,
+      bookings: result.created.map((b) => ({ ...b, booking_reference: bookingReference(b.booking_id, bookedAt) })),
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to create booking" });
@@ -314,11 +327,9 @@ bookingsRouter.post("/:id/counter-payment", requireRole("staff", "admin"), async
       await conn.rollback();
       return res.status(409).json({ error: `This trip is ${booking.trip_status.toLowerCase()} — don't collect a fare for it.` });
     }
-    const refusal = whyStatusChangeNotAllowed({ user: req.user, booking, trip: { status: booking.trip_status, driver_id: booking.driver_id }, next: "Confirmed" });
-    if (refusal) {
-      await conn.rollback();
-      return res.status(409).json({ error: refusal });
-    }
+    // (Not whyStatusChangeNotAllowed: that rule deliberately refuses a BARE
+    // Reserved -> Confirmed; this endpoint is the paid path it points to.
+    // Role is enforced by requireRole, status/trip are checked above.)
     if (booking.base_fare == null) {
       await conn.rollback();
       return res.status(409).json({ error: "This route has no fare on file yet — set it in Route Management first." });
@@ -330,13 +341,16 @@ bookingsRouter.post("/:id/counter-payment", requireRole("staff", "admin"), async
     }
 
     const [[pendingQr]] = await conn.query(
-      `SELECT payment_id, reference_number FROM payments WHERE booking_id = ? AND status = 'Pending' LIMIT 1`,
+      `SELECT payment_id, reference_number, status FROM payments
+       WHERE booking_id = ? AND status IN ('Pending', 'Escalated', 'Verified', 'Refund Pending') ORDER BY payment_id DESC LIMIT 1 FOR UPDATE`,
       [booking.booking_id]
     );
     if (pendingQr) {
       await conn.rollback();
       return res.status(409).json({
-        error: `An online payment (ref ${pendingQr.reference_number}) for this booking is still waiting for review. Verify or reject it in Online Payments first so the passenger isn't charged twice.`,
+        error: ["Verified", "Refund Pending"].includes(pendingQr.status)
+          ? `This booking already has a verified online payment (ref ${pendingQr.reference_number}). Don't collect the fare again.`
+          : `An online payment (ref ${pendingQr.reference_number}) for this booking is still waiting for review. Verify or reject it in Payment Verification first so the passenger isn't charged twice.`,
       });
     }
 

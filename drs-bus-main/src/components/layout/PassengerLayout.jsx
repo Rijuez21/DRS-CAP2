@@ -1,4 +1,4 @@
-import { Home, CalendarClock, Hand, Ticket, User } from "lucide-react";
+import { Home, CalendarClock, Hand, Ticket, User, Wallet } from "lucide-react";
 import RoleLayout from "./RoleLayout";
 import sunLogo from "../../assets/logo-sun.svg";
 
@@ -11,6 +11,7 @@ const links = [
   { to: "trips", label: "Book Ahead", short: "Book", icon: CalendarClock, tab: true },
   { to: "flag", label: "Flag a Bus", short: "Flag Bus", icon: Hand, tab: true },
   { to: "my-bookings", label: "My Bookings", short: "Bookings", icon: Ticket, tab: true },
+  { to: "payments", label: "Payments", icon: Wallet }, // menu only — the tab bar is full
   { to: "profile", label: "Profile", icon: User, tab: true },
 ];
 

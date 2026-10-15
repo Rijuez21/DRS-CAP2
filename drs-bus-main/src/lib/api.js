@@ -107,25 +107,69 @@ export const getBooking = (bookingId) => request(`/api/bookings/${bookingId}`);
 export const updateBookingStatus = (bookingId, status) =>
   request(`/api/bookings/${bookingId}/status`, { method: "PATCH", body: { status } });
 
-// ---- QR Ph payments -------------------------------------------------------------
-// No payment gateway: the admin uploads their own GCash/Maya/bank QR, the
-// passenger pays it and reports the reference number, and staff verify it
-// by hand. Verifying confirms the booking automatically (server-side, in
-// the same transaction). Images travel as base64 data: URLs (max 5 MB).
-export const getPaymentQr = () => request("/api/payments/qr"); // null until an admin uploads one
-export const updatePaymentQr = ({ qrImage, label, instructions }) =>
-  request("/api/payments/qr", { method: "PUT", body: { qrImage, label, instructions } });
-// One payment row per booking (seat), all sharing the reference number.
-// The amount is computed by the server from the route fare.
-export const submitPayment = ({ bookingIds, referenceNumber, proofImage }) =>
-  request("/api/payments", { method: "POST", body: { bookingIds, referenceNumber, proofImage } });
-// { booking_id, booking_status, amount_due, can_pay, payment: latest row | null }
+// ---- Manual online payments (server/src/routes/payments.js) ----------------
+// No payment gateway: passengers pay the operator's GCash / bank / QR Ph
+// account in their own app, then submit proof here. A payment is only
+// Verified when staff confirm the money arrived in the official account —
+// never because a receipt was uploaded. Images travel as base64 data: URLs.
+//
+// Payment methods (instructions + account details, configured by admins)
+export const getPaymentMethods = ({ all } = {}) => request("/api/payments/methods", { params: { all: all ? 1 : undefined } });
+export const createPaymentMethod = (payload) => request("/api/payments/methods", { method: "POST", body: payload });
+export const updatePaymentMethod = (methodId, payload) => request(`/api/payments/methods/${methodId}`, { method: "PATCH", body: payload });
+
+// Passenger. One submission = one transfer (may cover several seats). The
+// amount DUE is computed by the server; amountClaimed is what they say they sent.
+export const submitPayment = ({ bookingIds, methodId, referenceNumber, amountClaimed, paidAt, receiptImage }) =>
+  request("/api/payments", { method: "POST", body: { bookingIds, methodId, referenceNumber, amountClaimed, paidAt, receiptImage } });
+// { booking_reference, booking_status, amount_due, payment_deadline, payment_status, can_pay, payment, history[] }
 export const getBookingPayment = (bookingId) => request(`/api/payments/booking/${bookingId}`);
-export const getPayments = (status) => request("/api/payments", { params: { status } });
-export const getPaymentProof = (paymentId) => request(`/api/payments/${paymentId}/proof`);
-export const verifyPayment = (paymentId) => request(`/api/payments/${paymentId}/verify`, { method: "PATCH" });
-export const rejectPayment = (paymentId, reason) =>
-  request(`/api/payments/${paymentId}/reject`, { method: "PATCH", body: { reason } });
+export const getMyPayments = () => request("/api/payments/mine");
+
+// Receipt images are private: fetched with the login header (never a public
+// URL) and shown through a short-lived object URL. Call URL.revokeObjectURL
+// when done.
+export async function fetchReceiptObjectUrl(submissionId) {
+  let response;
+  try {
+    response = await fetch(`${BASE_URL}/api/payments/submissions/${submissionId}/receipt`, {
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+    });
+  } catch {
+    throw new Error("Can't reach the server. Check your connection and try again.");
+  }
+  if (!response.ok) {
+    if (response.status === 401 && authToken) unauthorizedHandler?.();
+    const data = await response.json().catch(() => null);
+    throw new Error(data?.error || `Couldn't load the receipt (${response.status})`);
+  }
+  return URL.createObjectURL(await response.blob());
+}
+
+// Staff / admin review
+export const getPaymentSummary = () => request("/api/payments/summary");
+export const getPaymentQueue = (params) => request("/api/payments/queue", { params });
+export const getPaymentSubmission = (submissionId) => request(`/api/payments/submissions/${submissionId}`);
+export const verifySubmission = (submissionId, { amountReceived, ledgerReference, acknowledgeDuplicate, note }) =>
+  request(`/api/payments/submissions/${submissionId}/verify`, {
+    method: "PATCH",
+    body: { fundsConfirmed: true, amountReceived, ledgerReference, acknowledgeDuplicate, note },
+  });
+export const rejectSubmission = (submissionId, { reason, note }) =>
+  request(`/api/payments/submissions/${submissionId}/reject`, { method: "PATCH", body: { reason, note } });
+export const requestResubmission = (submissionId, { reason, note }) =>
+  request(`/api/payments/submissions/${submissionId}/request-resubmission`, { method: "PATCH", body: { reason, note } });
+export const escalateSubmission = (submissionId, note) =>
+  request(`/api/payments/submissions/${submissionId}/escalate`, { method: "PATCH", body: { note } });
+export const assignSubmission = (submissionId, assign = true) =>
+  request(`/api/payments/submissions/${submissionId}/assign`, { method: "PATCH", body: { assign } });
+export const addSubmissionNote = (submissionId, note) =>
+  request(`/api/payments/submissions/${submissionId}/notes`, { method: "POST", body: { note } });
+export const requestRefund = (paymentId, { reason, cancelBooking }) =>
+  request(`/api/payments/${paymentId}/refund-request`, { method: "PATCH", body: { reason, cancelBooking } });
+export const confirmRefund = (paymentId, { refundReference, note }) =>
+  request(`/api/payments/${paymentId}/refund-confirm`, { method: "PATCH", body: { refundReference, note } });
+export const cancelRefund = (paymentId, note) => request(`/api/payments/${paymentId}/refund-cancel`, { method: "PATCH", body: { note } });
 
 // ---- Tracking -------------------------------------------------------------
 export const getLatestLocation = (busId) => request(`/api/tracking/${busId}/latest`);

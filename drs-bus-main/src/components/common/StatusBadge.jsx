@@ -22,11 +22,21 @@ const STATUS_STYLES = {
   // QR Ph payments ("pending" above covers a payment awaiting review)
   verified: "bg-brand-green-500/15 text-brand-green-600",
   rejected: "bg-rose-500/15 text-rose-600",
+  "under review": "bg-brand-sunrise-500/15 text-amber-700",
+  "awaiting payment": "bg-slate-400/15 text-slate-600",
+  "needs resubmission": "bg-orange-500/15 text-orange-700",
+  escalated: "bg-violet-500/15 text-violet-700",
+  "refund pending": "bg-sky-500/15 text-sky-700",
+  refunded: "bg-slate-400/15 text-slate-600",
+  mixed: "bg-slate-400/15 text-slate-600",
 };
 
-export default function StatusBadge({ status }) {
+// label: optional display text (e.g. payment 'Pending' shown as "Under
+// review") — the colour still follows the label.
+export default function StatusBadge({ status, label }) {
   if (!status) return null;
-  const style = STATUS_STYLES[status.toLowerCase()] ?? "bg-slate-400/15 text-slate-500";
+  const text = label ?? status;
+  const style = STATUS_STYLES[text.toLowerCase()] ?? STATUS_STYLES[status.toLowerCase()] ?? "bg-slate-400/15 text-slate-500";
 
-  return <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${style}`}>{status}</span>;
+  return <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${style}`}>{text}</span>;
 }

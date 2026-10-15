@@ -28,9 +28,9 @@ diff --git a/server/.env.example b/server/.env.example
 index c7edc2f..0f6c64b 100644
 --- a/server/.env.example
 +++ b/server/.env.example
-@@ -13,12 +13,6 @@ MYSQL_URL=switchback.proxy.rlwy.net:57828
+@@ -13,12 +13,6 @@ MYSQL_URL=<your-mysql-host>:<port>
  # latest known location per bus (paper, Table 10).
- REDIS_URL=shinkansen.proxy.rlwy.net:31650
+ REDIS_URL=<your-redis-host>:<port>
  
 -# Optional. Only set this if you're using an MQTT broker for GPS telemetry
 -# (paper, Table 11 — "evaluated" as an option, not the primary path). Leave

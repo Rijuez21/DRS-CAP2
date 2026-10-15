@@ -4,6 +4,29 @@ import { redis, CACHE_TTL_SECONDS } from "../cache/redis.js";
 import { requireRole, authenticate } from "../middleware/auth.js";
 import { logAudit } from "../services/audit.js";
 import { notifyTripChange } from "../services/notify.js";
+import { openRefundsForCancelledTrip } from "../services/paymentSweeper.js";
+import { dateTime, id as parseId } from "../services/validate.js";
+
+// Validates schedule input: ids are positive integers, times are real dates.
+function parseTripBody(body, { partial }) {
+  const out = {};
+  const has = (k) => Object.prototype.hasOwnProperty.call(body, k);
+  for (const k of ["busId", "driverId", "routeId"]) {
+    if (!partial || has(k)) {
+      const v = parseId(body[k]);
+      if (!v) return { error: `${k} must be a valid id` };
+      out[k] = v;
+    }
+  }
+  for (const k of ["departureTime", "arrivalTime"]) {
+    if (!partial || has(k)) {
+      const r = dateTime(body[k], { label: k });
+      if (r.error) return r;
+      out[k] = r.value;
+    }
+  }
+  return { fields: out };
+}
 
 const TRIPS_CACHE_KEY = "cache:trips:active";
 // The passenger / walk-in list (?scope=bookable) is cached on its own. It used
@@ -157,10 +180,12 @@ export function buildTripsRouter(io) {
   // explicitly requires conflict prevention, not just a same-timestamp check.
   // Cancelling a trip stays admin-only (PATCH /:id/status below).
   tripsRouter.post("/", requireRole("admin", "staff"), async (req, res) => {
-    const { busId, driverId, routeId, departureTime, arrivalTime } = req.body;
-    if (!busId || !driverId || !routeId || !departureTime || !arrivalTime) {
+    if (!req.body?.busId || !req.body?.driverId || !req.body?.routeId || !req.body?.departureTime || !req.body?.arrivalTime) {
       return res.status(400).json({ error: "busId, driverId, routeId, departureTime and arrivalTime are required" });
     }
+    const parsedTrip = parseTripBody(req.body, { partial: false });
+    if (parsedTrip.error) return res.status(400).json({ error: parsedTrip.error });
+    const { busId, driverId, routeId, departureTime, arrivalTime } = parsedTrip.fields;
     if (new Date(arrivalTime) <= new Date(departureTime)) {
       return res.status(400).json({ error: "arrivalTime must be after departureTime" });
     }
@@ -198,6 +223,7 @@ export function buildTripsRouter(io) {
       await logAudit({ staffId: req.user.id, action: "create", entityType: "trip", entityId: result.insertId, details: req.body });
       res.status(201).json({ trip_id: result.insertId, busId, driverId, routeId, departureTime, arrivalTime, status: "Scheduled" });
     } catch (err) {
+      if (err.code === "ER_NO_REFERENCED_ROW_2") return res.status(400).json({ error: "That bus, driver or route doesn't exist" });
       console.error(err);
       res.status(500).json({ error: "Failed to schedule trip" });
     }
@@ -288,7 +314,12 @@ export function buildTripsRouter(io) {
   // a live booking on it plus the assigned driver (Phase 0.3's Reliability
   // requirement) via notify.js.
   tripsRouter.patch("/:id", requireRole("admin", "staff"), async (req, res) => {
-    const { busId, driverId, routeId, departureTime, arrivalTime } = req.body;
+    const parsedTrip = parseTripBody(req.body ?? {}, { partial: true });
+    if (parsedTrip.error) return res.status(400).json({ error: parsedTrip.error });
+    const { busId, driverId, routeId, departureTime, arrivalTime } = parsedTrip.fields;
+    if (departureTime && arrivalTime && arrivalTime <= departureTime) {
+      return res.status(400).json({ error: "arrivalTime must be after departureTime" });
+    }
 
     try {
       const [[existing]] = await pool.query(`SELECT * FROM trips WHERE trip_id = ?`, [req.params.id]);
@@ -400,6 +431,8 @@ export function buildTripsRouter(io) {
 
       if (next === "Cancelled") {
         await pool.query(`UPDATE bookings SET status = 'Cancelled' WHERE trip_id = ? AND status IN ('Reserved', 'Confirmed')`, [trip.trip_id]);
+        // Seats paid online are owed back: Verified -> Refund Pending (audited).
+        await openRefundsForCancelledTrip(io, trip.trip_id, req.user);
       } else if (next === "Completed") {
         await pool.query(`UPDATE bookings SET status = 'No-Show' WHERE trip_id = ? AND status IN ('Reserved', 'Confirmed')`, [trip.trip_id]);
       }

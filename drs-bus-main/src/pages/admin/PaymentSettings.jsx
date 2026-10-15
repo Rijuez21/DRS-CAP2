@@ -1,46 +1,167 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { QrCode, Upload } from "lucide-react";
+import { Plus, Pencil, QrCode, Upload, Smartphone, Landmark, Wallet } from "lucide-react";
 import * as api from "../../lib/api";
 import InlineAlert from "../../components/common/InlineAlert";
-import { IMAGE_ACCEPT, readImageFile } from "../../lib/image";
-import { formatDate, formatTime } from "../../lib/format";
+import EmptyState from "../../components/common/EmptyState";
+import Modal from "../../components/admin/Modal";
+import { RECEIPT_ACCEPT, readImageFile } from "../../lib/image";
+import { formatDateTime, PAYMENT_METHOD_LABELS } from "../../lib/format";
 
-// The one QR Ph code every passenger sees at checkout. It's a static image
-// of the operator's own GCash / Maya / bank QR (from the app's "Receive" or
-// "My QR" screen) — there's no payment gateway, so payments sent to it are
-// verified by staff in Online Payments, not detected automatically.
-// Uploading again replaces it for everyone immediately.
+const ICONS = { gcash: Smartphone, bank_transfer: Landmark, qr_ph: QrCode };
+const EMPTY = { methodType: "gcash", displayName: "GCash", accountName: "", accountNumber: "", bankName: "", instructions: "", qrImage: null, isActive: false, sortOrder: 0 };
+
+// Payment Methods (admin only). The official accounts passengers are told
+// to pay — GCash, bank transfer, QR Ph. Nothing here is pre-filled with
+// real details: enter the operator's actual account, and only switch a
+// method on once it's correct. There's no payment gateway behind any of
+// these; staff confirm each payment in Payment Verification.
 export default function PaymentSettings() {
-  const [current, setCurrent] = useState(undefined); // undefined = loading, null = none yet
-  const [qrImage, setQrImage] = useState(null); // newly picked, not saved yet
-  const [label, setLabel] = useState("");
-  const [instructions, setInstructions] = useState("");
+  const [methods, setMethods] = useState(null);
+  const [editing, setEditing] = useState(null); // { id?, form }
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
-  const fileInput = useRef(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .getPaymentQr()
-      .then((row) => {
-        if (cancelled) return;
-        setCurrent(row);
-        setLabel(row?.label ?? "");
-        setInstructions(row?.instructions ?? "");
-      })
+  function load() {
+    return api
+      .getPaymentMethods({ all: true })
+      .then(setMethods)
       .catch((err) => {
-        if (!cancelled) {
-          setError(err.message);
-          setCurrent(null);
-        }
+        setError(err.message);
+        setMethods([]);
       });
-    return () => {
-      cancelled = true;
-    };
+  }
+  useEffect(() => {
+    load();
   }, []);
+
+  function edit(m) {
+    setEditing(
+      m
+        ? {
+            id: m.method_id,
+            form: {
+              methodType: m.method_type,
+              displayName: m.display_name,
+              accountName: m.account_name ?? "",
+              accountNumber: m.account_number ?? "",
+              bankName: m.bank_name ?? "",
+              instructions: m.instructions ?? "",
+              qrImage: m.qr_image,
+              isActive: m.is_active,
+              sortOrder: m.sort_order,
+            },
+          }
+        : { form: { ...EMPTY } }
+    );
+  }
+
+  async function toggle(m) {
+    setError("");
+    setSuccess("");
+    try {
+      await api.updatePaymentMethod(m.method_id, { isActive: !m.is_active });
+      setSuccess(m.is_active ? `${m.display_name} hidden from passengers.` : `${m.display_name} is now shown to passengers.`);
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  return (
+    <div className="p-4 sm:p-6 space-y-4 max-w-4xl">
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold">Payment Methods</h1>
+          <p className="text-sm text-gray-500 max-w-2xl">The official accounts passengers pay for online bookings. Only active methods are shown at checkout.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Link to="/admin/payments" className="text-sm font-semibold text-brand-green-600 hover:underline">
+            Payment Verification →
+          </Link>
+          <button type="button" onClick={() => edit(null)} className="inline-flex items-center gap-1.5 bg-slate-900 text-white text-sm font-semibold rounded-lg px-3 py-2">
+            <Plus className="w-4 h-4" /> Add method
+          </button>
+        </div>
+      </header>
+
+      <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
+      <InlineAlert type="success" message={success} onDismiss={() => setSuccess("")} />
+
+      <p className="text-xs text-gray-600 bg-amber-50 border border-amber-200 rounded-lg p-3">
+        Double-check every account name and number before activating — passengers send real money here. Changes apply to new checkouts immediately and are recorded in the audit log.
+      </p>
+
+      {methods === null ? (
+        <p className="text-sm text-gray-500">Loading…</p>
+      ) : methods.length === 0 ? (
+        <EmptyState icon={Wallet} title="No payment methods yet" description="Add your GCash, bank or QR Ph account. Until one is active, passengers are told to pay at the terminal." />
+      ) : (
+        <ul className="grid gap-3 sm:grid-cols-2">
+          {methods.map((m) => {
+            const Icon = ICONS[m.method_type] ?? Wallet;
+            return (
+              <li key={m.method_id} className="bg-white rounded-lg border p-4 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Icon className="w-5 h-5 text-brand-green-600 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="font-semibold truncate">{m.display_name}</p>
+                      <p className="text-xs text-gray-500">{PAYMENT_METHOD_LABELS[m.method_type]}</p>
+                    </div>
+                  </div>
+                  <span className={`text-xs font-semibold rounded-full px-2 py-0.5 ${m.is_active ? "bg-brand-green-500/15 text-brand-green-600" : "bg-slate-100 text-slate-500"}`}>
+                    {m.is_active ? "Active" : "Hidden"}
+                  </span>
+                </div>
+                <dl className="text-sm space-y-0.5">
+                  {m.bank_name && <p>{m.bank_name}</p>}
+                  <p>{m.account_name || <span className="text-gray-400">No account name</span>}</p>
+                  <p className="font-mono">{m.account_number || <span className="font-sans text-gray-400">No account number</span>}</p>
+                  {m.qr_image && <p className="text-xs text-gray-500 inline-flex items-center gap-1"><QrCode className="w-3 h-3" /> QR uploaded</p>}
+                </dl>
+                <p className="text-xs text-gray-400">
+                  Updated {formatDateTime(m.updated_at)}
+                  {m.updated_by_name ? ` by ${m.updated_by_name}` : ""}
+                </p>
+                <div className="flex gap-3 pt-1">
+                  <button type="button" onClick={() => edit(m)} className="text-sm font-semibold text-sky-700 inline-flex items-center gap-1">
+                    <Pencil className="w-3.5 h-3.5" /> Edit
+                  </button>
+                  <button type="button" onClick={() => toggle(m)} className="text-sm font-semibold text-gray-600">
+                    {m.is_active ? "Hide" : "Activate"}
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {editing && (
+        <MethodForm
+          initial={editing.form}
+          isNew={!editing.id}
+          onClose={() => setEditing(null)}
+          onSave={async (payload) => {
+            if (editing.id) await api.updatePaymentMethod(editing.id, payload);
+            else await api.createPaymentMethod(payload);
+            setEditing(null);
+            setSuccess("Payment method saved.");
+            load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function MethodForm({ initial, isNew, onClose, onSave }) {
+  const [form, setForm] = useState(initial);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const fileInput = useRef(null);
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   async function handleFile(e) {
     setError("");
@@ -49,129 +170,130 @@ export default function PaymentSettings() {
     if (!file) return;
     try {
       // No shrinking: re-encoding a QR as JPEG can blur it past scanning.
-      setQrImage(await readImageFile(file));
+      set("qrImage", await readImageFile(file, { receipt: true }));
     } catch (err) {
       setError(err.message);
     }
   }
 
-  async function handleSave(e) {
-    e.preventDefault();
+  async function save() {
     setError("");
-    setSuccess("");
-    const image = qrImage ?? current?.qrImage;
-    if (!image) {
-      setError("Choose the QR image to upload first.");
-      return;
-    }
-    setIsSaving(true);
+    setSaving(true);
     try {
-      const saved = await api.updatePaymentQr({ qrImage: image, label: label.trim(), instructions: instructions.trim() });
-      setCurrent({ ...saved, updatedAt: new Date().toISOString() });
-      setQrImage(null);
-      setSuccess("Saved. Passengers now see this QR at checkout.");
+      const payload = {
+        methodType: form.methodType,
+        displayName: form.displayName,
+        accountName: form.accountName,
+        accountNumber: form.accountNumber,
+        bankName: form.methodType === "bank_transfer" ? form.bankName : "",
+        instructions: form.instructions,
+        isActive: form.isActive,
+        sortOrder: Number(form.sortOrder) || 0,
+      };
+      if (form.qrImage !== initial.qrImage || isNew) payload.qrImage = form.qrImage;
+      await onSave(payload);
     } catch (err) {
       setError(err.message);
     } finally {
-      setIsSaving(false);
+      setSaving(false);
     }
   }
 
-  const preview = qrImage ?? current?.qrImage;
-  const dirty = Boolean(qrImage) || label.trim() !== (current?.label ?? "") || instructions.trim() !== (current?.instructions ?? "");
-
   return (
-    <div className="p-4 sm:p-6 space-y-4 max-w-3xl">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold">Payment QR</h1>
-          <p className="text-sm text-gray-500">The QR Ph code passengers scan to pay for online bookings.</p>
+    <Modal
+      title={isNew ? "Add payment method" : "Edit payment method"}
+      onClose={onClose}
+      size="lg"
+      footer={
+        <>
+          <button type="button" onClick={onClose} className="px-4 py-2 text-sm rounded-lg border bg-white">
+            Cancel
+          </button>
+          <button type="button" onClick={save} disabled={saving} className="px-4 py-2 text-sm rounded-lg bg-slate-900 text-white font-semibold disabled:opacity-60">
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </>
+      }
+    >
+      <div className="grid gap-4 md:grid-cols-[1fr_14rem]">
+        <div className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="space-y-1 text-sm">
+              <span className="font-medium">Type</span>
+              <select className="input" value={form.methodType} onChange={(e) => set("methodType", e.target.value)}>
+                {Object.entries(PAYMENT_METHOD_LABELS).map(([v, l]) => (
+                  <option key={v} value={v}>
+                    {l}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="font-medium">Name passengers see</span>
+              <input className="input" maxLength={100} value={form.displayName} onChange={(e) => set("displayName", e.target.value)} placeholder="e.g. GCash" />
+            </label>
+          </div>
+          {form.methodType === "bank_transfer" && (
+            <label className="space-y-1 text-sm block">
+              <span className="font-medium">Bank</span>
+              <input className="input" maxLength={100} value={form.bankName} onChange={(e) => set("bankName", e.target.value)} placeholder="Bank name" />
+            </label>
+          )}
+          <label className="space-y-1 text-sm block">
+            <span className="font-medium">Account name</span>
+            <input className="input" maxLength={150} value={form.accountName} onChange={(e) => set("accountName", e.target.value)} placeholder="Exactly as it appears in the app" />
+          </label>
+          <label className="space-y-1 text-sm block">
+            <span className="font-medium">{form.methodType === "gcash" ? "GCash mobile number" : "Account number"}</span>
+            <input className="input font-mono" maxLength={60} value={form.accountNumber} onChange={(e) => set("accountNumber", e.target.value)} />
+          </label>
+          <label className="space-y-1 text-sm block">
+            <span className="font-medium">Instructions</span>
+            <textarea
+              className="input"
+              rows={3}
+              maxLength={1000}
+              value={form.instructions}
+              onChange={(e) => set("instructions", e.target.value)}
+              placeholder="e.g. Send the exact fare. Put your booking reference in the message. Payments are checked 6 AM – 9 PM."
+            />
+          </label>
+          <div className="flex flex-wrap items-center gap-4 text-sm">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={form.isActive} onChange={(e) => set("isActive", e.target.checked)} /> Show to passengers
+            </label>
+            <label className="flex items-center gap-2">
+              Order <input type="number" min={0} max={1000} className="input w-20" value={form.sortOrder} onChange={(e) => set("sortOrder", e.target.value)} />
+            </label>
+          </div>
         </div>
-        <Link to="/admin/payments" className="text-sm font-semibold text-brand-green-600 hover:underline">
-          Review payments →
-        </Link>
-      </header>
-
-      <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
-      <InlineAlert type="success" message={success} onDismiss={() => setSuccess("")} />
-
-      {current === undefined ? (
-        <p className="text-sm text-gray-500">Loading…</p>
-      ) : (
-        <form onSubmit={handleSave} className="bg-white rounded-lg border p-5 grid gap-6 md:grid-cols-[16rem_1fr]">
-          <div className="space-y-3">
-            <div className="w-64 max-w-full aspect-square rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden">
-              {preview ? (
-                <img src={preview} alt="Payment QR preview" className="w-full h-full object-contain bg-white p-2" />
-              ) : (
-                <div className="text-center text-gray-400 text-sm px-4">
-                  <QrCode className="w-10 h-10 mx-auto mb-2" strokeWidth={1.5} />
-                  No QR uploaded yet — passengers are told to pay at the terminal.
-                </div>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={() => fileInput.current?.click()}
-              className="w-64 max-w-full inline-flex items-center justify-center gap-2 text-sm font-semibold border rounded-lg py-2 hover:bg-slate-50"
-            >
-              <Upload className="w-4 h-4" /> {current?.qrImage || qrImage ? "Replace QR image" : "Upload QR image"}
-            </button>
-            <input ref={fileInput} type="file" accept={IMAGE_ACCEPT} className="hidden" onChange={handleFile} />
-            {qrImage && <p className="text-xs text-amber-700">New image selected — not live until you save.</p>}
-            {current?.updatedAt && !qrImage && (
-              <p className="text-xs text-gray-400">
-                Last changed {formatDate(current.updatedAt)}, {formatTime(current.updatedAt)}
-                {current.updatedByName ? ` by ${current.updatedByName}` : ""}
-              </p>
+        <div className="space-y-2">
+          <div className="aspect-square rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden">
+            {form.qrImage ? (
+              <img src={form.qrImage} alt="QR preview" className="w-full h-full object-contain bg-white p-2" />
+            ) : (
+              <div className="text-center text-gray-400 text-xs px-3">
+                <QrCode className="w-8 h-8 mx-auto mb-1" strokeWidth={1.5} /> Optional QR code
+              </div>
             )}
           </div>
-
-          <div className="space-y-4">
-            <div className="space-y-1">
-              <label htmlFor="qr-label" className="text-sm font-medium">
-                Account label <span className="text-gray-400 font-normal">(optional)</span>
-              </label>
-              <input
-                id="qr-label"
-                className="input w-full"
-                maxLength={150}
-                placeholder="e.g. GCash — Juan Dela Cruz"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-              />
-              <p className="text-xs text-gray-500">Shown under the QR so passengers can check they're paying the right account.</p>
-            </div>
-            <div className="space-y-1">
-              <label htmlFor="qr-instructions" className="text-sm font-medium">
-                Instructions <span className="text-gray-400 font-normal">(optional)</span>
-              </label>
-              <textarea
-                id="qr-instructions"
-                className="input w-full"
-                rows={3}
-                maxLength={500}
-                placeholder="e.g. Send the exact fare. Payments are checked 6 AM – 9 PM."
-                value={instructions}
-                onChange={(e) => setInstructions(e.target.value)}
-              />
-            </div>
-            <div className="rounded-lg bg-slate-50 p-3 text-xs text-gray-600 space-y-1">
-              <p className="font-semibold text-gray-700">Tips</p>
-              <p>Use the QR from your GCash / Maya / bank app's "Receive money" or "My QR" screen, saved as an image. PNG keeps it sharpest.</p>
-              <p>Crop it close to the code and test-scan the preview with another phone before saving.</p>
-              <p>There's no automatic payment detection — staff must check each reference number in Online Payments.</p>
-            </div>
-            <button
-              type="submit"
-              disabled={isSaving || !dirty || !preview}
-              className="bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-sm font-semibold rounded-lg px-5 py-2.5"
-            >
-              {isSaving ? "Saving…" : "Save"}
+          <button type="button" onClick={() => fileInput.current?.click()} className="w-full inline-flex items-center justify-center gap-1.5 text-sm font-semibold border rounded-lg py-2 hover:bg-slate-50">
+            <Upload className="w-4 h-4" /> {form.qrImage ? "Replace QR" : "Upload QR"}
+          </button>
+          {form.qrImage && (
+            <button type="button" onClick={() => set("qrImage", null)} className="w-full text-xs text-rose-600">
+              Remove QR
             </button>
-          </div>
-        </form>
+          )}
+          <input ref={fileInput} type="file" accept={RECEIPT_ACCEPT} className="hidden" onChange={handleFile} />
+          <p className="text-xs text-gray-500">From your app&apos;s &quot;Receive money&quot; screen. PNG keeps it sharpest — test-scan the preview before saving.</p>
+        </div>
+      </div>
+      {error && (
+        <p role="alert" className="text-sm text-rose-600">
+          {error}
+        </p>
       )}
-    </div>
+    </Modal>
   );
 }

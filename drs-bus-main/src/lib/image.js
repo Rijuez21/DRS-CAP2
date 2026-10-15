@@ -5,6 +5,10 @@
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const ACCEPTED_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 export const IMAGE_ACCEPT = ACCEPTED_TYPES.join(",");
+// Payment receipts and QR codes: the server only accepts these three (and
+// checks the real file contents, not just the extension).
+const RECEIPT_TYPES = ["image/png", "image/jpeg", "image/webp"];
+export const RECEIPT_ACCEPT = RECEIPT_TYPES.join(",");
 
 function readAsDataUrl(blob) {
   return new Promise((resolve, reject) => {
@@ -33,8 +37,11 @@ function loadImage(src) {
  * readable by staff. Leave it off for the payment QR itself: re-encoding a
  * QR code as JPEG can blur the modules and make it unscannable.
  */
-export async function readImageFile(file, { shrink = false } = {}) {
+export async function readImageFile(file, { shrink = false, receipt = false } = {}) {
   if (!file) return null;
+  if (receipt && !RECEIPT_TYPES.includes(file.type)) {
+    throw new Error("Choose a PNG, JPEG or WebP image (a screenshot or photo of the receipt).");
+  }
   if (!ACCEPTED_TYPES.includes(file.type)) {
     throw new Error("Choose a PNG, JPEG, WebP or GIF image.");
   }

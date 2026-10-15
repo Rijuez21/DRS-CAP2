@@ -61,3 +61,23 @@ export async function notifyRecipient(io, { type: recipientType, id: recipientId
     console.error("Notification dispatch failed (non-fatal):", err.message);
   }
 }
+
+// Payment review alerts for terminal staff and admins (recipient_type
+// 'staff', recipient_id = staff_accounts.staff_id — admins live in the same
+// table). One row per account so each person's bell tracks its own read
+// state; pushed live to the staff:<id> room joined via
+// "subscribe:notifications". adminsOnly: escalations go to admins only.
+export async function notifyStaff(io, message, type, { adminsOnly = false } = {}) {
+  try {
+    const [staff] = await pool.query(
+      `SELECT staff_id FROM staff_accounts ${adminsOnly ? "WHERE role = 'admin'" : ""}`
+    );
+    for (const s of staff) {
+      await notifyRecipient(io, { type: "staff", id: s.staff_id }, message, type);
+    }
+    // Lets an open Payment Verification page refresh its queue immediately.
+    io?.to("payments:staff").emit("payments:changed", { type });
+  } catch (err) {
+    console.error("Staff notification failed (non-fatal):", err.message);
+  }
+}

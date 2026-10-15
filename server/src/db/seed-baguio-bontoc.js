@@ -55,6 +55,12 @@ const hasAnyJsonPin = (rows) => rows.some((r) => pinFromJson(r) !== null);
 async function main() {
   const roster = JSON.parse(readFileSync(path.join(dataDir, "baguio-bontoc-roster.json"), "utf8"));
   const fareMatrix = JSON.parse(readFileSync(path.join(dataDir, "baguio-bontoc-fare-matrix.json"), "utf8"));
+  // The fallback is public — never use it on a deployed database.
+  const deployed = process.env.NODE_ENV === "production" || Boolean(process.env.RAILWAY_ENVIRONMENT_NAME || process.env.RAILWAY_ENVIRONMENT);
+  if (deployed && !process.env.SEED_DRIVER_PASSWORD) {
+    console.error("Refusing to seed driver logins with the public demo password. Set SEED_DRIVER_PASSWORD.");
+    process.exit(1);
+  }
   const driverPasswordHash = await bcrypt.hash(process.env.SEED_DRIVER_PASSWORD || "driver123", 10);
 
   // ---- Remember existing pins before the wipe ----------------------------

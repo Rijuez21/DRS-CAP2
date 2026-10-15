@@ -7,8 +7,8 @@ const links = [
   { to: "dashboard", label: "Dashboard", icon: LayoutDashboard, tab: true },
   { to: "trips", label: "Trip Scheduling", short: "Trips", icon: CalendarClock, tab: true },
   { to: "reservations", label: "Reservations", short: "Bookings", icon: Ticket, tab: true },
-  { to: "payments", label: "Online Payments", icon: Wallet },
-  { to: "payment-settings", label: "Payment QR", icon: QrCode },
+  { to: "payments", label: "Payment Verification", icon: Wallet },
+  { to: "payment-settings", label: "Payment Methods", icon: QrCode },
   { to: "tracking", label: "Live Tracking", short: "Tracking", icon: Map, tab: true },
   { to: "fleet", label: "Fleet Management", icon: Bus },
   { to: "routes", label: "Route Management", icon: Route },
@@ -26,5 +26,5 @@ const theme = {
 };
 
 export default function AdminLayout() {
-  return <RoleLayout title="DRS Admin" links={links} theme={theme} />;
+  return <RoleLayout title="DRS Admin" links={links} theme={theme} bell="staff" />;
 }

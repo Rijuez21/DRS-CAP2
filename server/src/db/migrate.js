@@ -1,4 +1,11 @@
 import { pool } from "./pool.js";
+import {
+  PAYMENT_TABLE_STATEMENTS,
+  PAYMENT_ALTER_STATEMENTS,
+  PAYMENT_UNIQUE_STATEMENTS,
+  checkLegacyDuplicates,
+  backfillPayments,
+} from "./paymentMigration.js";
 
 // For a DB that already has data you don't want to lose (reset-db.js +
 // db:init wipes everything). This only ever ADDs — new columns, new
@@ -149,8 +156,8 @@ const STATEMENTS = [
 
 const IGNORABLE = new Set(["ER_DUP_FIELDNAME", "ER_TABLE_EXISTS_ERROR", "ER_DUP_KEYNAME", "ER_FK_DUP_NAME", "ER_DUP_KEY"]);
 
-async function main() {
-  for (const statement of STATEMENTS) {
+async function apply(statements) {
+  for (const statement of statements) {
     try {
       await pool.query(statement);
       console.log("Applied:", statement.split("\n")[0].slice(0, 70), "...");
@@ -161,6 +168,26 @@ async function main() {
         throw err;
       }
     }
+  }
+}
+
+async function main() {
+  await apply(STATEMENTS);
+
+  // ---- Manual payment verification (db/paymentMigration.js) -----------
+  // New tables, then additive columns, then the legacy backfill, then the
+  // unique keys (only once the data is known to satisfy them).
+  await apply(PAYMENT_TABLE_STATEMENTS);
+  await apply(PAYMENT_ALTER_STATEMENTS);
+  await backfillPayments(pool);
+  const problems = await checkLegacyDuplicates(pool);
+  if (problems.length > 0) {
+    console.error("Can't add the payment uniqueness keys until these are resolved by hand:");
+    problems.forEach((p) => console.error("  -", p));
+    console.error("Everything else was applied. Fix the rows above, then run `npm run db:migrate` again.");
+    process.exitCode = 1;
+  } else {
+    await apply(PAYMENT_UNIQUE_STATEMENTS);
   }
   console.log("Migration complete.");
   await pool.end();

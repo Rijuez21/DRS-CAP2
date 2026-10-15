@@ -1,7 +1,8 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { pool } from "../db/pool.js";
-import { requireRole } from "../middleware/auth.js";
+import { requireRole, invalidateAccount } from "../middleware/auth.js";
+import { whyPasswordWeak, cleanEmail, cleanName, cleanPhone } from "../services/passwordPolicy.js";
 import { logAudit } from "../services/audit.js";
 
 export const driversRouter = Router();
@@ -45,12 +46,30 @@ driversRouter.get("/:id", requireRole("admin", "driver"), async (req, res) => {
 });
 
 driversRouter.post("/", requireRole("admin"), async (req, res) => {
-  const { name, licenseNumber, phoneno, hireDate, email, password } = req.body;
-  if (!name) {
-    return res.status(400).json({ error: "name is required" });
-  }
-  if ((email && !password) || (password && !email)) {
+  const { licenseNumber, hireDate, password } = req.body ?? {};
+  const nameR = cleanName(req.body?.name);
+  if (nameR.error) return res.status(400).json({ error: "name is required" });
+  const name = nameR.value;
+  const emailRaw = req.body?.email;
+  if ((emailRaw && !password) || (password && !emailRaw)) {
     return res.status(400).json({ error: "email and password must be provided together, or not at all" });
+  }
+  let email = null;
+  if (emailRaw) {
+    const e = cleanEmail(emailRaw);
+    if (e.error) return res.status(400).json({ error: e.error });
+    email = e.value;
+    const weak = whyPasswordWeak(password, { email, name });
+    if (weak) return res.status(400).json({ error: weak });
+  }
+  const phone = cleanPhone(req.body?.phoneno);
+  if (phone.error) return res.status(400).json({ error: phone.error });
+  const phoneno = phone.value;
+  if (licenseNumber != null && (typeof licenseNumber !== "string" || licenseNumber.length > 50)) {
+    return res.status(400).json({ error: "License number must be text up to 50 characters" });
+  }
+  if (hireDate != null && hireDate !== "" && !/^\d{4}-\d{2}-\d{2}$/.test(String(hireDate))) {
+    return res.status(400).json({ error: "hireDate must be YYYY-MM-DD" });
   }
 
   try {
@@ -58,7 +77,7 @@ driversRouter.post("/", requireRole("admin"), async (req, res) => {
     const [result] = await pool.query(
       `INSERT INTO drivers (name, license_number, phoneno, hire_date, email, password_hash)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [name, licenseNumber ?? null, phoneno ?? null, hireDate ?? null, email ?? null, passwordHash]
+      [name, licenseNumber || null, phoneno, hireDate || null, email, passwordHash]
     );
     await logAudit({ staffId: req.user.id, action: "create", entityType: "driver", entityId: result.insertId, details: { name, licenseNumber, email } });
     res.status(201).json({ driver_id: result.insertId, name, licenseNumber, phoneno, hireDate, email });
@@ -84,12 +103,34 @@ driversRouter.patch("/:id", requireRole("admin"), async (req, res) => {
 
   const fields = [];
   const params = [];
-  if (name !== undefined) { fields.push("name = ?"); params.push(name); }
-  if (phoneno !== undefined) { fields.push("phoneno = ?"); params.push(phoneno); }
-  if (email !== undefined) { fields.push("email = ?"); params.push(email); }
-  if (licenseNumber !== undefined) { fields.push("license_number = ?"); params.push(licenseNumber); }
+  if (name !== undefined) {
+    const n = cleanName(name);
+    if (n.error) return res.status(400).json({ error: n.error });
+    fields.push("name = ?"); params.push(n.value);
+  }
+  if (phoneno !== undefined) {
+    const p = cleanPhone(phoneno);
+    if (p.error) return res.status(400).json({ error: p.error });
+    fields.push("phoneno = ?"); params.push(p.value);
+  }
+  if (email !== undefined) {
+    if (email === null || email === "") { fields.push("email = ?"); params.push(null); }
+    else {
+      const e = cleanEmail(email);
+      if (e.error) return res.status(400).json({ error: e.error });
+      fields.push("email = ?"); params.push(e.value);
+    }
+  }
+  if (licenseNumber !== undefined) {
+    if (licenseNumber !== null && (typeof licenseNumber !== "string" || licenseNumber.length > 50)) {
+      return res.status(400).json({ error: "License number must be text up to 50 characters" });
+    }
+    fields.push("license_number = ?"); params.push(licenseNumber || null);
+  }
   if (dutyStatus !== undefined) { fields.push("duty_status = ?"); params.push(dutyStatus); }
   if (password) {
+    const weak = whyPasswordWeak(password, { email: typeof email === "string" ? email : undefined, name });
+    if (weak) return res.status(400).json({ error: weak });
     fields.push("password_hash = ?");
     params.push(await bcrypt.hash(password, 10));
   }
@@ -102,6 +143,8 @@ driversRouter.patch("/:id", requireRole("admin"), async (req, res) => {
     params.push(req.params.id);
     const [result] = await pool.query(`UPDATE drivers SET ${fields.join(", ")} WHERE driver_id = ?`, params);
     if (result.affectedRows === 0) return res.status(404).json({ error: "Driver not found" });
+    // Suspension or a new password ends the driver's existing sessions now.
+    invalidateAccount("driver", Number(req.params.id));
     await logAudit({ staffId: req.user.id, action: "update", entityType: "driver", entityId: req.params.id, details: { ...req.body, password: password ? "(changed)" : undefined } });
     res.json({ driver_id: Number(req.params.id), name, phoneno, email, licenseNumber, dutyStatus });
   } catch (err) {
@@ -126,9 +169,13 @@ driversRouter.delete("/:id", requireRole("admin"), async (req, res) => {
 
     const [result] = await pool.query(`DELETE FROM drivers WHERE driver_id = ?`, [req.params.id]);
     if (result.affectedRows === 0) return res.status(404).json({ error: "Driver not found" });
+    invalidateAccount("driver", Number(req.params.id));
     await logAudit({ staffId: req.user.id, action: "delete", entityType: "driver", entityId: req.params.id });
     res.status(204).end();
   } catch (err) {
+    if (err.code === "ER_ROW_IS_REFERENCED_2" || err.code === "ER_ROW_IS_REFERENCED") {
+      return res.status(409).json({ error: "This driver has past trips on record, so they can't be deleted. Set them to Suspended instead." });
+    }
     console.error(err);
     res.status(500).json({ error: "Failed to delete driver" });
   }

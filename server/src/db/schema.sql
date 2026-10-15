@@ -89,6 +89,9 @@ CREATE TABLE IF NOT EXISTS bookings (
   passenger_id INT NOT NULL,
   trip_id INT NOT NULL,
   booked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  payment_deadline DATETIME NULL, -- addition: online seat hold. A Reserved online booking with no proof under review is released (Cancelled, cancellation_reason 'payment_expired') once this passes. NULL = no hold (walk-ins, flagged rides, and bookings created before holds existed)
+  expiry_warned_at TIMESTAMP NULL DEFAULT NULL, -- addition: when the passenger was warned their hold is about to lapse (sent once)
+  cancellation_reason VARCHAR(50) NULL, -- addition: why a booking became Cancelled when the system did it ('payment_expired'); NULL for ordinary cancels
   -- The document specifies: "UNIQUE constraint on (trip_id, seat_number)
   -- with status NOT IN ('Cancelled', 'No-Show')". MySQL has no native
   -- partial/filtered unique index, so a generated column reproduces the
@@ -100,7 +103,8 @@ CREATE TABLE IF NOT EXISTS bookings (
   ) STORED,
   FOREIGN KEY (passenger_id) REFERENCES commuters(commuter_id),
   FOREIGN KEY (trip_id) REFERENCES trips(trip_id),
-  UNIQUE KEY unique_active_seat_per_trip (trip_id, active_seat_number)
+  UNIQUE KEY unique_active_seat_per_trip (trip_id, active_seat_number),
+  KEY idx_bookings_payment_hold (status, payment_deadline)
 );
 
 CREATE TABLE IF NOT EXISTS location_tracking (
@@ -137,7 +141,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 -- one of the two recipient tables applies per row.
 CREATE TABLE IF NOT EXISTS notifications (
   notification_id INT AUTO_INCREMENT PRIMARY KEY,
-  recipient_type ENUM('passenger', 'driver') NOT NULL,
+  recipient_type ENUM('passenger', 'driver', 'staff') NOT NULL, -- 'staff' = staff_accounts.staff_id (terminal staff and admins): payment review alerts
   recipient_id INT NOT NULL,
   message VARCHAR(500) NOT NULL,
   type VARCHAR(50) NOT NULL DEFAULT 'schedule_change',
@@ -213,24 +217,135 @@ CREATE TABLE IF NOT EXISTS payment_settings (
   FOREIGN KEY (updated_by) REFERENCES staff_accounts(staff_id)
 );
 
--- One row per seat (same granularity as bookings). A booking can collect
--- several rows over time (Rejected, then resubmitted) -- the API always
--- works with the latest one, and allows at most one Pending row per booking.
+-- addition: configurable payment instructions (Payment Methods admin
+-- page). Account details are entered by an administrator; nothing real is
+-- hard-coded. Only is_active rows are shown to passengers.
+CREATE TABLE IF NOT EXISTS payment_methods (
+  method_id INT AUTO_INCREMENT PRIMARY KEY,
+  method_type ENUM('gcash', 'bank_transfer', 'qr_ph') NOT NULL,
+  display_name VARCHAR(100) NOT NULL,
+  account_name VARCHAR(150) NULL,
+  account_number VARCHAR(60) NULL,
+  bank_name VARCHAR(100) NULL,
+  qr_image LONGTEXT NULL,
+  instructions VARCHAR(1000) NULL,
+  is_active BOOLEAN NOT NULL DEFAULT FALSE,
+  sort_order INT NOT NULL DEFAULT 0,
+  updated_by INT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (updated_by) REFERENCES staff_accounts(staff_id) ON DELETE SET NULL
+);
+
+-- addition: one row per actual money transfer a passenger reports (one
+-- GCash send can cover several seats). Holds the claim (method, reference,
+-- amount, time), the private receipt image (base64 in the database, not on
+-- disk, because Railway's filesystem is wiped on redeploy; only served
+-- through an authorized endpoint), and what staff confirmed (amount_received).
+CREATE TABLE IF NOT EXISTS payment_submissions (
+  submission_id INT AUTO_INCREMENT PRIMARY KEY,
+  passenger_id INT NOT NULL,
+  method_id INT NULL,
+  payment_method ENUM('gcash', 'bank_transfer', 'qr_ph') NOT NULL,
+  reference_number VARCHAR(100) NOT NULL,
+  reference_normalized VARCHAR(100) NOT NULL,
+  amount_due DECIMAL(10,2) NOT NULL,
+  amount_claimed DECIMAL(10,2) NULL,
+  paid_at DATETIME NULL,
+  receipt_data LONGTEXT NULL,
+  receipt_mime VARCHAR(20) NULL,
+  receipt_bytes INT NULL,
+  receipt_sha256 CHAR(64) NULL,
+  amount_received DECIMAL(10,2) NULL,
+  ledger_reference VARCHAR(100) NULL,
+  assigned_to INT NULL,
+  assigned_at TIMESTAMP NULL DEFAULT NULL,
+  departure_alert_sent_at TIMESTAMP NULL DEFAULT NULL,
+  is_legacy BOOLEAN NOT NULL DEFAULT FALSE,
+  submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (passenger_id) REFERENCES commuters(commuter_id),
+  FOREIGN KEY (method_id) REFERENCES payment_methods(method_id) ON DELETE SET NULL,
+  FOREIGN KEY (assigned_to) REFERENCES staff_accounts(staff_id) ON DELETE SET NULL,
+  KEY idx_submissions_reference (reference_normalized),
+  KEY idx_submissions_receipt_hash (receipt_sha256),
+  KEY idx_submissions_passenger (passenger_id),
+  KEY idx_submissions_submitted (submitted_at)
+);
+
+-- One row per seat (same granularity as bookings), linked to the submission
+-- that paid for it. A booking can collect several rows over time (Rejected /
+-- Needs Resubmission, then resubmitted) -- the latest is the current one.
 -- amount is a server-side snapshot of that seat's route fare, never a
--- client-sent number.
+-- client-sent number. proof_image is legacy (pre-submission rows only).
 CREATE TABLE IF NOT EXISTS payments (
   payment_id INT AUTO_INCREMENT PRIMARY KEY,
   booking_id INT NOT NULL,
+  submission_id INT NULL,
   amount DECIMAL(8,2) NOT NULL,
   reference_number VARCHAR(100) NOT NULL,
   proof_image LONGTEXT NULL,
-  status ENUM('Pending', 'Verified', 'Rejected') NOT NULL DEFAULT 'Pending',
+  status ENUM('Pending', 'Verified', 'Rejected', 'Needs Resubmission', 'Escalated', 'Refund Pending', 'Refunded') NOT NULL DEFAULT 'Pending',
   rejection_reason VARCHAR(255) NULL,
   submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   verified_at TIMESTAMP NULL DEFAULT NULL,
   verified_by INT NULL,
+  refund_reason VARCHAR(255) NULL,
+  refund_requested_at TIMESTAMP NULL DEFAULT NULL,
+  refund_requested_by INT NULL,
+  refund_reference VARCHAR(100) NULL,
+  refunded_at TIMESTAMP NULL DEFAULT NULL,
+  refunded_by INT NULL,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  open_booking_id INT GENERATED ALWAYS AS (
+    CASE WHEN status IN ('Pending', 'Escalated') THEN booking_id ELSE NULL END
+  ) STORED,
+  verified_booking_id INT GENERATED ALWAYS AS (
+    CASE WHEN status = 'Verified' THEN booking_id ELSE NULL END
+  ) STORED,
   FOREIGN KEY (booking_id) REFERENCES bookings(booking_id),
   FOREIGN KEY (verified_by) REFERENCES staff_accounts(staff_id),
+  CONSTRAINT fk_payments_submission FOREIGN KEY (submission_id) REFERENCES payment_submissions(submission_id),
   KEY idx_payments_booking (booking_id),
-  KEY idx_payments_status (status)
+  KEY idx_payments_status (status),
+  KEY idx_payments_submission (submission_id),
+  UNIQUE KEY uq_payments_open_booking (open_booking_id),
+  UNIQUE KEY uq_payments_verified_booking (verified_booking_id)
+);
+
+-- One real transaction can be verified once, ever: inserted in the same
+-- transaction as a verification, and the unique key makes a second
+-- (concurrent or later) verification of the same reference fail.
+CREATE TABLE IF NOT EXISTS payment_reference_claims (
+  claim_id INT AUTO_INCREMENT PRIMARY KEY,
+  payment_method ENUM('gcash', 'bank_transfer', 'qr_ph') NOT NULL,
+  reference_normalized VARCHAR(100) NOT NULL,
+  submission_id INT NOT NULL,
+  claimed_by INT NULL,
+  claimed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_reference_claim (payment_method, reference_normalized),
+  FOREIGN KEY (submission_id) REFERENCES payment_submissions(submission_id)
+);
+
+-- Append-only history of every payment action (submissions, staff
+-- decisions, refunds, system expiries). actor_id has no FK on purpose: it
+-- points at commuters or staff_accounts depending on actor_role, and logs
+-- must survive a staff account being deleted. Never holds secrets.
+CREATE TABLE IF NOT EXISTS payment_audit_logs (
+  audit_log_id INT AUTO_INCREMENT PRIMARY KEY,
+  payment_id INT NULL,
+  submission_id INT NULL,
+  booking_id INT NULL,
+  actor_id INT NULL,
+  actor_role ENUM('passenger', 'staff', 'admin', 'system') NOT NULL,
+  previous_status VARCHAR(30) NULL,
+  new_status VARCHAR(30) NULL,
+  action VARCHAR(40) NOT NULL,
+  reason VARCHAR(500) NULL,
+  internal_note VARCHAR(1000) NULL,
+  details JSON NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_pal_payment (payment_id),
+  KEY idx_pal_submission (submission_id),
+  KEY idx_pal_booking (booking_id),
+  KEY idx_pal_created (created_at)
 );

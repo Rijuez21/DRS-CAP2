@@ -2,6 +2,53 @@ import { Router } from "express";
 import { pool } from "../db/pool.js";
 import { requireRole } from "../middleware/auth.js";
 import { logAudit } from "../services/audit.js";
+import { optionalText, requiredText, integer } from "../services/validate.js";
+
+const BUS_TYPES = ["ordinary", "air_conditioned"];
+
+// Capacity decides which seat numbers can be sold, so it must be a sane
+// whole number; plate/bus numbers are shown on passenger maps and tickets.
+function parseBusBody(body, { partial }) {
+  const out = {};
+  const has = (k) => Object.prototype.hasOwnProperty.call(body, k);
+  if (!partial || has("plateNum")) {
+    const r = requiredText(body.plateNum, { max: 20, label: "Plate number" });
+    if (r.error) return r;
+    if (!/^[A-Za-z0-9 \-]+$/.test(r.value)) return { error: "Plate number may only contain letters, numbers, spaces and dashes" };
+    out.plate_num = r.value;
+  }
+  if (has("busNumber")) {
+    const r = optionalText(body.busNumber, { max: 10, label: "Bus number" });
+    if (r.error) return r;
+    if (r.value && !/^[A-Za-z0-9\-]+$/.test(r.value)) return { error: "Bus number may only contain letters, numbers and dashes" };
+    out.bus_number = r.value;
+  }
+  if (has("capacity")) {
+    const r = integer(body.capacity, { label: "Capacity", min: 1, max: 120, nullable: true });
+    if (r.error) return r;
+    out.capacity = r.value;
+  }
+  if (has("type")) {
+    if (body.type !== null && body.type !== "" && !BUS_TYPES.includes(body.type)) return { error: `type must be one of: ${BUS_TYPES.join(", ")}` };
+    out.type = body.type || null;
+  }
+  if (has("yearModel")) {
+    const r = integer(body.yearModel, { label: "Year model", min: 1950, max: 2100, nullable: true });
+    if (r.error) return r;
+    out.year_model = r.value;
+  }
+  if (has("currentDriverId")) {
+    const r = integer(body.currentDriverId, { label: "Driver", min: 1, max: 2147483646, nullable: true });
+    if (r.error) return r;
+    out.current_driver_id = r.value;
+  }
+  if (has("boardingPoint")) {
+    const r = optionalText(body.boardingPoint, { max: 150, label: "Boarding point" });
+    if (r.error) return r;
+    out.boarding_point = r.value;
+  }
+  return { fields: out };
+}
 
 export const busesRouter = Router();
 
@@ -26,16 +73,19 @@ busesRouter.get("/", requireRole("admin", "staff"), async (req, res) => {
 
 // POST /api/buses — admin adds a bus to the fleet
 busesRouter.post("/", requireRole("admin"), async (req, res) => {
-  const { busNumber, plateNum, capacity, type, yearModel, currentDriverId, boardingPoint } = req.body;
+  const { busNumber, plateNum, capacity, type, yearModel, currentDriverId, boardingPoint } = req.body ?? {};
   if (!plateNum) {
     return res.status(400).json({ error: "plateNum is required" });
   }
+  const parsed = parseBusBody(req.body, { partial: false });
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+  const f = parsed.fields;
 
   try {
     const [result] = await pool.query(
       `INSERT INTO buses (bus_number, plate_num, capacity, type, year_model, current_driver_id, boarding_point)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [busNumber ?? null, plateNum, capacity ?? null, type ?? null, yearModel ?? null, currentDriverId ?? null, boardingPoint ?? null]
+      [f.bus_number ?? null, f.plate_num, f.capacity ?? null, f.type ?? null, f.year_model ?? null, f.current_driver_id ?? null, f.boarding_point ?? null]
     );
     await logAudit({
       staffId: req.user.id,
@@ -59,6 +109,7 @@ busesRouter.post("/", requireRole("admin"), async (req, res) => {
     if (err.code === "ER_DUP_ENTRY") {
       return res.status(409).json({ error: "A bus with that plate number or bus number already exists" });
     }
+    if (err.code === "ER_NO_REFERENCED_ROW_2") return res.status(400).json({ error: "That driver doesn't exist" });
     console.error(err);
     res.status(500).json({ error: "Failed to add bus" });
   }
@@ -67,16 +118,10 @@ busesRouter.post("/", requireRole("admin"), async (req, res) => {
 // PATCH /api/buses/:id — admin edits plate/capacity/type/year/driver/etc.
 // (Fleet Management's edit action, Table 4)
 busesRouter.patch("/:id", requireRole("admin"), async (req, res) => {
-  const { busNumber, plateNum, capacity, type, yearModel, currentDriverId, boardingPoint } = req.body;
-  const fields = [];
-  const params = [];
-  if (busNumber !== undefined) { fields.push("bus_number = ?"); params.push(busNumber); }
-  if (plateNum !== undefined) { fields.push("plate_num = ?"); params.push(plateNum); }
-  if (capacity !== undefined) { fields.push("capacity = ?"); params.push(capacity); }
-  if (type !== undefined) { fields.push("type = ?"); params.push(type); }
-  if (yearModel !== undefined) { fields.push("year_model = ?"); params.push(yearModel); }
-  if (currentDriverId !== undefined) { fields.push("current_driver_id = ?"); params.push(currentDriverId); }
-  if (boardingPoint !== undefined) { fields.push("boarding_point = ?"); params.push(boardingPoint); }
+  const parsed = parseBusBody(req.body ?? {}, { partial: true });
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+  const fields = Object.keys(parsed.fields).map((c) => `${c} = ?`);
+  const params = Object.values(parsed.fields);
 
   if (fields.length === 0) return res.status(400).json({ error: "No editable fields provided" });
 
@@ -90,6 +135,7 @@ busesRouter.patch("/:id", requireRole("admin"), async (req, res) => {
     if (err.code === "ER_DUP_ENTRY") {
       return res.status(409).json({ error: "A bus with that plate number or bus number already exists" });
     }
+    if (err.code === "ER_NO_REFERENCED_ROW_2") return res.status(400).json({ error: "That driver doesn't exist" });
     console.error(err);
     res.status(500).json({ error: "Failed to update bus" });
   }
@@ -107,11 +153,15 @@ busesRouter.delete("/:id", requireRole("admin"), async (req, res) => {
       return res.status(409).json({ error: "This bus has upcoming trips scheduled — reassign or cancel them first" });
     }
 
-    const [result] = await pool.query(`DELETE FROM buses WHERE bus_id = ?`, [req.params.id]);
+    const [result] = await pool.query(`DELETE FROM buses WHERE bus_id = ?`, [req.params.id]).catch((err) => {
+      if (err.code === "ER_ROW_IS_REFERENCED_2") throw Object.assign(new Error("in use"), { inUse: true });
+      throw err;
+    });
     if (result.affectedRows === 0) return res.status(404).json({ error: "Bus not found" });
     await logAudit({ staffId: req.user.id, action: "delete", entityType: "bus", entityId: req.params.id });
     res.status(204).end();
   } catch (err) {
+    if (err.inUse) return res.status(409).json({ error: "This bus has past trips on record, so it can't be deleted. Set it to Maintenance or Idle instead." });
     console.error(err);
     res.status(500).json({ error: "Failed to delete bus" });
   }

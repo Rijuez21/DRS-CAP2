@@ -40,6 +40,11 @@ export default function LoginForm({
       setError("Enter your email and password to continue.");
       return;
     }
+    // Same rule as the server (services/passwordPolicy.js); the server re-checks.
+    if (mode === "signup" && (password.length < 8 || !/[A-Za-z]/.test(password) || !/[0-9]/.test(password))) {
+      setError("Use at least 8 characters for the password, with both letters and numbers.");
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -96,8 +101,10 @@ export default function LoginForm({
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder="••••••••"
+          maxLength={128}
           className="w-full bg-brand-sunrise-400/40 border border-brand-sunrise-500/30 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-brand-green-600/50 placeholder:text-ink-600/50"
         />
+        {mode === "signup" && <p className="text-xs text-ink-600 mt-1">At least 8 characters, with letters and numbers.</p>}
       </Field>
 
       {error && (

@@ -1,15 +1,19 @@
 import { Router } from "express";
 import { pool } from "../db/pool.js";
 import { requireRole } from "../middleware/auth.js";
+import { csvCell } from "../services/validate.js";
 
 export const reportsRouter = Router();
 reportsRouter.use(requireRole("admin"));
 
 // Shared date-range guard: defaults to the last 30 days so every report
 // endpoint below has a sane bound instead of scanning the whole table.
+// Only YYYY-MM-DD is accepted: the values also end up in the export's
+// Content-Disposition filename, so nothing else may pass through.
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 function resolveRange(req) {
-  const to = req.query.to || new Date().toISOString().slice(0, 10);
-  const from = req.query.from || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const to = DATE_RE.test(String(req.query.to ?? "")) ? req.query.to : new Date().toISOString().slice(0, 10);
+  const from = DATE_RE.test(String(req.query.from ?? "")) ? req.query.from : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   return { from, to };
 }
 
@@ -18,7 +22,7 @@ function resolveRange(req) {
 // in minutes, per route (fleet-wide if routeId is omitted).
 reportsRouter.get("/on-time-performance", async (req, res) => {
   const { from, to } = resolveRange(req);
-  const { routeId } = req.query;
+  const routeId = req.query.routeId && /^\d+$/.test(String(req.query.routeId)) ? Number(req.query.routeId) : null;
   try {
     const [rows] = await pool.query(
       `SELECT rt.route_id, rt.origin, rt.destination,
@@ -107,7 +111,7 @@ const CSV_BUILDERS = {
 function toCsv(rows, columns) {
   const header = columns.join(",");
   const body = rows
-    .map((row) => columns.map((col) => JSON.stringify(row[col] ?? "")).join(","))
+    .map((row) => columns.map((col) => csvCell(row[col])).join(","))
     .join("\n");
   return `${header}\n${body}`;
 }
@@ -163,7 +167,7 @@ reportsRouter.get("/export", async (req, res) => {
     }
 
     const csv = CSV_BUILDERS[type](data);
-    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="${type}-${from}-to-${to}.csv"`);
     res.send(csv);
   } catch (err) {

@@ -5,6 +5,27 @@ import { ingestLocation } from "../services/locationService.js";
 import { requireRole, authenticate } from "../middleware/auth.js";
 
 const FLEET_CACHE_KEY = "cache:fleet:latest";
+const MAX_BATCH_POINTS = 1000;
+// Buffered points can be hours old after a long dead zone, but not days,
+// and never meaningfully in the future (small clock skew allowed).
+const MAX_POINT_AGE_MS = 48 * 3600 * 1000;
+const MAX_FUTURE_SKEW_MS = 10 * 60 * 1000;
+
+// Returns a clean point or { error }.
+function parsePoint(p) {
+  const busId = Number(p?.busId);
+  const latitude = typeof p?.latitude === "boolean" ? NaN : Number(p?.latitude);
+  const longitude = typeof p?.longitude === "boolean" ? NaN : Number(p?.longitude);
+  const time = new Date(p?.timestamp);
+  if (!Number.isInteger(busId) || busId <= 0) return { error: "busId must be a bus number id" };
+  if (p?.latitude === null || p?.latitude === "" || !Number.isFinite(latitude) || latitude < -90 || latitude > 90) return { error: "latitude must be between -90 and 90" };
+  if (p?.longitude === null || p?.longitude === "" || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) return { error: "longitude must be between -180 and 180" };
+  if (!p?.timestamp || Number.isNaN(time.getTime())) return { error: "timestamp must be a valid date" };
+  const now = Date.now();
+  if (time.getTime() > now + MAX_FUTURE_SKEW_MS || time.getTime() < now - MAX_POINT_AGE_MS) return { error: "timestamp is out of range" };
+  const syncStatus = p?.syncStatus === "buffered" ? "buffered" : "synced";
+  return { busId, latitude, longitude, timestamp: time.toISOString(), syncStatus };
+}
 
 export function buildTrackingRouter(io) {
   const trackingRouter = Router();
@@ -31,10 +52,12 @@ export function buildTrackingRouter(io) {
   }
 
   trackingRouter.post("/", requireRole("driver"), async (req, res) => {
-    const { busId, latitude, longitude, timestamp, syncStatus } = req.body;
-    if (!busId || latitude == null || longitude == null || !timestamp) {
+    if (!req.body?.busId || req.body.latitude == null || req.body.longitude == null || !req.body.timestamp) {
       return res.status(400).json({ error: "busId, latitude, longitude and timestamp are required" });
     }
+    const point = parsePoint(req.body);
+    if (point.error) return res.status(400).json({ error: point.error });
+    const { busId, latitude, longitude, timestamp, syncStatus } = point;
     if (!(await driverMayReportBus(req.user.id, busId))) {
       return res.status(403).json({ error: "You can only share location for the bus on your current trip" });
     }
@@ -56,28 +79,25 @@ export function buildTrackingRouter(io) {
     if (!Array.isArray(points) || points.length === 0) {
       return res.status(400).json({ error: "points must be a non-empty array" });
     }
+    if (points.length > MAX_BATCH_POINTS) {
+      return res.status(413).json({ error: `Send at most ${MAX_BATCH_POINTS} points per batch` });
+    }
 
     try {
       // Points for a bus this driver isn't (or no longer) on are dropped,
       // not rejected: rejecting would make the phone's offline queue retry
       // the same stale batch forever.
       const allowedBuses = new Map();
-      for (const busId of new Set(points.map((p) => String(p.busId)))) {
+      for (const busId of new Set(points.map((p) => String(p?.busId)).filter((b) => /^\d+$/.test(b)))) {
         allowedBuses.set(busId, await driverMayReportBus(req.user.id, busId));
       }
       const inserted = [];
       let skipped = 0;
-      for (const p of points) {
-        if (!allowedBuses.get(String(p.busId))) { skipped += 1; continue; }
-        inserted.push(
-          await ingestLocation(io, {
-            busId: p.busId,
-            latitude: p.latitude,
-            longitude: p.longitude,
-            timestamp: p.timestamp,
-            syncStatus: p.syncStatus ?? "buffered",
-          })
-        );
+      for (const raw of points) {
+        // Invalid points are dropped (not rejected) for the same reason.
+        const p = parsePoint({ ...raw, syncStatus: raw?.syncStatus ?? "buffered" });
+        if (p.error || !allowedBuses.get(String(p.busId))) { skipped += 1; continue; }
+        inserted.push(await ingestLocation(io, p));
       }
       res.status(201).json({ inserted: inserted.length, skipped });
     } catch (err) {
@@ -151,7 +171,10 @@ export function buildTrackingRouter(io) {
     const { origin, minDistance } = req.query;
     const conditions = ["tr.status = 'In Transit'"];
     const params = [];
-    if (origin) { conditions.push("rt.origin = ?"); params.push(origin); }
+    if (origin) {
+      if (typeof origin !== "string" || origin.length > 150) return res.status(400).json({ error: "origin must be text" });
+      conditions.push("rt.origin = ?"); params.push(origin);
+    }
     if (minDistance !== undefined && minDistance !== "") {
       const km = Number(minDistance);
       if (!Number.isFinite(km) || km < 0) return res.status(400).json({ error: "minDistance must be a non-negative number" });
@@ -189,7 +212,9 @@ export function buildTrackingRouter(io) {
   // render (Socket.io then takes over for live updates on an open page).
   // Redis-first since this is the exact "bus locations" cache case in the
   // paper's Table 10; falls back to MySQL on a cache miss.
-  trackingRouter.get("/:busId/latest", async (req, res) => {
+  // Signed-in users only (passengers tracking their bus, drivers, staff).
+  trackingRouter.get("/:busId/latest", authenticate, async (req, res) => {
+    if (!/^\d+$/.test(req.params.busId)) return res.status(404).json({ error: "No location data for this bus yet" });
     try {
       const cached = await redis.get(`cache:bus:${req.params.busId}:location`).catch(() => null);
       if (cached) return res.json(JSON.parse(cached));

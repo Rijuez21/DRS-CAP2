@@ -91,3 +91,46 @@ export function initials(name) {
 export function receiptNumber(paymentId) {
   return `OR-${String(paymentId ?? "").padStart(6, "0")}`;
 }
+
+// Booking reference shown to passengers and staff, e.g. DRS-2026-00125.
+// Mirrors bookingReference() in server/src/services/paymentRules.js (the
+// server sends it too; this is for rows that don't carry it).
+export function bookingReference(bookingId, bookedAt) {
+  if (bookingId == null) return "—";
+  const year = bookedAt
+    ? new Date(bookedAt).toLocaleString("en-US", { timeZone: "Asia/Manila", year: "numeric" })
+    : new Date().getFullYear();
+  return `DRS-${year}-${String(bookingId).padStart(5, "0")}`;
+}
+
+// "Oct 12, 2026, 3:05 PM"
+export function formatDateTime(isoString) {
+  if (!isoString) return null;
+  return new Date(isoString).toLocaleString("en-PH", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+// Payment status as people say it. 'Pending' is stored for backward
+// compatibility but means "under review".
+export const PAYMENT_STATUS_LABELS = {
+  "Awaiting Payment": "Awaiting payment",
+  Pending: "Under review",
+  "Needs Resubmission": "Needs resubmission",
+  Verified: "Verified",
+  Rejected: "Rejected",
+  Escalated: "Escalated",
+  "Refund Pending": "Refund pending",
+  Refunded: "Refunded",
+  Mixed: "Mixed",
+};
+export function paymentStatusLabel(status) {
+  return PAYMENT_STATUS_LABELS[status] ?? status;
+}
+
+export const PAYMENT_METHOD_LABELS = { gcash: "GCash", bank_transfer: "Bank transfer", qr_ph: "QR Ph" };
+
+// "2026-10-12T15:05" in the browser's local time, for <input type="datetime-local">.
+export function toDateTimeLocal(date = new Date()) {
+  const d = new Date(date);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
