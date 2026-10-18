@@ -2,7 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 
 // Marketing
 import LandingPage from "../pages/LandingPage";
-import PrivacyPolicy from "../pages/PrivacyPolicy";
+import PrivacyPolicy from "../pages/DataPolicy";
 
 // Auth
 import PassengerLogin from "../pages/auth/PassengerLogin";
