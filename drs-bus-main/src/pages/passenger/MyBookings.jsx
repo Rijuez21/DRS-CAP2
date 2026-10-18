@@ -1,209 +1,159 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { MapPin, CalendarClock, Hand, ArrowRight, Route, Bus, Ticket, Sunrise, Sun, Moon } from "lucide-react";
-import TripSearchPanel from "../../components/passenger/TripSearchPanel";
-import StatsRow from "../../components/passenger/StatsRow";
-import TerminalDirectionsCard from "../../components/passenger/TerminalDirectionsCard";
+import { Ticket, ChevronRight, Clock, Armchair, Hand } from "lucide-react";
+import StatusBadge from "../../components/common/StatusBadge";
+import PageHeader from "../../components/passenger/PageHeader";
 import EmptyState from "../../components/common/EmptyState";
+import InlineAlert from "../../components/common/InlineAlert";
 import { useAuth } from "../../context/AuthContext";
 import * as api from "../../lib/api";
-import { mapTrip, isSameDay } from "../../lib/format";
+import { formatTime } from "../../lib/format";
 
-function greetingFor(hour) {
-  if (hour < 12) return { text: "Good morning", icon: Sunrise };
-  if (hour < 18) return { text: "Good afternoon", icon: Sun };
-  return { text: "Good evening", icon: Moon };
+// A booking is "upcoming" while it still means a ride: it holds a seat and
+// its trip hasn't finished or been called off. Everything else is history.
+function isUpcoming(b) {
+  return ["Reserved", "Confirmed", "Boarded"].includes(b.status) && !["Completed", "Cancelled"].includes(b.trip_status);
 }
 
-export default function PassengerHome() {
-  const navigate = useNavigate();
+// One short, plain sentence per state — what this means for the passenger.
+function hintFor(b) {
+  if (b.trip_status === "Cancelled") return "This trip was cancelled";
+  if (b.status === "Reserved") return "Pay online or at the terminal to confirm";
+  if (b.status === "Confirmed") return b.trip_status === "Boarding" ? "Boarding now" : "Confirmed — see you on board";
+  if (b.status === "Boarded") return b.trip_status === "In Transit" ? "On the road" : "Checked in";
+  if (b.status === "No-Show") return "Marked as not boarded";
+  return null;
+}
+
+export default function MyBookings() {
   const { user } = useAuth();
-
-  const [routes, setRoutes] = useState([]);
-  const [trips, setTrips] = useState([]);
-  const [bookingCount, setBookingCount] = useState(null);
-
-  useEffect(() => {
-    api.getRoutes().then(setRoutes).catch(() => setRoutes([]));
-    // Bookable trips only — the old count included cancelled and finished runs.
-    api.getTrips({ scope: "bookable" }).then((rows) => setTrips(rows.map(mapTrip))).catch(() => setTrips([]));
-  }, []);
+  const navigate = useNavigate();
+  const [bookings, setBookings] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     if (!user) return;
+    let cancelled = false;
     api
       .getBookings()
-      .then((rows) => setBookingCount(rows.filter((b) => ["Reserved", "Confirmed", "Boarded"].includes(b.status) && !["Completed", "Cancelled"].includes(b.trip_status)).length))
-      .catch(() => {});
+      .then((rows) => {
+        if (!cancelled) setBookings(rows);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [user]);
 
-  const today = new Date();
-  const todayLabel = today.toLocaleDateString("en-PH", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-  const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-  const greeting = greetingFor(today.getHours());
-  const GreetingIcon = greeting.icon;
-  const firstName = user?.name?.trim().split(/\s+/)[0] ?? "Passenger";
-
-  const stats = [
-    { label: "Routes", value: routes.length || null, icon: Route },
-    { label: "Departures Today", value: trips.filter((t) => isSameDay(t.departureIso, todayIso)).length, icon: Bus },
-    { label: "Upcoming Trips", value: bookingCount, icon: Ticket },
-  ];
-
-  // "Popular" here just means the first few distinct routes on record —
-  // there's no booking-volume ranking endpoint yet.
-  const popularRoutes = useMemo(() => routes.slice(0, 4), [routes]);
-
-  function handleSearch(criteria) {
-    const cleaned = Object.fromEntries(
-      Object.entries(criteria).filter(([, v]) => v)
-    );
-    const params = new URLSearchParams(cleaned).toString();
-    navigate(`/passenger/trips${params ? `?${params}` : ""}`);
-  }
+  const upcoming = bookings.filter(isUpcoming).sort((a, b) => new Date(a.departure_time) - new Date(b.departure_time));
+  const past = bookings.filter((b) => !isUpcoming(b));
 
   return (
-    <div className="page-enter px-4 py-6 lg:px-8 lg:py-10 max-w-md mx-auto lg:max-w-5xl space-y-6">
-      <header className="hero-forest rounded-3xl p-6 pb-10 lg:p-8 lg:pb-14 shadow-xl shadow-brand-forest-900/20">
-        <p className="flex items-center gap-2 text-sm font-medium text-brand-sunrise-400">
-          <GreetingIcon className="w-4 h-4" /> {greeting.text}
-        </p>
-        <h1 className="font-display text-2xl lg:text-3xl font-bold tracking-tight mt-1">{firstName}, where to today?</h1>
-        <p className="text-sm text-white/60 mt-1.5">{todayLabel}</p>
-      </header>
+    <div className="page-enter max-w-md mx-auto lg:max-w-2xl px-4 py-6 lg:py-10 space-y-6">
+      <PageHeader
+        icon={Ticket}
+        title="My Bookings"
+        subtitle={!isLoading && bookings.length > 0 ? `${upcoming.length} upcoming · ${past.length} past` : "Your reserved seats and flagged rides"}
+      />
 
-      <RideModeChooser onChoose={(path) => navigate(path)} />
+      <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
 
-      <div className="space-y-6 lg:grid lg:grid-cols-[340px_1fr] lg:gap-8 lg:space-y-0 lg:items-start">
-        <TripSearchPanel onSearch={handleSearch} />
-
-        <div className="space-y-6">
-          <StatsRow stats={stats} />
-
-          <TerminalDirectionsCard />
-
-          <section className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="font-display font-semibold text-lg">
-                Popular Routes
-              </h2>
-              <button
-                type="button"
-                onClick={() => navigate("/passenger/trips")}
-                className="inline-flex items-center gap-1 text-sm font-medium text-brand-green-600 hover:gap-1.5 transition-all"
-              >
-                See all <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            {popularRoutes.length === 0 ? (
-              <EmptyState
-                icon={MapPin}
-                title="No routes yet"
-                description="Routes will show up here once they're added by an administrator."
-              />
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2">
-                {popularRoutes.map((r) => (
-                  <button
-                    key={r.route_id}
-                    type="button"
-                    onClick={() =>
-                      navigate(
-                        `/passenger/trips?${new URLSearchParams({ origin: r.origin, destination: r.destination })}`
-                      )
-                    }
-                    className="group card card-interactive rounded-2xl text-left p-4 space-y-3"
-                  >
-                    <div className="flex items-stretch gap-3">
-                      <RouteLine />
-                      <div className="flex-1 min-w-0 flex flex-col justify-between gap-2">
-                        <p className="font-medium text-sm truncate">{r.origin}</p>
-                        <p className="font-medium text-sm truncate">{r.destination}</p>
-                      </div>
-                      {r.base_fare != null && (
-                        <div className="text-right shrink-0">
-                          <p className="text-[11px] text-ink-600">from</p>
-                          <p className="font-display font-bold text-brand-green-600">₱{Number(r.base_fare).toLocaleString("en-PH")}</p>
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between pt-3 border-t border-slate-100 text-xs text-ink-600">
-                      <span>{r.distance != null ? `${r.distance} km` : "Scheduled route"}</span>
-                      <span className="inline-flex items-center gap-1 font-medium text-brand-green-600 opacity-80 group-hover:opacity-100">
-                        View trips <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
-                      </span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </section>
+      {isLoading ? (
+        <div className="space-y-3" aria-busy="true">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-24 rounded-2xl bg-white border border-slate-100 animate-pulse" />
+          ))}
         </div>
-      </div>
+      ) : bookings.length === 0 && !error ? (
+        <EmptyState
+          icon={Ticket}
+          title="No bookings yet"
+          description="Seats you reserve, and buses you flag, show up here."
+          action={
+            <button
+              type="button"
+              onClick={() => navigate("/passenger/trips")}
+              className="mt-2 bg-brand-green-600 hover:bg-brand-green-500 text-white text-sm font-semibold rounded-xl px-4 py-2.5 shadow-md shadow-brand-green-600/25 transition-colors"
+            >
+              Book a seat
+            </button>
+          }
+        />
+      ) : (
+        <>
+          <Section title="Upcoming" rows={upcoming} empty="No upcoming trips." onOpen={(id) => navigate(`/passenger/my-bookings/${id}`)} />
+          {past.length > 0 && <Section title="Past & cancelled" rows={past} muted onOpen={(id) => navigate(`/passenger/my-bookings/${id}`)} />}
+        </>
+      )}
     </div>
   );
 }
 
-// Origin dot, dotted road, destination pin — sits beside the two stop names.
-function RouteLine() {
+function Section({ title, rows, empty, muted = false, onOpen }) {
   return (
-    <span className="flex flex-col items-center py-1" aria-hidden="true">
-      <span className="w-2.5 h-2.5 rounded-full border-2 border-brand-green-600 bg-white" />
-      <span className="flex-1 min-h-3 border-l-2 border-dotted border-slate-300 my-1" />
-      <MapPin className="w-3.5 h-3.5 text-brand-sunrise-500" />
-    </span>
-  );
-}
+    <section className="space-y-3">
+      <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ink-600">
+        {title}
+        <span className="rounded-full bg-slate-200/70 px-2 py-0.5 text-[10px] text-ink-600">{rows.length}</span>
+      </h2>
+      {rows.length === 0 ? (
+        <p className="text-sm text-ink-600 rounded-2xl border border-dashed border-slate-200 px-4 py-5 text-center">{empty}</p>
+      ) : (
+        rows.map((b) => {
+          const d = b.departure_time ? new Date(b.departure_time) : null;
+          return (
+            <button
+              key={b.booking_id}
+              type="button"
+              onClick={() => onOpen(b.booking_id)}
+              className={`group card card-interactive w-full text-left rounded-2xl p-3 pr-4 flex items-center gap-4 ${muted ? "opacity-70 hover:opacity-100" : ""}`}
+            >
+              {/* calendar-leaf date block */}
+              <div
+                className={`w-14 shrink-0 self-stretch rounded-xl flex flex-col items-center justify-center py-2 ${
+                  muted ? "bg-slate-100 text-ink-600" : "bg-brand-forest-900 text-white"
+                }`}
+              >
+                <span className={`text-[10px] font-semibold uppercase tracking-wider ${muted ? "" : "text-brand-sunrise-400"}`}>
+                  {d ? d.toLocaleDateString("en-PH", { month: "short" }) : "—"}
+                </span>
+                <span className="font-display text-xl font-bold leading-none mt-0.5">{d ? d.getDate() : ""}</span>
+                <span className="text-[10px] opacity-70 mt-0.5">{d ? d.toLocaleDateString("en-PH", { weekday: "short" }) : ""}</span>
+              </div>
 
-// The fork between the two ride modes, shown first on Home so the
-// passenger picks based on where they are right now, before seeing any
-// search form. The search panel below this is the Book Ahead search —
-// it isn't reused for Flag a Bus, which filters by live position instead.
-const RIDE_MODES = [
-  {
-    path: "/passenger/trips",
-    icon: CalendarClock,
-    title: "Book Ahead",
-    description: "Leaving from the terminal? Reserve a seat on a scheduled trip.",
-    badge: "bg-brand-forest-900 text-brand-sunrise-400",
-  },
-  {
-    path: "/passenger/flag",
-    icon: Hand,
-    title: "Flag a Bus Nearby",
-    description: "Already on the roadside? Hail a bus that's on its way to you.",
-    badge: "bg-brand-sunrise-400 text-brand-forest-950",
-  },
-];
-
-function RideModeChooser({ onChoose }) {
-  return (
-    <section aria-label="How are you riding today?" className="grid gap-3 sm:grid-cols-2 -mt-12 lg:-mt-14 px-3 relative">
-      {RIDE_MODES.map(({ path, icon: Icon, title, description, badge }) => (
-        <button
-          key={path}
-          type="button"
-          onClick={() => onChoose(path)}
-          className="group card card-interactive flex items-center gap-4 text-left rounded-2xl p-4"
-        >
-          <span className={`w-12 h-12 shrink-0 rounded-2xl flex items-center justify-center shadow-sm ${badge}`}>
-            <Icon className="w-5 h-5" />
-          </span>
-          <span className="flex-1 min-w-0">
-            <span className="block font-display font-semibold">{title}</span>
-            <span className="block text-xs text-ink-600 mt-0.5">{description}</span>
-          </span>
-          <span className="w-8 h-8 shrink-0 rounded-full bg-slate-100 group-hover:bg-brand-green-600 group-hover:text-white text-ink-600 flex items-center justify-center transition-colors">
-            <ArrowRight className="w-4 h-4" />
-          </span>
-        </button>
-      ))}
+              <div className="flex-1 min-w-0 space-y-1 py-1">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-display font-semibold truncate">
+                    {b.origin} → {b.destination}
+                  </p>
+                  <StatusBadge status={b.status} />
+                </div>
+                <p className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-sm text-ink-600">
+                  <span className="inline-flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5" /> {formatTime(b.departure_time)}
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <Armchair className="w-3.5 h-3.5" /> Seat {b.seat_number}
+                  </span>
+                  {b.channel === "flagged" && (
+                    <span className="inline-flex items-center gap-1">
+                      <Hand className="w-3.5 h-3.5" /> Flagged on the road
+                    </span>
+                  )}
+                </p>
+                {hintFor(b) && <p className={`text-xs ${b.trip_status === "Cancelled" ? "text-rose-600 font-medium" : "text-ink-600"}`}>{hintFor(b)}</p>}
+              </div>
+              <ChevronRight className="w-4 h-4 text-ink-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+            </button>
+          );
+        })
+      )}
     </section>
   );
 }
