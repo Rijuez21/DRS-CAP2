@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { LifeBuoy } from "lucide-react";
 
 const SEATS_PER_ROW = 4; // 2 seats · aisle · 2 seats
+const BACK_ROW_SEATS = 5; // the back bench: 2 · 1 in the aisle · 2
 
 /**
  * Visual, clickable bus seat map.
@@ -21,10 +22,13 @@ export default function SeatMap({
   maxSeats = 6,
 }) {
   const rows = useMemo(() => {
-    const fullRows = Math.floor(totalSeats / SEATS_PER_ROW);
-    const remainder = totalSeats % SEATS_PER_ROW;
+    const hasBackRow = totalSeats >= BACK_ROW_SEATS;
+    const regularSeats = hasBackRow ? totalSeats - BACK_ROW_SEATS : totalSeats;
+    const fullRows = Math.floor(regularSeats / SEATS_PER_ROW);
+    const remainder = regularSeats % SEATS_PER_ROW;
     const layout = Array.from({ length: fullRows }, () => SEATS_PER_ROW);
     if (remainder) layout.push(remainder);
+    if (hasBackRow) layout.push(BACK_ROW_SEATS);
     return layout;
   }, [totalSeats]);
 
@@ -50,9 +54,12 @@ export default function SeatMap({
               seatCounter += 1;
               return seatCounter;
             });
-            const mid = Math.ceil(count / 2);
+            // the back bench puts its middle seat in the aisle
+            const isBackRow = count === BACK_ROW_SEATS;
+            const mid = isBackRow ? 2 : Math.ceil(count / 2);
             const left = seats.slice(0, mid);
-            const right = seats.slice(mid);
+            const aisle = isBackRow ? seats[mid] : null;
+            const right = seats.slice(isBackRow ? mid + 1 : mid);
 
             return (
               <div key={rowIndex} className="flex items-center justify-center gap-4">
@@ -68,7 +75,20 @@ export default function SeatMap({
                     />
                   ))}
                 </div>
-                <div className="w-4" aria-hidden="true" />
+                {aisle ? (
+                  // same footprint as the aisle spacer so the columns stay aligned
+                  <div className="w-4 flex justify-center">
+                    <Seat
+                      id={aisle}
+                      occupiedSeatIds={occupiedSeatIds}
+                      selectedSeatIds={selectedSeatIds}
+                      onToggleSeat={onToggleSeat}
+                      maxSeats={maxSeats}
+                    />
+                  </div>
+                ) : (
+                  <div className="w-4" aria-hidden="true" />
+                )}
                 <div className="flex gap-2">
                   {right.map((id) => (
                     <Seat
@@ -108,7 +128,7 @@ function Seat({ id, occupiedSeatIds, selectedSeatIds, onToggleSeat, maxSeats }) 
       }`}
       className={[
         // taller than wide with a thick bottom edge, so each reads as a seat
-        "w-9 h-10 rounded-t-xl rounded-b-md border border-b-4 flex items-center justify-center text-[11px] font-semibold transition",
+        "w-9 h-10 shrink-0 rounded-t-xl rounded-b-md border border-b-4 flex items-center justify-center text-[11px] font-semibold transition",
         isOccupied
           ? SEAT_STYLES.occupied + " cursor-not-allowed"
           : isSelected
