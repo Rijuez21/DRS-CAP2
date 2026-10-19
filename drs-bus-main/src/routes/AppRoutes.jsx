@@ -45,6 +45,7 @@ import PaymentReview from '../pages/staff/PaymentReview'  // Payment Verificatio
 import AdminDashboard from '../pages/admin/Dashboard'
 import FleetManagement from '../pages/admin/FleetManagement'
 import FleetTracking from '../pages/admin/FleetTracking'
+import GpsTracker from '../pages/admin/GpsTracker'
 import RouteManagement from '../pages/admin/RouteManagement'
 import DriverManagement from '../pages/admin/DriverManagement'
 import TripScheduling from '../pages/admin/TripScheduling'
@@ -125,6 +126,7 @@ export default function AppRoutes() {
         <Route path="validate" element={<ReservationValidation />} />
         <Route path="payments" element={<PaymentReview />} />
         <Route path="trips" element={<TripScheduling />} />            {/* staff can add/edit schedules; cancelling stays admin-only */}
+        <Route path="tracking" element={<FleetTracking />} />          {/* same live fleet map as admin — where every bus is, so staff can tell waiting passengers */}
       </Route>
 
       {/* Admin */}
@@ -140,6 +142,7 @@ export default function AppRoutes() {
         <Route path="dashboard" element={<AdminDashboard />} />
         <Route path="fleet" element={<FleetManagement />} />
         <Route path="tracking" element={<FleetTracking />} />
+        <Route path="gps" element={<GpsTracker />} />                 {/* SinoTrack ST-906L: connection check, live device data, playback */}
         <Route path="routes" element={<RouteManagement />} />
         <Route path="drivers" element={<DriverManagement />} />
         <Route path="trips" element={<TripScheduling />} />

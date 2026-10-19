@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { WifiOff, Satellite, MapPinOff, LocateFixed } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useDriverLocation } from "../../hooks/useDriverLocation";
+import { useBusTracker } from "../../hooks/useBusTracker";
 import FlagRequestsPanel from "../../components/driver/FlagRequestsPanel";
 import StatusBadge from "../../components/common/StatusBadge";
 import InlineAlert from "../../components/common/InlineAlert";
@@ -40,6 +41,8 @@ export default function DriverDashboard() {
   // means the browser's permission prompt appears in context.
   const activeTrip = trips.find((t) => t.status === "In Transit") ?? trips.find((t) => t.status === "Boarding");
   const gps = useDriverLocation(activeTrip?.bus_id ?? null);
+  // A bus fitted with a GPS tracker reports by itself; the phone is backup.
+  const tracker = useBusTracker(activeTrip?.bus_id ?? null);
 
   async function advance(trip) {
     const next = NEXT[trip.status];
@@ -84,7 +87,14 @@ export default function DriverDashboard() {
       <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
       <InlineAlert type="success" message={success} onDismiss={() => setSuccess("")} />
 
-      {activeTrip && <GpsBanner status={gps.status} queuedCount={gps.queuedCount} onRetry={gps.retry} />}
+      {activeTrip &&
+        (tracker.online ? (
+          <p className="flex items-center gap-2 text-sm font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+            <Satellite className="w-4 h-4" /> The bus's GPS tracker is sharing your location with passengers. Your phone is only a backup.
+          </p>
+        ) : (
+          <GpsBanner status={gps.status} queuedCount={gps.queuedCount} onRetry={gps.retry} />
+        ))}
 
       {activeTrip?.status === "In Transit" && (
         <FlagRequestsPanel tripId={activeTrip.trip_id} driverId={user?.id} onBookingsChanged={reload} />

@@ -47,6 +47,14 @@ function parseBusBody(body, { partial }) {
     if (r.error) return r;
     out.boarding_point = r.value;
   }
+  // The tracker's ID as Traccar knows it (for a SinoTrack, the device ID on
+  // its label) — POST /api/tracking/device matches positions to a bus by it.
+  if (has("gpsDeviceId")) {
+    const r = optionalText(body.gpsDeviceId, { max: 32, label: "GPS device ID" });
+    if (r.error) return r;
+    if (r.value && !/^[A-Za-z0-9\-]+$/.test(r.value)) return { error: "GPS device ID may only contain letters, numbers and dashes" };
+    out.gps_device_id = r.value;
+  }
   return { fields: out };
 }
 
@@ -59,7 +67,7 @@ busesRouter.get("/", requireRole("admin", "staff"), async (req, res) => {
   try {
     const [rows] = await pool.query(
       `SELECT b.bus_id, b.bus_number, b.plate_num, b.capacity, b.type, b.year_model, b.status,
-              b.current_driver_id, b.boarding_point, d.name AS driver_name
+              b.current_driver_id, b.boarding_point, b.gps_device_id, d.name AS driver_name
        FROM buses b
        LEFT JOIN drivers d ON d.driver_id = b.current_driver_id
        ORDER BY b.bus_number IS NULL, b.bus_number, b.plate_num`
@@ -73,7 +81,7 @@ busesRouter.get("/", requireRole("admin", "staff"), async (req, res) => {
 
 // POST /api/buses — admin adds a bus to the fleet
 busesRouter.post("/", requireRole("admin"), async (req, res) => {
-  const { busNumber, plateNum, capacity, type, yearModel, currentDriverId, boardingPoint } = req.body ?? {};
+  const { busNumber, plateNum, capacity, type, yearModel, currentDriverId, boardingPoint, gpsDeviceId } = req.body ?? {};
   if (!plateNum) {
     return res.status(400).json({ error: "plateNum is required" });
   }
@@ -83,16 +91,16 @@ busesRouter.post("/", requireRole("admin"), async (req, res) => {
 
   try {
     const [result] = await pool.query(
-      `INSERT INTO buses (bus_number, plate_num, capacity, type, year_model, current_driver_id, boarding_point)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [f.bus_number ?? null, f.plate_num, f.capacity ?? null, f.type ?? null, f.year_model ?? null, f.current_driver_id ?? null, f.boarding_point ?? null]
+      `INSERT INTO buses (bus_number, plate_num, capacity, type, year_model, current_driver_id, boarding_point, gps_device_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [f.bus_number ?? null, f.plate_num, f.capacity ?? null, f.type ?? null, f.year_model ?? null, f.current_driver_id ?? null, f.boarding_point ?? null, f.gps_device_id ?? null]
     );
     await logAudit({
       staffId: req.user.id,
       action: "create",
       entityType: "bus",
       entityId: result.insertId,
-      details: { busNumber, plateNum, capacity, type, yearModel, currentDriverId, boardingPoint },
+      details: { busNumber, plateNum, capacity, type, yearModel, currentDriverId, boardingPoint, gpsDeviceId },
     });
     res.status(201).json({
       bus_id: result.insertId,
@@ -104,10 +112,11 @@ busesRouter.post("/", requireRole("admin"), async (req, res) => {
       status: "Active",
       currentDriverId,
       boardingPoint,
+      gpsDeviceId,
     });
   } catch (err) {
     if (err.code === "ER_DUP_ENTRY") {
-      return res.status(409).json({ error: "A bus with that plate number or bus number already exists" });
+      return res.status(409).json({ error: "A bus with that plate number, bus number or GPS device ID already exists" });
     }
     if (err.code === "ER_NO_REFERENCED_ROW_2") return res.status(400).json({ error: "That driver doesn't exist" });
     console.error(err);
@@ -133,7 +142,7 @@ busesRouter.patch("/:id", requireRole("admin"), async (req, res) => {
     res.json({ bus_id: Number(req.params.id), ...req.body });
   } catch (err) {
     if (err.code === "ER_DUP_ENTRY") {
-      return res.status(409).json({ error: "A bus with that plate number or bus number already exists" });
+      return res.status(409).json({ error: "A bus with that plate number, bus number or GPS device ID already exists" });
     }
     if (err.code === "ER_NO_REFERENCED_ROW_2") return res.status(400).json({ error: "That driver doesn't exist" });
     console.error(err);

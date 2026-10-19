@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Satellite, WifiOff, RadioTower, MapPin } from "lucide-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -43,8 +43,10 @@ function timeAgo(isoString) {
   return `${hours}h ago`;
 }
 
+// Shared by admin (/admin/tracking) and terminal staff (/staff/tracking).
 export default function FleetTracking() {
   const navigate = useNavigate();
+  const isAdmin = useLocation().pathname.startsWith("/admin");
   const [buses, setBuses] = useState([]); // keyed array, one entry per bus
   const [selectedBusId, setSelectedBusId] = useState(null);
   const [error, setError] = useState("");
@@ -91,6 +93,16 @@ export default function FleetTracking() {
     };
   }, []);
 
+  // The snapshot only lists buses that had already reported. A bus whose
+  // GPS tracker (or driver's phone) reports for the first time while this
+  // page is open is fetched in by re-reading the snapshot — at most every
+  // 20 s, since the server caches it for 15 s anyway.
+  const knownBusIdsRef = useRef(new Set());
+  const lastRefetchRef = useRef(0);
+  useEffect(() => {
+    knownBusIdsRef.current = new Set(buses.map((b) => Number(b.busId)));
+  }, [buses]);
+
   // 2. Subscribe to the single "fleet" room instead of one room per bus.
   useEffect(() => {
     const socket = getSocket();
@@ -98,9 +110,16 @@ export default function FleetTracking() {
     join();
 
     function handleUpdate(point) {
+      if (!knownBusIdsRef.current.has(Number(point.busId))) {
+        if (Date.now() - lastRefetchRef.current > 20000) {
+          lastRefetchRef.current = Date.now();
+          api.getFleetLocations().then(setBuses).catch(() => {});
+        }
+        return;
+      }
       setBuses((prev) => {
         const idx = prev.findIndex((b) => Number(b.busId) === Number(point.busId));
-        if (idx === -1) return prev; // point for a bus not in the active-fleet snapshot (e.g. now Idle) — ignore
+        if (idx === -1) return prev;
         const next = [...prev];
         next[idx] = {
           ...next[idx],
@@ -108,6 +127,7 @@ export default function FleetTracking() {
           longitude: point.longitude,
           timestamp: point.timestamp,
           syncStatus: point.syncStatus,
+          source: point.source,
         };
         return next;
       });
@@ -218,13 +238,15 @@ export default function FleetTracking() {
             <input type="checkbox" checked={showStops} onChange={(e) => setShowStops(e.target.checked)} disabled={stops.length === 0} />
             <MapPin className="w-4 h-4 text-blue-600" /> Show stops ({stops.length} pinned)
           </label>
-          <button
-            type="button"
-            onClick={() => navigate("/admin/fleet")}
-            className="text-sm text-emerald-700 underline underline-offset-2"
-          >
-            Back to Fleet Management
-          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => navigate("/admin/fleet")}
+              className="text-sm text-emerald-700 underline underline-offset-2"
+            >
+              Back to Fleet Management
+            </button>
+          )}
         </div>
       </header>
 
@@ -271,7 +293,9 @@ export default function FleetTracking() {
                 <p className="text-xs text-gray-400 mt-0.5">{bus.driverName ?? "Unassigned"}</p>
                 <div className="flex items-center gap-1.5 mt-1.5 text-xs">
                   <Satellite className="w-3.5 h-3.5 text-emerald-600" />
-                  <span className="text-gray-500">{timeAgo(bus.timestamp)}</span>
+                  <span className="text-gray-500">
+                    {timeAgo(bus.timestamp)} · {bus.source === "device" ? "GPS tracker" : "Driver's phone"}
+                  </span>
                   {bus.syncStatus === "buffered" && (
                     <span className="flex items-center gap-1 text-rose-600 font-medium ml-1">
                       <WifiOff className="w-3.5 h-3.5" /> Buffered

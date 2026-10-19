@@ -21,6 +21,8 @@ import { dashboardRouter } from "./routes/dashboard.js";
 import { reportsRouter } from "./routes/reports.js";
 import { buildPaymentsRouter } from "./routes/payments.js";
 import { startPaymentSweeper } from "./services/paymentSweeper.js";
+import { gpsRouter } from "./routes/gps.js";
+import { startGpsGateway } from "./services/gpsGateway.js";
 
 const app = express();
 const httpServer = createServer(app);
@@ -87,6 +89,13 @@ io.on("connection", (socket) => {
   socket.on("unsubscribe:fleet", () => {
     socket.leave("fleet");
   });
+
+  // Admin GPS Tracker page: every tracker message (connection checks, raw
+  // log), including trackers not yet assigned to a bus. Admin only.
+  socket.on("subscribe:gps", () => {
+    if (socket.data.user?.role === "admin") socket.join("gps:admin");
+  });
+  socket.on("unsubscribe:gps", () => socket.leave("gps:admin"));
 
   // Notification bell (Phase 0.3): after login, the client joins its own
   // room so notify.js's trip-change events reach only that passenger/driver.
@@ -192,6 +201,7 @@ app.use("/api/notifications", notificationsRouter);
 app.use("/api/dashboard", dashboardRouter);
 app.use("/api/reports", reportsRouter);
 app.use("/api/payments", buildPaymentsRouter(io));
+app.use("/api/gps", gpsRouter);
 
 // An oversized body (e.g. a screenshot over the payments limit) reaches
 // here as a 413 from express.json(); answer in the same { error } shape the
@@ -216,6 +226,10 @@ app.use("/api", (req, res) => res.status(404).json({ error: "Not found" }));
 // Online seat holds: releases unpaid seats past their payment deadline,
 // warns passengers first, alerts staff about proofs on trips leaving soon.
 startPaymentSweeper(io);
+
+// SinoTrack GPS tracker(s) connect straight to this TCP port (GPS_TCP_PORT,
+// default 5013) — see services/gpsGateway.js.
+startGpsGateway(io);
 
 const port = process.env.PORT || 4000;
 httpServer.listen(port, () => {

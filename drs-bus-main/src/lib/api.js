@@ -177,6 +177,14 @@ export const getFleetLocations = () => request("/api/tracking/fleet/latest");
 export const postLocation = (payload) => request("/api/tracking", { method: "POST", body: payload });
 export const postLocationBatch = (points) => request("/api/tracking/batch", { method: "POST", body: { points } });
 
+// ---- GPS tracker hardware (admin GpsTracker.jsx) --------------------------
+export const getGpsStatus = () => request("/api/gps/status");
+export const getGpsDevice = (deviceId) => request(`/api/gps/devices/${encodeURIComponent(deviceId)}`);
+export const verifyGpsDevice = (deviceId) => request(`/api/gps/devices/${encodeURIComponent(deviceId)}/verify`);
+export const assignGpsDevice = (deviceId, busId) =>
+  request(`/api/gps/devices/${encodeURIComponent(deviceId)}/assign`, { method: "POST", body: { busId } });
+export const getGpsHistory = ({ busId, from, to }) => request("/api/gps/history", { params: { busId, from, to } });
+
 // ---- Flag a Bus (passenger Mode 2 + driver response) -------------------------------------------------------------
 // Kept separate from the Bookings section above on purpose: the Book Ahead
 // flow (TripDetail -> createBooking) never calls any of these.

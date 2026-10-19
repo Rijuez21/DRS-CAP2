@@ -152,6 +152,13 @@ const STATEMENTS = [
   `ALTER TABLE routes ADD COLUMN latitude DECIMAL(10,7) NULL`,
   `ALTER TABLE routes ADD COLUMN longitude DECIMAL(10,7) NULL`,
   `ALTER TABLE routes ADD COLUMN pinned_at TIMESTAMP NULL DEFAULT NULL`,
+
+  // ---- Hardware GPS tracker (routes/tracking.js POST /device) ----------
+  // addition: which tracker is fitted to which bus, and whether a point came
+  // from that tracker or the driver's phone. Both nullable/defaulted, so
+  // existing rows are untouched. Re-running is a no-op.
+  `ALTER TABLE buses ADD COLUMN gps_device_id VARCHAR(32) NULL UNIQUE`,
+  `ALTER TABLE location_tracking ADD COLUMN source ENUM('phone', 'device') NOT NULL DEFAULT 'phone'`,
 ];
 
 const IGNORABLE = new Set(["ER_DUP_FIELDNAME", "ER_TABLE_EXISTS_ERROR", "ER_DUP_KEYNAME", "ER_FK_DUP_NAME", "ER_DUP_KEY"]);

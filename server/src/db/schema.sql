@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS buses (
   status ENUM('Active', 'Idle', 'Maintenance') NOT NULL DEFAULT 'Active',
   current_driver_id INT NULL, -- addition: the driver currently assigned to this bus, so Fleet Management can show it without needing a trip record first
   boarding_point VARCHAR(150) NULL, -- addition: a named pickup point distinct from the route's official origin/destination
+  gps_device_id VARCHAR(32) NULL UNIQUE, -- addition: the ID of the GPS tracker fitted to this bus (SinoTrack ST-906L), as registered in Traccar; positions forwarded to POST /api/tracking/device are matched to the bus by it
   FOREIGN KEY (current_driver_id) REFERENCES drivers(driver_id)
 );
 
@@ -114,6 +115,7 @@ CREATE TABLE IF NOT EXISTS location_tracking (
   timestamp DATETIME NOT NULL,
   bus_id INT NOT NULL,
   sync_status ENUM('buffered', 'synced') NOT NULL DEFAULT 'synced', -- addition: narrative's offline-first sync detail, not drawn in the ERD box
+  source ENUM('phone', 'device') NOT NULL DEFAULT 'phone', -- addition: 'device' = the bus's GPS tracker, 'phone' = the driver's phone (backup when the tracker is silent)
   FOREIGN KEY (bus_id) REFERENCES buses(bus_id),
   KEY idx_location_bus_time (bus_id, timestamp) -- addition: "latest point per bus" lookups; see migrate.js for the measured reason
 );

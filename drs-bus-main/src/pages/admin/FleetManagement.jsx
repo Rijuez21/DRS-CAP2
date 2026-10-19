@@ -20,6 +20,7 @@ const emptyForm = {
   yearModel: "",
   currentDriverId: "",
   boardingPoint: "",
+  gpsDeviceId: "",
 };
 
 // This is the Fleet Management Module's bus *records* view (add/edit
@@ -62,6 +63,7 @@ export default function AdminFleetManagement() {
       yearModel: bus.year_model ?? "",
       currentDriverId: bus.current_driver_id ?? "",
       boardingPoint: bus.boarding_point ?? "",
+      gpsDeviceId: bus.gps_device_id ?? "",
     });
     setEditing(bus);
   }
@@ -83,6 +85,7 @@ export default function AdminFleetManagement() {
       yearModel: form.yearModel || null,
       currentDriverId: form.currentDriverId || null,
       boardingPoint: form.boardingPoint || null,
+      gpsDeviceId: form.gpsDeviceId.trim() || null,
     };
 
     setIsSaving(true);
@@ -170,6 +173,7 @@ export default function AdminFleetManagement() {
                 <th className="px-4 py-3">Capacity</th>
                 <th className="px-4 py-3">Driver</th>
                 <th className="px-4 py-3">Boarding Point</th>
+                <th className="px-4 py-3">GPS Device</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3" />
               </tr>
@@ -185,6 +189,7 @@ export default function AdminFleetManagement() {
                   <td className="px-4 py-3 text-gray-600">{bus.capacity} seats</td>
                   <td className="px-4 py-3 text-gray-600">{bus.driver_name ?? "Unassigned"}</td>
                   <td className="px-4 py-3 text-gray-600">{bus.boarding_point ?? "—"}</td>
+                  <td className="px-4 py-3 text-gray-600 font-mono text-xs">{bus.gps_device_id ?? "—"}</td>
                   <td className="px-4 py-3">
                     <select
                       value={bus.status}
@@ -262,6 +267,9 @@ export default function AdminFleetManagement() {
             </Field>
             <Field label="Boarding Point">
               <input value={form.boardingPoint} onChange={(e) => setForm({ ...form, boardingPoint: e.target.value })} placeholder="e.g. Riken Star" className="input" />
+            </Field>
+            <Field label="GPS Device ID (from the tracker's label, as entered in Traccar)">
+              <input value={form.gpsDeviceId} onChange={(e) => setForm({ ...form, gpsDeviceId: e.target.value })} placeholder="Leave blank if no tracker is fitted" maxLength={32} className="input" />
             </Field>
           </form>
         </Modal>

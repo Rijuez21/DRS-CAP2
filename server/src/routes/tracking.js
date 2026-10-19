@@ -1,7 +1,8 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { Router } from "express";
 import { pool } from "../db/pool.js";
 import { redis, CACHE_TTL_SECONDS } from "../cache/redis.js";
-import { ingestLocation } from "../services/locationService.js";
+import { ingestLocation, deviceIsReporting } from "../services/locationService.js";
 import { requireRole, authenticate } from "../middleware/auth.js";
 
 const FLEET_CACHE_KEY = "cache:fleet:latest";
@@ -61,6 +62,11 @@ export function buildTrackingRouter(io) {
     if (!(await driverMayReportBus(req.user.id, busId))) {
       return res.status(403).json({ error: "You can only share location for the bus on your current trip" });
     }
+    // The bus's own tracker is reporting — the phone is backup only. A 2xx
+    // so useDriverLocation doesn't queue the point for retry.
+    if (await deviceIsReporting(busId)) {
+      return res.status(202).json({ ignored: true, reason: "The bus GPS tracker is reporting" });
+    }
 
     try {
       const point = await ingestLocation(io, { busId, latitude, longitude, timestamp, syncStatus });
@@ -87,9 +93,10 @@ export function buildTrackingRouter(io) {
       // Points for a bus this driver isn't (or no longer) on are dropped,
       // not rejected: rejecting would make the phone's offline queue retry
       // the same stale batch forever.
+      // Buses whose tracker is reporting are skipped too (phone is backup).
       const allowedBuses = new Map();
       for (const busId of new Set(points.map((p) => String(p?.busId)).filter((b) => /^\d+$/.test(b)))) {
-        allowedBuses.set(busId, await driverMayReportBus(req.user.id, busId));
+        allowedBuses.set(busId, (await driverMayReportBus(req.user.id, busId)) && !(await deviceIsReporting(busId)));
       }
       const inserted = [];
       let skipped = 0;
@@ -106,6 +113,54 @@ export function buildTrackingRouter(io) {
     }
   });
 
+  // POST /api/tracking/device — positions from the GPS tracker fitted to a
+  // bus (SinoTrack ST-906L). The tracker speaks SinoTrack's binary "h02"
+  // protocol, which Traccar decodes; Traccar then forwards each position
+  // here as JSON (forward.type=json — body { position, device }, see
+  // server/.env.example). A plain { deviceId, latitude, longitude,
+  // timestamp } body is accepted too, for a tracker that can POST directly.
+  //
+  // No user login — a tracker can't log in. Instead the caller must send
+  // the shared GPS_DEVICE_KEY in the X-Device-Key header; the endpoint is
+  // off (503) until that's configured. Points for an unknown device, with
+  // no valid fix, or too old are acknowledged (202) and dropped: an error
+  // would make Traccar retry the same useless point.
+  const deviceKeyHash = (key) => createHash("sha256").update(String(key)).digest();
+  trackingRouter.post("/device", async (req, res) => {
+    const expected = process.env.GPS_DEVICE_KEY;
+    if (!expected) return res.status(503).json({ error: "GPS device tracking is not configured" });
+    if (!timingSafeEqual(deviceKeyHash(req.get("x-device-key") ?? ""), deviceKeyHash(expected))) {
+      return res.status(401).json({ error: "Invalid device key" });
+    }
+
+    const body = req.body ?? {};
+    const pos = body.position ?? body;
+    const deviceId = String(body.device?.uniqueId ?? body.deviceId ?? "").trim();
+    if (!deviceId || deviceId.length > 32) return res.status(400).json({ error: "device uniqueId is required" });
+    if (pos.valid === false) return res.status(202).json({ ignored: true, reason: "No GPS fix" });
+
+    try {
+      const [[bus]] = await pool.query(`SELECT bus_id FROM buses WHERE gps_device_id = ?`, [deviceId]);
+      if (!bus) return res.status(202).json({ ignored: true, reason: "No bus has this GPS device ID" });
+
+      const point = parsePoint({
+        busId: bus.bus_id,
+        latitude: pos.latitude,
+        longitude: pos.longitude,
+        timestamp: pos.fixTime ?? pos.deviceTime ?? pos.timestamp,
+        // Traccar marks a position "outdated" when the tracker resends its
+        // last fix (e.g. while it has no signal).
+        syncStatus: pos.outdated ? "buffered" : "synced",
+      });
+      if (point.error) return res.status(202).json({ ignored: true, reason: point.error });
+
+      res.status(201).json(await ingestLocation(io, { ...point, source: "device" }));
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to record location" });
+    }
+  });
+
   // GET /api/tracking/fleet/latest — powers admin/FleetTracking.jsx (the
   // whole-fleet map), as opposed to /:busId/latest which powers the
   // single-bus passenger view. Registered ahead of /:busId/latest so
@@ -119,7 +174,7 @@ export function buildTrackingRouter(io) {
 
       const [rows] = await pool.query(
         `SELECT b.bus_id AS busId, b.plate_num AS plateNum, b.status,
-                lt.latitude, lt.longitude, lt.timestamp, lt.sync_status AS syncStatus,
+                lt.latitude, lt.longitude, lt.timestamp, lt.sync_status AS syncStatus, lt.source,
                 rt.origin, rt.destination, d.name AS driverName
          FROM buses b
          JOIN location_tracking lt ON lt.tracking_id = (
@@ -188,7 +243,7 @@ export function buildTrackingRouter(io) {
                 rt.origin, rt.destination, rt.distance, rt.base_fare,
                 b.bus_id, b.bus_number, b.plate_num, b.capacity, b.type AS bus_type,
                 (SELECT COUNT(*) FROM bookings bk WHERE bk.trip_id = tr.trip_id AND bk.status NOT IN ('Cancelled', 'No-Show')) AS booked_count,
-                lt.latitude, lt.longitude, lt.timestamp, lt.sync_status
+                lt.latitude, lt.longitude, lt.timestamp, lt.sync_status, lt.source
          FROM trips tr
          JOIN routes rt ON rt.route_id = tr.route_id
          JOIN buses b ON b.bus_id = tr.bus_id
@@ -220,7 +275,7 @@ export function buildTrackingRouter(io) {
       if (cached) return res.json(JSON.parse(cached));
 
       const [rows] = await pool.query(
-        `SELECT tracking_id, latitude, longitude, timestamp, sync_status
+        `SELECT tracking_id, latitude, longitude, timestamp, sync_status, source
          FROM location_tracking WHERE bus_id = ? ORDER BY timestamp DESC LIMIT 1`,
         [req.params.busId]
       );
