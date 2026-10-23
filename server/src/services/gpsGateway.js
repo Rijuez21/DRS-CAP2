@@ -17,7 +17,10 @@ import { ingestLocation } from "./locationService.js";
 // (connected?, last message, last fix, raw messages) is kept in memory here
 // and pushed live to the "gps:admin" Socket.io room.
 
-const ONLINE_MS = 5 * 60 * 1000; // SinoTrack's platform also calls a unit offline after a few silent minutes
+// Offline after this long silent. The ST-901L-4G reports every 10 s while
+// moving but only every 300 s when parked (RCONF "GPRS UPLOAD TIME:10,300"),
+// so this must stay above 5 min or a parked bus flickers offline.
+const ONLINE_MS = 7 * 60 * 1000;
 const LOG_SIZE = 40;
 const TRAIL_SIZE = 200;
 const MAX_DEVICES = 20; // anyone can open a TCP connection; don't let junk IDs grow memory
