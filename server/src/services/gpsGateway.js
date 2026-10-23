@@ -94,9 +94,11 @@ function parseText(text) {
   if (parts[0] !== "HQ" || !deviceId || !/^[0-9A-Za-z]{1,32}$/.test(deviceId)) return null;
   const out = { deviceId, type };
 
-  if (type === "V1" || type === "V4" || type === "V19" || type === "V0") {
-    // V4 is a command reply that echoes the position after its own fields;
-    // find the fix by its "A"/"V" validity marker rather than a fixed index.
+  if (type !== "LINK") {
+    // Position reports come under several types: V1 is the usual one, but
+    // the ST-901L-4G sends V8, and V4 is a command reply that echoes the
+    // position after its own fields. So any type may carry a fix — find it
+    // by its "<hhmmss>,<A|V>" marker rather than by type or a fixed index.
     let i = 3;
     while (i < parts.length && !(/^\d{6}$/.test(parts[i]) && /^[AV]$/.test(parts[i + 1] ?? ""))) i += 1;
     if (i < parts.length - 9) {
