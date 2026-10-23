@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import InlineAlert from "../../components/common/InlineAlert";
 import * as api from "../../lib/api";
-import { formatDate, formatTime } from "../../lib/format";
+import { compareSeats, formatDate, formatTime } from "../../lib/format";
 
 const CHANNEL_LABEL = { online: "Booked online", walk_in: "Walk-in", flagged: "Flagged on the road" };
 
@@ -56,7 +56,7 @@ export default function Manifest() {
 
   const trip = trips.find((t) => String(t.trip_id) === String(tripId));
   const readOnly = trip && (trip.status === "Completed" || trip.status === "Cancelled");
-  const bySeat = (a, b) => Number(a.seat_number) - Number(b.seat_number);
+  const bySeat = (a, b) => compareSeats(a.seat_number, b.seat_number);
   const groups = [
     { title: "To board", rows: bookings.filter((b) => b.status === "Reserved" || b.status === "Confirmed").sort(bySeat) },
     { title: "Boarded", rows: bookings.filter((b) => b.status === "Boarded").sort(bySeat) },

@@ -134,3 +134,27 @@ export function toDateTimeLocal(date = new Date()) {
   const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+
+// Currency lives with the image helpers for historical reasons; re-exported
+// so list pages can take every formatter from here.
+export { formatPeso } from "./image";
+
+// Seat labels in reading order: "2" before "10", "1A" < "1B" < "2A". Seats
+// were plain numbers before buses had seat layouts, and Number("1A") is NaN.
+const seatCollator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
+export const compareSeats = (a, b) => seatCollator.compare(String(a ?? ""), String(b ?? ""));
+
+// From GET /api/trips/:id/seats: the bus's own seat layout, or null for a
+// bus without one (SeatMap then draws the original auto layout itself).
+export function customSeatLayout(seatData) {
+  return seatData?.layoutSource === "custom" ? seatData.layout : null;
+}
+
+// Keep only selected seats that are still free and still on the bus (an
+// admin may have edited the layout since the page loaded).
+export function stillSelectable(selected, seatData) {
+  const taken = new Set(seatData.bookedSeats.map(String));
+  const layout = customSeatLayout(seatData);
+  const onBus = layout ? new Set(layout.rows.flat().filter((c) => c.t === "seat").map((c) => c.l)) : null;
+  return selected.filter((s) => !taken.has(String(s)) && (!onBus || onBus.has(String(s))));
+}

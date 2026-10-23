@@ -1,11 +1,37 @@
 import { useCallback, useEffect, useState } from "react";
-import { Ticket, Printer } from "lucide-react";
+import { Ticket, Printer, CheckCircle2, ArrowLeft, Bus, Armchair } from "lucide-react";
 import SeatMap from "../../components/passenger/SeatMap";
 import InlineAlert from "../../components/common/InlineAlert";
+import ListFrame from "../../components/common/ListFrame";
+import { SkeletonList } from "../../components/common/Skeletons";
+import { Spinner } from "../../components/common/Buttons";
+import PageHeading from "../../components/common/PageHeading";
+import StatusBadge from "../../components/common/StatusBadge";
 import CashPaymentModal from "../../components/staff/CashPaymentModal";
 import * as api from "../../lib/api";
-import { mapTrip, formatDate, formatTime } from "../../lib/format";
-import { formatPeso } from "../../lib/image";
+import { compareSeats, customSeatLayout, mapTrip, formatDate, formatPeso, formatTime, stillSelectable } from "../../lib/format";
+
+const tripLabel = (t) => `${t.origin} → ${t.destination}`;
+const shortDeparture = (t) => `${formatDate(t.departure_time)?.replace(/, \d{4}$/, "")} ${formatTime(t.departure_time)}`;
+const seatsLeft = (t) => (t.capacity != null ? t.capacity - Number(t.booked_count ?? 0) : null);
+const TRIP_SORT = [
+  { key: "departure_time", label: "Departure", type: "date" },
+  { key: "route", label: "Route", accessor: tripLabel },
+  { key: "seats_left", label: "Seats left", type: "number", accessor: seatsLeft },
+];
+const STEPS = ["Choose trip", "Seats & passenger", "Payment"];
+const TRIP_FILTERS = [
+  {
+    key: "availability",
+    label: "Availability",
+    allLabel: "All trips",
+    options: [
+      { value: "open", label: "Seats available" },
+      { value: "sold_out", label: "Sold out" },
+    ],
+    match: (t, value) => (value === "open" ? seatsLeft(t) !== 0 : seatsLeft(t) === 0),
+  },
+];
 
 // Terminal counter sale: trip -> seats -> name -> confirm payment -> sell.
 // The payment step asks for the cash received and shows the change; the
@@ -19,6 +45,7 @@ export default function WalkInSales() {
   const [tripId, setTripId] = useState("");
   const [trip, setTrip] = useState(null);
   const [occupiedSeatIds, setOccupiedSeatIds] = useState([]);
+  const [seatLayout, setSeatLayout] = useState(null); // null = auto layout from capacity
   const [selectedSeatIds, setSelectedSeatIds] = useState([]);
   const [passengerName, setPassengerName] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -27,6 +54,8 @@ export default function WalkInSales() {
   const [paying, setPaying] = useState(false); // payment confirmation dialog open
   const [payError, setPayError] = useState("");
 
+  const [tripsLoaded, setTripsLoaded] = useState(false);
+
   const loadTrips = useCallback(() => {
     api
       .getTrips({ scope: "bookable" })
@@ -34,16 +63,17 @@ export default function WalkInSales() {
         setTrips(rows);
         setTripsError("");
       })
-      .catch((err) => setTripsError(err.message));
+      .catch((err) => setTripsError(err.message))
+      .finally(() => setTripsLoaded(true));
   }, []);
   useEffect(loadTrips, [loadTrips]);
 
   const refreshSeats = useCallback(
     (id) =>
       api.getSeats(id).then((seatData) => {
-        const taken = seatData.bookedSeats.map(String);
-        setOccupiedSeatIds(taken);
-        setSelectedSeatIds((prev) => prev.filter((s) => !taken.includes(String(s))));
+        setOccupiedSeatIds(seatData.bookedSeats.map(String));
+        setSeatLayout(customSeatLayout(seatData));
+        setSelectedSeatIds((prev) => stillSelectable(prev, seatData));
       }),
     []
   );
@@ -51,6 +81,7 @@ export default function WalkInSales() {
   function chooseTrip(id) {
     setTripId(id);
     setTrip(null);
+    setSeatLayout(null);
     setSelectedSeatIds([]);
     setError("");
     setReceipt(null);
@@ -120,88 +151,175 @@ export default function WalkInSales() {
   }
 
   const count = selectedSeatIds.length;
+  const pickedTrip = tripId ? trips.find((t) => String(t.trip_id) === String(tripId)) : null;
+
+  // Goal-gradient: always show where in the sale we are.
+  const step = receipt ? 4 : paying ? 3 : trip || tripId ? 2 : 1;
+  const sortedSeats = [...selectedSeatIds].sort(compareSeats);
 
   return (
-    <div className="p-4 lg:p-6 space-y-4 max-w-5xl">
-      <header>
-        <h1 className="text-xl font-bold">Walk-in Sales</h1>
-        <p className="text-sm text-gray-500">Sell a seat to a passenger at the counter. Confirm the cash payment and the ticket is issued immediately.</p>
-      </header>
+    <div className="p-4 sm:p-6 space-y-4 max-w-5xl">
+      <PageHeading title="Walk-in Sales" subtitle="Sell a seat to a passenger at the counter. Confirm the cash payment and the ticket is issued immediately." />
+
+      <Stepper step={step} />
 
       <InlineAlert type="error" message={tripsError} onDismiss={() => setTripsError("")} />
 
-      <label className="block">
-        <span className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">1. Trip</span>
-        <select value={tripId} onChange={(e) => chooseTrip(e.target.value)} className="input bg-white">
-          <option value="">{trips.length === 0 ? "No trips open for sale" : "Select a trip…"}</option>
-          {trips.map((t) => {
-            const left = t.capacity != null ? t.capacity - Number(t.booked_count ?? 0) : null;
-            return (
-              <option key={t.trip_id} value={t.trip_id} disabled={left === 0}>
-                {formatDate(t.departure_time)?.replace(/, \d{4}$/, "")} {formatTime(t.departure_time)} · {t.origin} → {t.destination} · {t.plate_num}
-                {left != null ? ` · ${left === 0 ? "SOLD OUT" : `${left} left`}` : ""}
-              </option>
-            );
-          })}
-        </select>
-      </label>
-
+      {/* Peak-End: a clear finish — what was sold, and what to do next */}
       {receipt && (
-        <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 space-y-2">
-          <p className="font-semibold text-emerald-800 flex items-center gap-2">
-            <Ticket className="w-4 h-4" /> Sold {receipt.bookings.length} seat{receipt.bookings.length === 1 ? "" : "s"} to {receipt.passengerName}
+        <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 space-y-3">
+          <p className="font-display text-lg font-bold text-emerald-900 flex items-center gap-2">
+            <CheckCircle2 className="w-6 h-6" aria-hidden="true" /> Sold {receipt.bookings.length} seat{receipt.bookings.length === 1 ? "" : "s"} to {receipt.passengerName}
           </p>
           <p className="text-sm text-emerald-900">
             {receipt.trip.origin} → {receipt.trip.destination} · {receipt.trip.departureTime} · Bus {receipt.trip.plateNumber}
           </p>
-          <p className="text-sm text-emerald-900">
-            {receipt.bookings.map((b) => `Seat ${b.seat_number} (#${b.booking_id})`).join(" · ")}
-          </p>
+          <p className="text-sm text-emerald-900">{receipt.bookings.map((b) => `Seat ${b.seat_number} (#${b.booking_id})`).join(" · ")}</p>
           {receipt.total != null && (
             <p className="text-sm text-emerald-900 font-medium">
               Paid in cash: {formatPeso(receipt.total)}
               {receipt.cashReceived != null && ` · Received ${formatPeso(receipt.cashReceived)} · Change ${formatPeso(receipt.change ?? 0)}`}
             </p>
           )}
-          <button type="button" onClick={() => window.print()} className="text-xs font-semibold text-emerald-800 underline inline-flex items-center gap-1">
-            <Printer className="w-3.5 h-3.5" /> Print receipt
-          </button>
-        </div>
-      )}
-
-      {tripId && !trip && !error && <p className="text-sm text-gray-500">Loading seats…</p>}
-
-      {trip && (
-        <div className="lg:grid lg:grid-cols-[1fr_320px] lg:gap-6 lg:items-start space-y-4 lg:space-y-0">
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">2. Seats (up to 10)</p>
-            <SeatMap totalSeats={trip.totalSeats} occupiedSeatIds={occupiedSeatIds} selectedSeatIds={selectedSeatIds} onToggleSeat={toggleSeat} maxSeats={10} />
-          </div>
-          <div className="bg-white rounded-lg border p-4 space-y-3 lg:sticky lg:top-6">
-            <label className="block">
-              <span className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">3. Passenger name</span>
-              <input value={passengerName} onChange={(e) => setPassengerName(e.target.value)} maxLength={150} placeholder="Name on ticket" className="input" />
-            </label>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-gray-600">{count === 0 ? "No seats selected" : `Seats ${[...selectedSeatIds].sort((a, b) => a - b).join(", ")}`}</span>
-              {trip.fare != null && count > 0 && <span className="font-bold text-emerald-700">₱{trip.fare * count}</span>}
-            </div>
-            <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
-            <button
-              type="button"
-              onClick={handleSell}
-              disabled={count === 0 || isSubmitting}
-              className="w-full bg-amber-700 hover:bg-amber-600 disabled:bg-gray-200 disabled:text-gray-400 text-white font-semibold rounded-lg py-2.5"
-            >
-              {count === 0 ? "Select a seat" : `Collect payment · ${count} ticket${count === 1 ? "" : "s"}`}
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button type="button" onClick={() => setReceipt(null)} className="min-h-11 px-4 rounded-lg bg-amber-700 hover:bg-amber-600 text-white text-sm font-semibold">
+              Sell another on this trip
+            </button>
+            <button type="button" onClick={() => chooseTrip("")} className="min-h-11 px-4 rounded-lg border border-emerald-300 bg-white text-sm font-semibold text-emerald-900 hover:bg-emerald-100">
+              Choose another trip
+            </button>
+            <button type="button" onClick={() => window.print()} className="inline-flex items-center gap-1.5 min-h-11 px-4 rounded-lg text-sm font-semibold text-emerald-900 hover:bg-emerald-100">
+              <Printer className="w-4 h-4" aria-hidden="true" /> Print receipt
             </button>
           </div>
         </div>
       )}
 
+      {/* Step 1 */}
+      {step === 1 && (
+        <ListFrame
+          rows={trips}
+          fields={TRIP_SORT}
+          isLoading={!tripsLoaded}
+          initialSort={{ key: "departure_time", dir: "asc" }}
+          searchKeys={[tripLabel, "plate_num", "bus_number"]}
+          searchPlaceholder="Search route or bus…"
+          filters={TRIP_FILTERS}
+          skeleton={<SkeletonList count={4} />}
+          emptyState={{ icon: Ticket, title: "No trips open for sale", description: "Trips appear here once they're scheduled." }}
+        >
+          {(pageRows) => (
+            <ul className="space-y-2" aria-label="Trips open for sale">
+              {pageRows.map((t) => {
+                const left = seatsLeft(t);
+                const soldOut = left === 0;
+                return (
+                  <li key={t.trip_id}>
+                    <button
+                      type="button"
+                      disabled={soldOut}
+                      onClick={() => chooseTrip(String(t.trip_id))}
+                      className="w-full flex flex-wrap sm:flex-nowrap items-center gap-x-4 gap-y-1 text-left bg-white rounded-xl border px-4 py-3 min-h-16 hover:border-amber-400 hover:bg-amber-50/50 disabled:opacity-60 disabled:hover:bg-white disabled:hover:border-slate-200 disabled:cursor-not-allowed"
+                    >
+                      <span className="w-24 shrink-0">
+                        <span className="block font-display text-lg font-bold tabular-nums text-ink-900 leading-tight">{formatTime(t.departure_time)}</span>
+                        <span className="block text-xs text-gray-500">{formatDate(t.departure_time)?.replace(/, \d{4}$/, "").replace(/^\w+, /, "")}</span>
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-semibold text-ink-900 truncate">{tripLabel(t)}</span>
+                        <span className="inline-flex items-center gap-1 text-sm text-gray-600">
+                          <Bus className="w-3.5 h-3.5" aria-hidden="true" /> {t.plate_num}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-right">
+                        {soldOut ? (
+                          <StatusBadge status="Sold out" />
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-sm font-semibold text-ink-900 tabular-nums">
+                            <Armchair className="w-4 h-4 text-gray-400" aria-hidden="true" /> {left ?? "—"} left
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </ListFrame>
+      )}
+
+      {/* Step 2 (and 3, with the payment dialog over it) */}
+      {(step === 2 || step === 3) && (
+        <>
+          {pickedTrip && (
+            <div className="flex flex-wrap items-center justify-between gap-2 bg-white rounded-xl border px-4 py-3">
+              <div className="min-w-0">
+                <p className="font-semibold text-ink-900">{tripLabel(pickedTrip)}</p>
+                <p className="text-sm text-gray-600">
+                  {shortDeparture(pickedTrip)} · {pickedTrip.plate_num}
+                  {seatsLeft(pickedTrip) != null && ` · ${seatsLeft(pickedTrip)} left`}
+                </p>
+              </div>
+              <button type="button" onClick={() => chooseTrip("")} className="inline-flex items-center gap-1 min-h-11 px-3 text-sm font-semibold text-amber-800 rounded-lg hover:bg-amber-50">
+                <ArrowLeft className="w-4 h-4" aria-hidden="true" /> Change trip
+              </button>
+            </div>
+          )}
+
+          {!trip && !error && <SkeletonList count={2} />}
+          {!trip && error && <InlineAlert type="error" message={error} onDismiss={() => setError("")} />}
+
+          {trip && (
+            <div className="lg:grid lg:grid-cols-[1fr_320px] lg:gap-6 lg:items-start space-y-4 lg:space-y-0">
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-ink-900">Pick seats <span className="font-normal text-gray-500">(up to 10)</span></p>
+                <SeatMap layout={seatLayout} totalSeats={trip.totalSeats} occupiedSeatIds={occupiedSeatIds} selectedSeatIds={selectedSeatIds} onToggleSeat={toggleSeat} maxSeats={10} />
+              </div>
+              {/* the summary stays in view while picking seats */}
+              <div className="bg-white rounded-xl border p-4 space-y-3 lg:sticky lg:top-6">
+                <h2 className="font-display font-semibold">Sale summary</h2>
+                <label className="block">
+                  <span className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Passenger name</span>
+                  <input value={passengerName} onChange={(e) => setPassengerName(e.target.value)} maxLength={150} placeholder="Name on ticket" className="input min-h-11" />
+                </label>
+                <dl className="text-sm space-y-1">
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-gray-600">Seats</dt>
+                    <dd className="font-medium text-right">{count === 0 ? "None yet" : sortedSeats.join(", ")}</dd>
+                  </div>
+                  {trip.fare != null && (
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-gray-600">Fare</dt>
+                      <dd className="tabular-nums">
+                        {formatPeso(trip.fare)} × {count}
+                      </dd>
+                    </div>
+                  )}
+                  <div className="flex justify-between gap-2 border-t border-slate-100 pt-2">
+                    <dt className="font-semibold">Total</dt>
+                    <dd className="font-bold text-emerald-700 tabular-nums">{trip.fare != null ? formatPeso(trip.fare * count) : "—"}</dd>
+                  </div>
+                </dl>
+                <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
+                <button
+                  type="button"
+                  onClick={handleSell}
+                  disabled={count === 0 || isSubmitting}
+                  className="w-full inline-flex items-center justify-center gap-2 min-h-12 bg-amber-700 hover:bg-amber-600 disabled:bg-gray-200 disabled:text-gray-500 text-white font-semibold rounded-lg"
+                >
+                  {isSubmitting && <Spinner />}
+                  {count === 0 ? "Select a seat" : `Continue to payment · ${count} ticket${count === 1 ? "" : "s"}`}
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
       {paying && trip && (
         <CashPaymentModal
-          title="Confirm payment"
+          title="Step 3 of 3 · Confirm payment"
           summary={
             <>
               <p className="font-medium text-gray-900">{passengerName.trim()}</p>
@@ -209,7 +327,7 @@ export default function WalkInSales() {
                 {trip.origin} → {trip.destination} · {trip.departureTime}
               </p>
               <p>
-                {count} seat{count === 1 ? "" : "s"} ({[...selectedSeatIds].sort((a, b) => a - b).join(", ")}) × {formatPeso(trip.fare)}
+                {count} seat{count === 1 ? "" : "s"} ({sortedSeats.join(", ")}) × {formatPeso(trip.fare)}
               </p>
             </>
           }
@@ -222,5 +340,33 @@ export default function WalkInSales() {
         />
       )}
     </div>
+  );
+}
+
+// "Step 2 of 3" with a progress bar; step 4 = done.
+function Stepper({ step }) {
+  const current = Math.min(step, STEPS.length);
+  return (
+    <nav aria-label="Sale progress" className="space-y-2">
+      <p className="text-sm font-semibold text-ink-900">
+        {step > STEPS.length ? "Done — ticket issued" : `Step ${current} of ${STEPS.length}: ${STEPS[current - 1]}`}
+      </p>
+      <ol className="grid grid-cols-3 gap-2">
+        {STEPS.map((label, i) => {
+          const n = i + 1;
+          const done = step > n;
+          const active = step === n;
+          return (
+            <li key={label} aria-current={active ? "step" : undefined} className="space-y-1">
+              <div className={`h-1.5 rounded-full ${done ? "bg-emerald-600" : active ? "bg-amber-600" : "bg-slate-200"}`} />
+              <span className={`block text-xs ${active ? "font-semibold text-ink-900" : "text-gray-500"}`}>
+                {done && <span className="sr-only">Completed: </span>}
+                {label}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
   );
 }

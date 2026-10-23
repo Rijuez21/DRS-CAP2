@@ -1,4 +1,4 @@
-import { useEffect, useId } from "react";
+import { useEffect, useId, useRef } from "react";
 import { X } from "lucide-react";
 
 // Shared by every admin add/edit form (FleetManagement, RouteManagement,
@@ -10,6 +10,12 @@ import { X } from "lucide-react";
 // every existing form keeps the default narrow dialog.
 export default function Modal({ title, onClose, children, footer, size = "md" }) {
   const titleId = useId();
+  const bodyRef = useRef(null);
+
+  // Start typing straight away: focus the first field when the dialog opens.
+  useEffect(() => {
+    bodyRef.current?.querySelector("input:not([type=hidden]):not(:disabled), select:not(:disabled), textarea:not(:disabled)")?.focus();
+  }, []);
 
   useEffect(() => {
     function onKey(e) {
@@ -32,11 +38,11 @@ export default function Modal({ title, onClose, children, footer, size = "md" })
           <h2 id={titleId} className="font-display font-bold text-lg">
             {title}
           </h2>
-          <button type="button" onClick={onClose} aria-label="Close" className="text-gray-400 hover:text-gray-600">
+          <button type="button" onClick={onClose} aria-label="Close" className="-mr-2 inline-flex items-center justify-center w-11 h-11 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-slate-100">
             <X className="w-5 h-5" />
           </button>
         </div>
-        <div className="px-5 py-4 space-y-4">{children}</div>
+        <div ref={bodyRef} className="px-5 py-4 space-y-4">{children}</div>
         {footer && <div className="flex justify-end gap-2 px-5 py-4 border-t bg-slate-50 rounded-b-2xl">{footer}</div>}
       </div>
     </div>

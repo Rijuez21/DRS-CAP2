@@ -1,14 +1,37 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Search } from "lucide-react";
+import { Search, ChevronRight, ArrowLeft, RotateCcw } from "lucide-react";
 import StatusBadge from "../../components/common/StatusBadge";
 import InlineAlert from "../../components/common/InlineAlert";
+import ListFrame from "../../components/common/ListFrame";
+import { SkeletonList } from "../../components/common/Skeletons";
+import { Spinner } from "../../components/common/Buttons";
+import PageHeading from "../../components/common/PageHeading";
 import CashPaymentModal from "../../components/staff/CashPaymentModal";
+import { useListState } from "../../hooks/useListState";
 import * as api from "../../lib/api";
-import { formatDate, formatTime } from "../../lib/format";
-import { formatPeso } from "../../lib/image";
+import { formatDate, formatPeso, formatTime } from "../../lib/format";
 
 const CHANNEL_LABEL = { online: "Online", walk_in: "Walk-in", flagged: "Flagged on the road" };
+const tripLabel = (r) => `${r.origin} → ${r.destination}`;
+
+// Search results (up to 25 from the server): narrowed, sorted and filtered
+// client-side; tapping one opens it.
+const RESULT_SORT = [
+  { key: "departure_time", label: "Departure", type: "date" },
+  { key: "passenger_name", label: "Passenger" },
+  { key: "seat_number", label: "Seat" },
+  { key: "status", label: "Status", type: "status" },
+];
+const RESULT_FILTERS = [
+  {
+    key: "status",
+    label: "Status",
+    allLabel: "All statuses",
+    options: ["Reserved", "Confirmed", "Boarded", "No-Show", "Cancelled"].map((s) => ({ value: s, label: s })),
+  },
+  { key: "channel", label: "Channel", allLabel: "All channels", options: Object.entries(CHANNEL_LABEL).map(([value, label]) => ({ value, label })) },
+];
 
 // What staff can do from each booking status — mirrors the server's
 // whyStatusChangeNotAllowed for staff (bookingRules.js), so every button
@@ -33,6 +56,9 @@ const DONE_MESSAGE = { Confirmed: "Seat confirmed.", Boarded: "Passenger checked
 // code is the first thing this search accepts (names still work).
 export default function ReservationValidation() {
   const [query, setQuery] = useState("");
+  // Lives here (not in the table) so it survives opening a booking and
+  // coming back to the list.
+  const resultsTable = useListState({ initialSort: { key: "departure_time", dir: "asc" }, filters: RESULT_FILTERS });
   const [results, setResults] = useState(null);
   const [selected, setSelected] = useState(null);
   const [error, setError] = useState("");
@@ -45,6 +71,18 @@ export default function ReservationValidation() {
   const [collecting, setCollecting] = useState(false); // cash payment dialog open
   const [collectError, setCollectError] = useState("");
   const [isCollecting, setIsCollecting] = useState(false);
+  const searchRef = useRef(null);
+
+  // Peak-End: after finishing with one passenger, one tap starts the next.
+  function startNext() {
+    setQuery("");
+    setResults(null);
+    setSelected(null);
+    setError("");
+    setSuccess("");
+    resultsTable.clearAll();
+    searchRef.current?.focus();
+  }
 
   // Online bookings may already have a QR payment on file — load it so the
   // counter knows whether to collect the fare (and so "Collect fare" is
@@ -73,6 +111,7 @@ export default function ReservationValidation() {
     setSelected(null);
     const q = query.trim();
     if (!q) return;
+    resultsTable.clearAll();
     setIsSearching(true);
     try {
       const rows = await api.searchBookings(q);
@@ -133,71 +172,130 @@ export default function ReservationValidation() {
     (a) => !a.payment || (fare != null && !qrPending && (selected.channel !== "online" || paymentInfo !== undefined))
   );
 
-  return (
-    <div className="p-4 lg:p-6 space-y-4 max-w-2xl">
-      <header>
-        <h1 className="text-xl font-bold">Validate Reservation</h1>
-        <p className="text-sm text-gray-500">Ask for the passenger's booking code (e.g. #12), or search by name.</p>
-      </header>
+  const primary = actions.filter((a) => a.tone !== "danger");
+  const danger = actions.filter((a) => a.tone === "danger");
+  function runAction(a) {
+    if (a.payment) {
+      setCollectError("");
+      setCollecting(true);
+      return;
+    }
+    if (a.to === "Cancelled" && !window.confirm(`Cancel booking #${selected.booking_id}? The seat will be released.`)) return;
+    setStatus(a.to);
+  }
 
-      <form onSubmit={handleSearch} className="flex gap-2">
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Booking code or passenger name"
-          autoFocus
-          className="input flex-1"
-        />
+  return (
+    <div className="p-4 sm:p-6 space-y-4 max-w-3xl">
+      <PageHeading title="Validate Reservation" subtitle="Ask for the passenger's booking code (e.g. #12), or search by name." />
+
+      {/* the one thing this page is for: a big field, focused on arrival */}
+      <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-2" role="search">
+        <div className="relative flex-1">
+          <Search className="w-5 h-5 text-gray-400 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
+          <input
+            ref={searchRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Booking code (#12) or passenger name"
+            aria-label="Booking code or passenger name"
+            autoFocus
+            autoComplete="off"
+            className="input min-h-14 pl-12 text-lg bg-white"
+          />
+        </div>
         <button
           type="submit"
           disabled={isSearching}
-          className="flex items-center gap-1.5 bg-amber-700 hover:bg-amber-600 disabled:opacity-60 text-white text-sm font-semibold px-4 py-2 rounded"
+          className="inline-flex items-center justify-center gap-2 min-h-14 px-6 rounded-lg bg-amber-700 hover:bg-amber-600 disabled:opacity-60 text-white text-base font-semibold shadow-sm"
         >
-          <Search className="w-4 h-4" /> {isSearching ? "Searching…" : "Search"}
+          {isSearching ? <Spinner className="w-5 h-5" /> : <Search className="w-5 h-5" aria-hidden="true" />}
+          {isSearching ? "Searching…" : "Find booking"}
         </button>
       </form>
 
       <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
-      <InlineAlert type="success" message={success} onDismiss={() => setSuccess("")} />
-
-      {results && results.length === 0 && <p className="text-sm text-gray-600">No booking matches “{query}”. Check the code with the passenger.</p>}
-
-      {results && results.length > 0 && !selected && (
-        <div className="bg-white rounded-lg border divide-y">
-          {results.map((r) => (
-            <button key={r.booking_id} type="button" onClick={() => setSelected(r)} className="w-full text-left p-3 hover:bg-amber-50 space-y-1">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-medium">
-                  #{r.booking_id} · {r.passenger_name}
-                </span>
-                <StatusBadge status={r.status} />
-              </div>
-              <p className="text-xs text-gray-500">
-                {r.origin} → {r.destination} · {formatDate(r.departure_time)} {formatTime(r.departure_time)} · Seat {r.seat_number}
-              </p>
-            </button>
-          ))}
+      {success && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2" role="status">
+          <span className="text-sm font-medium text-emerald-800">{success}</span>
+          <button type="button" onClick={startNext} className="inline-flex items-center gap-1.5 min-h-11 px-3 rounded-lg bg-white border border-emerald-300 text-sm font-semibold text-emerald-800 hover:bg-emerald-100">
+            <RotateCcw className="w-4 h-4" aria-hidden="true" /> Next passenger
+          </button>
         </div>
       )}
 
+      {isSearching && !results && <SkeletonList count={3} />}
+
+      {results && results.length === 0 && (
+        <p className="text-sm text-gray-600 rounded-lg border border-dashed bg-white/60 px-4 py-6 text-center">
+          No booking matches “{query}”. Check the code with the passenger.
+        </p>
+      )}
+
+      {results && results.length > 0 && !selected && (
+        <ListFrame
+          state={resultsTable}
+          rows={results}
+          fields={RESULT_SORT}
+          searchKeys={["booking_id", "passenger_name", tripLabel, "seat_number"]}
+          searchPlaceholder="Filter these results…"
+          filters={RESULT_FILTERS}
+        >
+          {(pageRows) => (
+            <ul className="space-y-2" aria-label="Matching bookings">
+              {pageRows.map((r) => (
+                <li key={r.booking_id}>
+                  <button
+                    type="button"
+                    onClick={() => setSelected(r)}
+                    className="w-full flex items-center gap-3 text-left bg-white rounded-xl border px-4 py-3 min-h-16 hover:border-amber-400 hover:bg-amber-50/50"
+                  >
+                    <span className="w-12 h-12 shrink-0 rounded-lg bg-slate-100 flex flex-col items-center justify-center">
+                      <span className="text-[10px] uppercase text-gray-500 leading-none">Seat</span>
+                      <span className="font-bold text-ink-900 leading-tight">{r.seat_number}</span>
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-ink-900">{r.passenger_name}</span>
+                        <span className="font-mono text-xs text-gray-500">#{r.booking_id}</span>
+                      </span>
+                      <span className="block text-sm text-gray-600 truncate">
+                        {tripLabel(r)} · {formatDate(r.departure_time)?.replace(/, \d{4}$/, "")} {formatTime(r.departure_time)}
+                      </span>
+                    </span>
+                    <StatusBadge status={r.status} />
+                    <ChevronRight className="w-5 h-5 text-gray-400 shrink-0" aria-hidden="true" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </ListFrame>
+      )}
+
       {selected && (
-        <div className="bg-white rounded-lg border p-4 space-y-3">
+        <div className="bg-white rounded-xl border p-4 sm:p-5 space-y-4">
           {results?.length > 1 && (
-            <button type="button" onClick={() => setSelected(null)} className="text-xs text-gray-500 hover:underline">
-              ← Back to {results.length} results
+            <button type="button" onClick={() => setSelected(null)} className="inline-flex items-center gap-1 min-h-11 -mt-1 text-sm font-medium text-gray-600 hover:text-gray-900">
+              <ArrowLeft className="w-4 h-4" aria-hidden="true" /> Back to {results.length} results
             </button>
           )}
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs text-gray-500">Booking #{selected.booking_id}</p>
-              <p className="text-lg font-bold">{selected.passenger_name}</p>
+          <div className="flex items-start gap-4">
+            {/* the seat is what the passenger needs to hear — make it the biggest thing */}
+            <div className="w-20 h-20 shrink-0 rounded-xl bg-brand-forest-900 text-white flex flex-col items-center justify-center">
+              <span className="text-[10px] uppercase tracking-wide opacity-80">Seat</span>
+              <span className="font-display text-3xl font-bold leading-none">{selected.seat_number}</span>
             </div>
-            <StatusBadge status={selected.status} />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs text-gray-500 font-mono">Booking #{selected.booking_id}</p>
+              <p className="text-xl font-bold text-ink-900 break-words">{selected.passenger_name}</p>
+              <div className="mt-1">
+                <StatusBadge status={selected.status} />
+              </div>
+            </div>
           </div>
-          <dl className="grid grid-cols-2 gap-y-2 gap-x-4 text-sm">
-            <div><dt className="text-xs text-gray-500">Trip</dt><dd className="font-medium">{selected.origin} → {selected.destination}</dd></div>
+          <dl className="grid grid-cols-2 gap-y-3 gap-x-4 text-sm border-t border-slate-100 pt-3">
+            <div className="col-span-2 sm:col-span-1"><dt className="text-xs text-gray-500">Trip</dt><dd className="font-medium">{selected.origin} → {selected.destination}</dd></div>
             <div><dt className="text-xs text-gray-500">Departs</dt><dd className="font-medium">{formatDate(selected.departure_time)?.replace(/, \d{4}$/, "")} {formatTime(selected.departure_time)}</dd></div>
-            <div><dt className="text-xs text-gray-500">Seat</dt><dd className="font-medium text-lg">{selected.seat_number}</dd></div>
             <div><dt className="text-xs text-gray-500">Bus</dt><dd className="font-medium">{selected.plate_num ?? "—"}</dd></div>
             <div><dt className="text-xs text-gray-500">Channel</dt><dd className="font-medium">{CHANNEL_LABEL[selected.channel] ?? selected.channel}</dd></div>
             <div><dt className="text-xs text-gray-500">Trip status</dt><dd className="font-medium">{selected.trip_status}</dd></div>
@@ -206,30 +304,38 @@ export default function ReservationValidation() {
           {selected.status === "Reserved" && !tripOver && fare == null && (
             <p className="text-sm text-gray-600">This route has no fare on file, so the payment can't be recorded here.</p>
           )}
-          {tripOver && <p className="text-sm text-rose-600 font-medium">This trip is {selected.trip_status.toLowerCase()} — the booking can't be changed.</p>}
+          {tripOver && <p className="text-sm text-rose-700 font-medium">This trip is {selected.trip_status.toLowerCase()} — the booking can't be changed.</p>}
           {!tripOver && actions.length === 0 && <p className="text-sm text-gray-600">Nothing to do — this booking is {selected.status.toLowerCase()}.</p>}
-          {actions.length > 0 && (
-            <div className="flex flex-wrap gap-2 pt-1">
-              {actions.map((a) => (
+          {primary.length > 0 && (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {primary.map((a, i) => (
                 <button
                   key={a.to}
                   type="button"
-                  onClick={() => {
-                    if (a.payment) {
-                      setCollectError("");
-                      setCollecting(true);
-                      return;
-                    }
-                    if (a.to === "Cancelled" && !window.confirm(`Cancel booking #${selected.booking_id}? The seat will be released.`)) return;
-                    setStatus(a.to);
-                  }}
+                  onClick={() => runAction(a)}
                   disabled={busyTo !== null || isCollecting}
-                  className={
-                    a.tone === "danger"
-                      ? "border border-rose-300 text-rose-600 hover:bg-rose-50 disabled:opacity-60 text-sm font-semibold px-4 py-2 rounded"
-                      : "bg-emerald-700 hover:bg-emerald-600 disabled:opacity-60 text-white text-sm font-semibold px-4 py-2 rounded"
-                  }
+                  className={`inline-flex items-center justify-center gap-2 min-h-14 px-4 rounded-xl text-base font-semibold disabled:opacity-60 ${
+                    i === 0 ? "bg-emerald-700 hover:bg-emerald-600 text-white shadow-sm" : "border-2 border-emerald-700 text-emerald-800 hover:bg-emerald-50"
+                  }`}
                 >
+                  {busyTo === a.to && <Spinner className="w-5 h-5" />}
+                  {busyTo === a.to ? "Saving…" : a.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {/* destructive: smaller, set apart, and confirmed */}
+          {danger.length > 0 && (
+            <div className="flex justify-end border-t border-slate-100 pt-3">
+              {danger.map((a) => (
+                <button
+                  key={a.to}
+                  type="button"
+                  onClick={() => runAction(a)}
+                  disabled={busyTo !== null || isCollecting}
+                  className="inline-flex items-center gap-2 min-h-11 px-4 rounded-lg text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60"
+                >
+                  {busyTo === a.to && <Spinner />}
                   {busyTo === a.to ? "Saving…" : a.label}
                 </button>
               ))}

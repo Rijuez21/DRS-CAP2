@@ -7,6 +7,7 @@ import {
   parseSeatRequest,
   insertSeatsAtomically,
   whyStatusChangeNotAllowed,
+  firstFreeSeat,
 } from "../services/bookingRules.js";
 import { notifyRecipient } from "../services/notify.js";
 import { likeEscape } from "../services/validate.js";
@@ -185,7 +186,7 @@ bookingsRouter.post("/", requireRole("passenger"), async (req, res) => {
     const notBookable = whyTripNotBookable(trip);
     if (notBookable) return res.status(trip ? 409 : 404).json({ error: notBookable });
 
-    const parsed = parseSeatRequest(req.body, trip.capacity, MAX_ONLINE_SEATS);
+    const parsed = parseSeatRequest(req.body, trip, MAX_ONLINE_SEATS);
     if (parsed.error) return res.status(400).json({ error: parsed.error });
 
     const [[commuter]] = await pool.query(`SELECT name FROM commuters WHERE commuter_id = ?`, [req.user.id]);
@@ -236,7 +237,7 @@ bookingsRouter.post("/walk-in", requireRole("staff", "admin"), async (req, res) 
     const notBookable = whyTripNotBookable(trip);
     if (notBookable) return res.status(trip ? 409 : 404).json({ error: notBookable });
 
-    const parsed = parseSeatRequest(req.body, trip.capacity, MAX_WALK_IN_SEATS);
+    const parsed = parseSeatRequest(req.body, trip, MAX_WALK_IN_SEATS);
     if (parsed.error) return res.status(400).json({ error: parsed.error });
 
     const [[fareRow]] = await pool.query(
@@ -553,7 +554,7 @@ function emitFlagUpdate(io, flag) {
 // accepted onto a bus the terminal would also consider full.
 async function getTripOccupancy(conn, tripId) {
   const [[trip]] = await conn.query(
-    `SELECT tr.trip_id, tr.status, tr.driver_id, b.capacity, b.plate_num
+    `SELECT tr.trip_id, tr.status, tr.driver_id, b.capacity, b.seat_layout, b.plate_num
      FROM trips tr JOIN buses b ON b.bus_id = tr.bus_id
      WHERE tr.trip_id = ?`,
     [tripId]
@@ -570,14 +571,10 @@ async function getTripOccupancy(conn, tripId) {
 // and is what the (trip_id, active_seat_number) lock protects. Rather than
 // relaxing that column (which would ripple into SeatMap, the manifest and
 // every "Seat N" label in the Book Ahead flow), the server assigns the
-// lowest free seat number. It's nominal — the conductor seats them wherever
-// is free — but it keeps the seat count and the seat lock honest.
-function lowestFreeSeat(capacity, takenSeats) {
-  for (let n = 1; n <= capacity; n += 1) {
-    if (!takenSeats.has(String(n))) return String(n);
-  }
-  return null;
-}
+// first free seat (lowest number; on a bus with a seat layout, the first in
+// seat-map order — bookingRules.firstFreeSeat). It's nominal — the conductor
+// seats them wherever is free — but it keeps the seat count and the seat
+// lock honest.
 
 function parseCoordinate(value, limit) {
   if (value === undefined || value === null || value === "") return null;
@@ -851,7 +848,7 @@ export function buildFlagRequestsRouter(io) {
       }
 
       const trip = await getTripOccupancy(conn, locked.trip_id);
-      const seat = trip.capacity == null ? null : lowestFreeSeat(trip.capacity, trip.takenSeats);
+      const seat = trip.capacity == null ? null : firstFreeSeat(trip, trip.takenSeats);
 
       if (!seat) {
         // Bus filled up between the hail and the driver's response — close

@@ -1,4 +1,5 @@
 import { Armchair, Info } from "lucide-react";
+import { compareSeats } from "../../lib/format";
 
 // Book Ahead summary + confirm. The old "Contact Number (optional)" field
 // was removed: nothing ever saved it (bookings have no phone column), so it
@@ -14,7 +15,7 @@ export default function BookingSummaryCard({
 }) {
   const count = selectedSeatIds.length;
   const total = pricePerSeat != null ? pricePerSeat * count : null;
-  const sortedSeats = [...selectedSeatIds].sort((a, b) => Number(a) - Number(b));
+  const sortedSeats = [...selectedSeatIds].sort(compareSeats);
 
   return (
     <div className="card overflow-hidden lg:sticky lg:top-6">

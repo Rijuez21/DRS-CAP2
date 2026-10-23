@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
-import { CalendarClock, Plus } from "lucide-react";
+import { CalendarClock, Plus, Pencil, XCircle, Bus, UserRound } from "lucide-react";
 import * as api from "../../lib/api";
-import EmptyState from "../../components/common/EmptyState";
+import ListFrame from "../../components/common/ListFrame";
+import { SkeletonList } from "../../components/common/Skeletons";
+import OverflowMenu from "../../components/common/OverflowMenu";
+import { CancelButton, PrimaryButton, SubmitButton, TextAction } from "../../components/common/Buttons";
+import PageHeading from "../../components/common/PageHeading";
 import InlineAlert from "../../components/common/InlineAlert";
 import Modal from "../../components/admin/Modal";
 import StatusBadge from "../../components/common/StatusBadge";
@@ -9,6 +13,44 @@ import { useAuth } from "../../context/AuthContext";
 import { formatDate, formatTime } from "../../lib/format";
 
 const emptyForm = { busId: "", driverId: "", routeId: "", departureTime: "", arrivalTime: "" };
+const UPCOMING_STATUSES = ["Scheduled", "Boarding", "In Transit"];
+const ALL_STATUSES = [...UPCOMING_STATUSES, "Completed", "Cancelled"];
+const routeLabel = (t) => `${t.origin} → ${t.destination}`;
+const SORT_FIELDS = [
+  { key: "departure_time", label: "Departure", type: "date" },
+  { key: "booked_count", label: "Seats booked", type: "number", sortValue: (t) => Number(t.booked_count ?? 0) },
+  { key: "route", label: "Route", accessor: routeLabel },
+  { key: "status", label: "Status", type: "status" },
+];
+
+// Local calendar day of a timestamp, e.g. "2026-10-23".
+function dayKey(iso) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+const RELATIVE_DAYS = ["Today", "Tomorrow", "Yesterday"];
+function dayLabel(key) {
+  const today = new Date();
+  const offset = (n) => dayKey(new Date(today.getFullYear(), today.getMonth(), today.getDate() + n));
+  if (key === offset(0)) return "Today";
+  if (key === offset(1)) return "Tomorrow";
+  if (key === offset(-1)) return "Yesterday";
+  return formatDate(`${key}T00:00:00`);
+}
+
+// Agenda: the (already sorted) trips grouped by departure day. Days run in
+// date order — newest first only when sorting by departure, newest first —
+// and each day keeps the chosen sort inside it.
+function groupByDay(trips, state) {
+  const groups = new Map();
+  for (const t of trips) {
+    const k = dayKey(t.departure_time);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(t);
+  }
+  const desc = state.sortKey === "departure_time" && state.sortDir === "desc";
+  return [...groups.entries()].sort(([a], [b]) => (desc ? b.localeCompare(a) : a.localeCompare(b)));
+}
 
 // <input type="datetime-local"> gives "2026-09-12T14:30"; MySQL's DATETIME
 // column wants "2026-09-12 14:30:00" — mysql2 sends whatever string we
@@ -133,71 +175,127 @@ export default function AdminTripScheduling() {
     }
   }
 
+  const statusFilters = [
+    {
+      key: "status",
+      label: "Status",
+      allLabel: "All statuses",
+      options: (showPast ? ALL_STATUSES : UPCOMING_STATUSES).map((v) => ({ value: v, label: v })),
+    },
+  ];
+
+  function tripActions(t) {
+    const canCancel = isAdmin && (t.status === "Scheduled" || t.status === "Boarding");
+    return (
+      <>
+        {t.status === "Scheduled" && (
+          <TextAction onClick={() => openEdit(t)}>
+            <Pencil className="w-3.5 h-3.5" aria-hidden="true" /> Edit
+          </TextAction>
+        )}
+        {canCancel && (
+          <OverflowMenu
+            label={`More actions for ${routeLabel(t)} at ${formatTime(t.departure_time)}`}
+            items={[{ label: busyTripId === t.trip_id ? "Cancelling…" : "Cancel trip", icon: XCircle, tone: "danger", disabled: busyTripId === t.trip_id, onClick: () => handleCancelTrip(t) }]}
+          />
+        )}
+      </>
+    );
+  }
+
   return (
     <div className="p-4 sm:p-6 space-y-4">
-      <header className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold">Trip Scheduling</h1>
-          <p className="text-sm text-gray-500">
-            {isAdmin ? "Assign a bus, driver, and route to a departure time." : "Add a departure: pick the route, bus, driver, and times. New trips open for booking right away."}
-          </p>
-        </div>
-        <button type="button" onClick={() => { setEditingId(null); setForm(emptyForm); setFormError(""); setShowForm(true); }} className={`flex items-center gap-1.5 ${accent} text-white text-sm font-semibold px-3 py-2 rounded shrink-0`}>
-          <Plus className="w-4 h-4" /> {isAdmin ? "Schedule Trip" : "Add Schedule"}
-        </button>
-      </header>
+      <PageHeading
+        title="Trips"
+        subtitle={isAdmin ? "Assign a bus, driver, and route to a departure time." : "Add a departure: pick the route, bus, driver, and times. New trips open for booking right away."}
+        actions={
+          <PrimaryButton
+            icon={Plus}
+            className={accent}
+            onClick={() => { setEditingId(null); setForm(emptyForm); setFormError(""); setShowForm(true); }}
+          >
+            {isAdmin ? "Schedule Trip" : "Add Schedule"}
+          </PrimaryButton>
+        }
+      />
 
       <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
       <InlineAlert type="success" message={success} onDismiss={() => setSuccess("")} />
 
-      {isLoading ? (
-        <p className="text-sm text-gray-500">Loading…</p>
-      ) : (
-        <label className="flex items-center gap-2 text-sm text-gray-600">
-          <input type="checkbox" checked={showPast} onChange={(e) => setShowPast(e.target.checked)} /> Show completed and cancelled trips
-        </label>
-      )}
-      {isLoading ? null : visibleTrips.length === 0 ? (
-        <EmptyState icon={CalendarClock} title="No trips scheduled" description="Schedule a trip to get started." />
-      ) : (
-        <div className="bg-white rounded-lg border overflow-hidden overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
-              <tr>
-                <th className="px-4 py-3">Route</th>
-                <th className="px-4 py-3">Departure</th>
-                <th className="px-4 py-3">Bus</th>
-                <th className="px-4 py-3">Driver</th>
-                <th className="px-4 py-3">Booked</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {visibleTrips.map((t) => (
-                <tr key={t.trip_id}>
-                  <td className="px-4 py-3 font-medium">{t.origin} → {t.destination}</td>
-                  <td className="px-4 py-3 text-gray-600">{formatDate(t.departure_time)} · {formatTime(t.departure_time)}</td>
-                  <td className="px-4 py-3 text-gray-600">{t.plate_num}</td>
-                  <td className="px-4 py-3 text-gray-600">{t.driver_name}</td>
-                  <td className="px-4 py-3 text-gray-600">{t.booked_count ?? 0}/{t.capacity ?? "?"}</td>
-                  <td className="px-4 py-3"><StatusBadge status={t.status} /></td>
-                  <td className="px-4 py-3 text-right whitespace-nowrap space-x-3">
-                    {t.status === "Scheduled" && (
-                      <button type="button" onClick={() => openEdit(t)} className="text-xs font-semibold text-emerald-700 hover:underline">Edit</button>
-                    )}
-                    {isAdmin && (t.status === "Scheduled" || t.status === "Boarding") && (
-                      <button type="button" onClick={() => handleCancelTrip(t)} disabled={busyTripId === t.trip_id} className="text-xs font-semibold text-rose-600 hover:underline disabled:opacity-50">
-                        {busyTripId === t.trip_id ? "Cancelling…" : "Cancel"}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <ListFrame
+        rows={visibleTrips}
+        fields={SORT_FIELDS}
+        isLoading={isLoading}
+        syncUrl
+        initialSort={{ key: "departure_time", dir: "asc" }}
+        pageSize={25}
+        paging="more"
+        searchKeys={[routeLabel, "plate_num", "bus_number", "driver_name"]}
+        searchPlaceholder="Search route, bus or driver…"
+        filters={statusFilters}
+        skeleton={<SkeletonList count={5} />}
+        emptyState={{ icon: CalendarClock, title: "No trips scheduled", description: "Schedule a trip to get started." }}
+        toolbar={
+          <label className="flex items-center gap-2 min-h-11 md:min-h-10 text-sm text-gray-600">
+            <input type="checkbox" checked={showPast} onChange={(e) => setShowPast(e.target.checked)} className="w-4 h-4" /> Show completed and cancelled
+          </label>
+        }
+      >
+        {(pageRows, { state }) => (
+          <div className="space-y-5">
+            {groupByDay(pageRows, state).map(([day, trips]) => (
+              <section key={day} aria-labelledby={`day-${day}`}>
+                <h2 id={`day-${day}`} className="flex items-baseline gap-2 mb-2">
+                  <span className="font-display text-base font-bold text-ink-900">{dayLabel(day)}</span>
+                  <span className="text-xs text-gray-500">
+                    {RELATIVE_DAYS.includes(dayLabel(day)) && `${formatDate(`${day}T00:00:00`)} · `}
+                    {trips.length} trip{trips.length === 1 ? "" : "s"}
+                  </span>
+                </h2>
+                <ul className="rounded-xl border bg-white divide-y divide-slate-100">
+                  {trips.map((t) => {
+                    const booked = Number(t.booked_count ?? 0);
+                    const full = t.capacity != null && booked >= t.capacity;
+                    const done = t.status === "Completed" || t.status === "Cancelled";
+                    return (
+                      <li key={t.trip_id} className={`flex flex-wrap sm:flex-nowrap items-center gap-x-4 gap-y-2 px-4 py-3 hover:bg-brand-green-500/5 ${done ? "opacity-70" : ""}`}>
+                        <div className="w-20 shrink-0">
+                          <p className="font-display text-lg font-bold tabular-nums text-ink-900 leading-tight">{formatTime(t.departure_time)}</p>
+                          {t.arrival_time && <p className="text-xs text-gray-500">arr. {formatTime(t.arrival_time)}</p>}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold text-ink-900 truncate" title={routeLabel(t)}>
+                              {routeLabel(t)}
+                            </span>
+                            <StatusBadge status={t.status} />
+                            {full && !done && <StatusBadge status="Full" />}
+                          </p>
+                          <p className="text-sm text-gray-600 flex flex-wrap gap-x-3">
+                            <span className="inline-flex items-center gap-1">
+                              <Bus className="w-3.5 h-3.5" aria-hidden="true" /> {t.plate_num}
+                            </span>
+                            <span className="inline-flex items-center gap-1">
+                              <UserRound className="w-3.5 h-3.5" aria-hidden="true" /> {t.driver_name}
+                            </span>
+                          </p>
+                        </div>
+                        <div className="text-right tabular-nums shrink-0 w-20">
+                          <p className="text-sm font-semibold text-ink-900">
+                            {booked}/{t.capacity ?? "?"}
+                          </p>
+                          <p className="text-xs text-gray-500">seats booked</p>
+                        </div>
+                        <div className="flex items-center justify-end gap-1 shrink-0 ml-auto sm:ml-0 sm:w-36">{tripActions(t)}</div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            ))}
+          </div>
+        )}
+      </ListFrame>
 
       {showForm && (
         <Modal
@@ -205,10 +303,10 @@ export default function AdminTripScheduling() {
           onClose={() => setShowForm(false)}
           footer={
             <>
-              <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 text-sm font-semibold text-gray-600">Cancel</button>
-              <button type="submit" form="trip-form" disabled={isSaving} className={`px-4 py-2 text-sm font-semibold text-white ${accent} disabled:opacity-60 rounded`}>
-                {isSaving ? "Checking availability…" : editingId ? "Save changes" : "Schedule"}
-              </button>
+              <CancelButton onClick={() => setShowForm(false)} />
+              <SubmitButton form="trip-form" isSaving={isSaving} savingLabel="Checking availability…" className={accent}>
+                {editingId ? "Save changes" : "Schedule"}
+              </SubmitButton>
             </>
           }
         >

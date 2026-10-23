@@ -7,7 +7,7 @@ import BookingSteps from "../../components/passenger/BookingSteps";
 import InlineAlert from "../../components/common/InlineAlert";
 import { useAuth } from "../../context/AuthContext";
 import * as api from "../../lib/api";
-import { mapTrip, formatDate } from "../../lib/format";
+import { customSeatLayout, mapTrip, formatDate, stillSelectable } from "../../lib/format";
 import { LAST_BOOKING_KEY } from "../../lib/storageKeys";
 
 const SEAT_REFRESH_MS = 30000; // pick up seats other people just bought while this page is open
@@ -32,6 +32,7 @@ export default function TripDetail() {
 
   const [trip, setTrip] = useState(null);
   const [occupiedSeatIds, setOccupiedSeatIds] = useState([]);
+  const [seatLayout, setSeatLayout] = useState(null); // null = auto layout from capacity
   const [loadError, setLoadError] = useState("");
   const [selectedSeatIds, setSelectedSeatIds] = useState([]);
   const [passengerName, setPassengerName] = useState(user?.name ?? "");
@@ -43,8 +44,10 @@ export default function TripDetail() {
       api.getSeats(tripId).then((seatData) => {
         const taken = seatData.bookedSeats.map(String);
         setOccupiedSeatIds(taken);
-        // Drop any selected seat someone else just bought.
-        setSelectedSeatIds((prev) => prev.filter((s) => !taken.includes(String(s))));
+        setSeatLayout(customSeatLayout(seatData));
+        // Drop any selected seat someone else just bought (or that an
+        // admin's layout edit removed).
+        setSelectedSeatIds((prev) => stillSelectable(prev, seatData));
         return taken;
       }),
     [tripId]
@@ -161,6 +164,7 @@ export default function TripDetail() {
             </div>
             <p className="text-sm text-ink-600 -mt-1">Tap the seats you want, up to 6.</p>
             <SeatMap
+              layout={seatLayout}
               totalSeats={trip.totalSeats}
               occupiedSeatIds={occupiedSeatIds}
               selectedSeatIds={selectedSeatIds}

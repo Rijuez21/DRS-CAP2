@@ -1,3 +1,5 @@
+import { busSeatLabels, matchSeatLabel, readStoredLayout } from "./seatLayout.js";
+
 // Single source of truth for "can this seat be sold?" and "who may move a
 // booking from status A to status B?". Before this, each route (online
 // booking, walk-in sales, validation, manifest) trusted whatever the client
@@ -29,7 +31,7 @@ export function isReservedEmail(email) {
 // Load the trip + bus facts every sale decision needs.
 export async function loadTripForSale(conn, tripId) {
   const [[trip]] = await conn.query(
-    `SELECT tr.trip_id, tr.status, tr.departure_time, tr.driver_id, b.capacity, b.plate_num
+    `SELECT tr.trip_id, tr.status, tr.departure_time, tr.driver_id, b.capacity, b.seat_layout, b.plate_num
      FROM trips tr JOIN buses b ON b.bus_id = tr.bus_id
      WHERE tr.trip_id = ?`,
     [tripId]
@@ -51,29 +53,43 @@ export function whyTripNotBookable(trip) {
   return null;
 }
 
-// Seats are the integers "1".."capacity" — exactly the ids SeatMap.jsx
-// renders. Normalizes " 07 " -> "7"; returns null for anything else.
-export function normalizeSeat(value, capacity) {
-  const text = String(value ?? "").trim();
-  if (!/^\d+$/.test(text)) return null;
-  const n = Number(text);
-  return n >= 1 && n <= capacity ? String(n) : null;
+// A bus's sellable seats: its seat layout's labels, or "1".."capacity" for
+// a bus without a layout — exactly the ids SeatMap.jsx renders. `bus` is a
+// row with capacity (+ seat_layout), or a plain capacity number.
+const seatsOf = (bus) => (typeof bus === "number" ? busSeatLabels({ capacity: bus }) : busSeatLabels(bus));
+const isLegacy = (bus) => typeof bus === "number" || readStoredLayout(bus?.seat_layout) == null;
+
+// Normalizes " 07 " -> "7" (and "1a" -> "1A" on a labelled bus); returns
+// null for a seat the bus doesn't have.
+export function normalizeSeat(value, bus) {
+  return matchSeatLabel(value, seatsOf(bus));
 }
 
 // Validates a whole seat request up front (so a bad seat 3 doesn't leave
 // seats 1–2 half-booked). Returns { seats } or { error }.
-export function parseSeatRequest(body, capacity, maxSeats) {
+export function parseSeatRequest(body, bus, maxSeats) {
   const raw = Array.isArray(body.seatNumbers) ? body.seatNumbers : body.seatNumber != null ? [body.seatNumber] : [];
   if (raw.length === 0) return { error: "Choose at least one seat" };
   if (raw.length > maxSeats) return { error: `You can book up to ${maxSeats} seats at a time` };
+  const labels = seatsOf(bus);
   const seats = [];
   for (const value of raw) {
-    const seat = normalizeSeat(value, capacity);
-    if (!seat) return { error: `Seat ${String(value).trim() || "(blank)"} doesn't exist on this bus (seats 1–${capacity})` };
+    const seat = matchSeatLabel(value, labels);
+    if (!seat) {
+      const which = isLegacy(bus) ? ` (seats 1–${labels.length})` : "";
+      return { error: `Seat ${String(value).trim() || "(blank)"} doesn't exist on this bus${which}` };
+    }
     if (seats.includes(seat)) return { error: `Seat ${seat} was selected twice` };
     seats.push(seat);
   }
   return { seats };
+}
+
+// The first free seat in seat-map reading order — for a flagged rider, who
+// never picks one (see bookings.js). Legacy buses: the lowest number.
+export function firstFreeSeat(bus, takenSeats) {
+  const taken = new Set([...takenSeats].map((s) => String(s).toUpperCase()));
+  return seatsOf(bus).find((label) => !taken.has(label.toUpperCase())) ?? null;
 }
 
 // Inserts one booking per seat inside a transaction: either every seat is

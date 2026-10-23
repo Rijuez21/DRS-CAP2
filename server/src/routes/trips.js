@@ -6,6 +6,7 @@ import { logAudit } from "../services/audit.js";
 import { notifyTripChange } from "../services/notify.js";
 import { openRefundsForCancelledTrip } from "../services/paymentSweeper.js";
 import { dateTime, id as parseId } from "../services/validate.js";
+import { busLayout, busSeatLabels, naturalCompare, readStoredLayout } from "../services/seatLayout.js";
 
 // Validates schedule input: ids are positive integers, times are real dates.
 function parseTripBody(body, { partial }) {
@@ -35,8 +36,9 @@ const TRIPS_CACHE_KEY = "cache:trips:active";
 // cached list just to keep a handful of rows. Measured with 50,000 trips:
 // see the note in the query below.
 const TRIPS_BOOKABLE_CACHE_KEY = "cache:trips:bookable";
-// Any change to a trip must clear both cached lists.
-const clearTripsCache = () => redis.del(TRIPS_CACHE_KEY, TRIPS_BOOKABLE_CACHE_KEY).catch(() => {});
+// Any change to a trip must clear both cached lists — and so must a bus edit
+// (fleet.js), since the lists carry each bus's capacity.
+export const clearTripsCache = () => redis.del(TRIPS_CACHE_KEY, TRIPS_BOOKABLE_CACHE_KEY).catch(() => {});
 
 // Fresh (never cached) seat counts, overlaid on the cached trip list — the
 // list itself changes rarely, but "seats left" changes with every booking,
@@ -261,8 +263,10 @@ export function buildTripsRouter(io) {
   // matching the document's active-booking rule for the seat lock (3.3.5).
   tripsRouter.get("/:id/seats", async (req, res) => {
     try {
+      // Read fresh from MySQL on every request (never cached), so a bus's
+      // edited layout shows up immediately.
       const [[trip]] = await pool.query(
-        `SELECT b.capacity FROM trips tr JOIN buses b ON b.bus_id = tr.bus_id WHERE tr.trip_id = ?`,
+        `SELECT b.capacity, b.seat_layout FROM trips tr JOIN buses b ON b.bus_id = tr.bus_id WHERE tr.trip_id = ?`,
         [req.params.id]
       );
       if (!trip) return res.status(404).json({ error: "Trip not found" });
@@ -272,9 +276,15 @@ export function buildTripsRouter(io) {
         [req.params.id]
       );
 
+      // layout: the bus's own seat layout, or the generated 2 · aisle · 2
+      // one for a bus without one (layoutSource "legacy"; null/"none" when
+      // capacity isn't known either).
+      const { layout, layoutSource } = busLayout(trip);
       res.json({
         capacity: trip.capacity,
         bookedSeats: booked.map((r) => r.seat_number),
+        layout,
+        layoutSource,
       });
     } catch (err) {
       console.error(err);
@@ -301,6 +311,9 @@ export function buildTripsRouter(io) {
          ORDER BY CAST(seat_number AS UNSIGNED), seat_number`,
         [req.params.id]
       );
+      // CAST alone puts "A1" before "1" and ties "1A"/"1B"; natural order
+      // reads like the seat map: 1, 1A, 1B, 2, ... 10.
+      rows.sort((a, b) => naturalCompare(a.seat_number, b.seat_number));
       res.json(rows);
     } catch (err) {
       console.error(err);
@@ -328,16 +341,23 @@ export function buildTripsRouter(io) {
         return res.status(409).json({ error: `Only a Scheduled trip can be edited (this one is ${existing.status})` });
       }
       if (busId !== undefined && Number(busId) !== existing.bus_id) {
-        // Swapping to a smaller bus must not strand passengers whose seat
-        // number doesn't exist on it.
-        const [[bus]] = await pool.query(`SELECT capacity FROM buses WHERE bus_id = ?`, [busId]);
+        // Swapping to another bus must not strand passengers whose seat
+        // doesn't exist on it (a smaller bus, or a layout without that label).
+        const [[bus]] = await pool.query(`SELECT capacity, seat_layout FROM buses WHERE bus_id = ?`, [busId]);
         if (!bus) return res.status(404).json({ error: "Bus not found" });
-        const [[top]] = await pool.query(
-          `SELECT MAX(CAST(seat_number AS UNSIGNED)) AS highest FROM bookings WHERE trip_id = ? AND status NOT IN ('Cancelled', 'No-Show')`,
+        const [held] = await pool.query(
+          `SELECT seat_number FROM bookings WHERE trip_id = ? AND status NOT IN ('Cancelled', 'No-Show')`,
           [req.params.id]
         );
-        if (top.highest != null && (bus.capacity == null || top.highest > bus.capacity)) {
-          return res.status(409).json({ error: `That bus has ${bus.capacity ?? "no recorded"} seats, but seat ${top.highest} is already booked on this trip` });
+        const onNewBus = new Set(busSeatLabels(bus).map((l) => l.toUpperCase()));
+        const stranded = held.map((r) => String(r.seat_number)).filter((s) => !onNewBus.has(s.toUpperCase())).sort(naturalCompare);
+        if (stranded.length > 0) {
+          const seat = stranded[stranded.length - 1];
+          return res.status(409).json({
+            error: readStoredLayout(bus.seat_layout)
+              ? `That bus's seat layout has no seat ${seat}, but seat ${seat} is already booked on this trip`
+              : `That bus has ${bus.capacity ?? "no recorded"} seats, but seat ${seat} is already booked on this trip`,
+          });
         }
       }
 

@@ -64,8 +64,12 @@ const STATEMENTS = [
   // license numbers, fake emails, guessed capacities, a guessed bus
   // type) just to satisfy NOT NULL. That's worse than just allowing the
   // record to exist with the field blank until the real value is known.
-  `ALTER TABLE drivers MODIFY COLUMN license_number VARCHAR(50) UNIQUE`,
-  `ALTER TABLE drivers MODIFY COLUMN email VARCHAR(150) UNIQUE`,
+  // No UNIQUE here: the columns are already unique (schema.sql), and
+  // "MODIFY ... UNIQUE" adds a brand-new duplicate index on every run —
+  // repeated runs piled up 60+ copies until MySQL's 64-key limit stopped
+  // the migration. These two only relax the columns to nullable.
+  `ALTER TABLE drivers MODIFY COLUMN license_number VARCHAR(50)`,
+  `ALTER TABLE drivers MODIFY COLUMN email VARCHAR(150)`,
   `ALTER TABLE drivers MODIFY COLUMN password_hash VARCHAR(255)`,
   `ALTER TABLE buses MODIFY COLUMN capacity INT`,
   `ALTER TABLE buses MODIFY COLUMN type ENUM('ordinary', 'air_conditioned')`,
@@ -159,6 +163,12 @@ const STATEMENTS = [
   // existing rows are untouched. Re-running is a no-op.
   `ALTER TABLE buses ADD COLUMN gps_device_id VARCHAR(32) NULL UNIQUE`,
   `ALTER TABLE location_tracking ADD COLUMN source ENUM('phone', 'device') NOT NULL DEFAULT 'phone'`,
+
+  // ---- Seat layout editor (Fleet Management, services/seatLayout.js) ---
+  // addition: the admin-designed seat map. NULL = the bus keeps the
+  // generated 2 · aisle · 2 layout numbered 1..capacity, so every existing
+  // bus is untouched — nothing is backfilled. Re-running is a no-op.
+  `ALTER TABLE buses ADD COLUMN seat_layout JSON NULL`,
 ];
 
 const IGNORABLE = new Set(["ER_DUP_FIELDNAME", "ER_TABLE_EXISTS_ERROR", "ER_DUP_KEYNAME", "ER_FK_DUP_NAME", "ER_DUP_KEY"]);

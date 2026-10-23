@@ -1,15 +1,34 @@
 import { useEffect, useState } from "react";
-import { ShieldCheck, Plus, Pencil, Trash2 } from "lucide-react";
+import { ShieldCheck, Plus, Pencil, Trash2, UserRound } from "lucide-react";
 import * as api from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
-import EmptyState from "../../components/common/EmptyState";
+import { useListState, useViewPreference } from "../../hooks/useListState";
+import CardGrid from "../../components/common/CardGrid";
+import DataTable from "../../components/common/DataTable";
+import PageHeading from "../../components/common/PageHeading";
+import ViewToggle from "../../components/common/ViewToggle";
+import OverflowMenu from "../../components/common/OverflowMenu";
+import { CancelButton, PrimaryButton, SubmitButton, TextAction } from "../../components/common/Buttons";
 import InlineAlert from "../../components/common/InlineAlert";
 import Modal from "../../components/admin/Modal";
+import { initials } from "../../lib/format";
 
 const emptyForm = { name: "", email: "", password: "", role: "terminal_staff" };
+const ROLE_LABELS = { admin: "Admin", terminal_staff: "Terminal Staff" };
+const ROLE_FILTERS = [
+  { key: "role", label: "Role", allLabel: "All roles", options: Object.entries(ROLE_LABELS).map(([value, label]) => ({ value, label })) },
+];
+const SORT_FIELDS = [
+  { key: "name", label: "Name" },
+  { key: "email", label: "Email" },
+  { key: "role", label: "Role", accessor: (s) => ROLE_LABELS[s.role] ?? s.role },
+];
+const LIST_OPTIONS = { initialSort: { key: "name", dir: "asc" }, filters: ROLE_FILTERS, syncUrl: true };
 
 // Table 4's User Account Administration: terminal-staff/admin accounts,
 // both stored in staff_accounts (see schema.sql's note on why).
+// Layout: compact cards (few accounts, found by name + role) with a
+// remembered Table toggle.
 export default function AdminUserManagement() {
   const { user: currentUser } = useAuth();
   const [staff, setStaff] = useState([]);
@@ -19,6 +38,8 @@ export default function AdminUserManagement() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
+  const [view, setView] = useViewPreference("drs:view:users", "cards");
+  const list = useListState(LIST_OPTIONS); // shared by both views, so switching keeps search/filters
 
   function load() {
     api.getStaff().then(setStaff).catch((err) => setError(err.message)).finally(() => setIsLoading(false));
@@ -48,12 +69,14 @@ export default function AdminUserManagement() {
     setIsSaving(true);
     setError("");
     try {
+      // Postel's Law: tolerate stray spaces and capitals in what's typed.
+      const clean = { ...form, name: form.name.trim(), email: form.email.trim().toLowerCase() };
       if (editing === "new") {
-        await api.createStaff(form);
-        setSuccess("Account created.");
+        await api.createStaff(clean);
+        setSuccess(`Account created for ${clean.name}.`);
       } else {
-        await api.updateStaff(editing.staff_id, { name: form.name, email: form.email, role: form.role });
-        setSuccess("Account updated.");
+        await api.updateStaff(editing.staff_id, { name: clean.name, email: clean.email, role: clean.role });
+        setSuccess(`${clean.name}'s account was updated.`);
       }
       setEditing(null);
       load();
@@ -74,66 +97,99 @@ export default function AdminUserManagement() {
     if (!window.confirm(`Remove ${s.name}'s account? This can't be undone.`)) return;
     try {
       await api.deleteStaff(s.staff_id);
-      setSuccess("Account removed.");
+      setSuccess(`${s.name}'s account was removed.`);
       load();
     } catch (err) {
       setError(err.message);
     }
   }
 
+  const isMe = (s) => s.staff_id === currentUser?.id;
+  const actions = (s) => (
+    <>
+      <TextAction onClick={() => openEdit(s)}>
+        <Pencil className="w-3.5 h-3.5" aria-hidden="true" /> Edit
+      </TextAction>
+      <OverflowMenu
+        label={`More actions for ${s.name}`}
+        items={[{ label: "Delete account", icon: Trash2, tone: "danger", onClick: () => handleDelete(s), disabled: isMe(s) }]}
+      />
+    </>
+  );
+
+  const shared = {
+    state: list,
+    rows: staff,
+    rowKey: (s) => s.staff_id,
+    isLoading,
+    searchKeys: ["name", "email"],
+    searchPlaceholder: "Search name or email…",
+    filters: ROLE_FILTERS,
+    emptyState: { icon: ShieldCheck, title: "No staff accounts yet", description: "Add a terminal-staff or admin account." },
+    toolbar: <ViewToggle value={view} onChange={setView} />,
+  };
+
   return (
-    <div className="p-6 space-y-4">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold">User Account Administration</h1>
-          <p className="text-sm text-gray-500">Terminal staff and admin accounts.</p>
-        </div>
-        <button type="button" onClick={openNew} className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-semibold px-3 py-2 rounded">
-          <Plus className="w-4 h-4" /> Add Account
-        </button>
-      </header>
+    <div className="p-4 sm:p-6 space-y-4">
+      <PageHeading
+        title="User Accounts"
+        subtitle="Terminal staff and admin accounts."
+        actions={
+          <PrimaryButton icon={Plus} onClick={openNew}>
+            Add Account
+          </PrimaryButton>
+        }
+      />
 
       <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
       <InlineAlert type="success" message={success} onDismiss={() => setSuccess("")} />
 
-      {isLoading ? (
-        <p className="text-sm text-gray-500">Loading…</p>
-      ) : staff.length === 0 ? (
-        <EmptyState icon={ShieldCheck} title="No staff accounts yet" description="Add a terminal-staff or admin account." />
+      {view === "table" ? (
+        <DataTable
+          {...shared}
+          label="Staff accounts"
+          minWidth="36rem"
+          columns={[
+            {
+              key: "name",
+              header: "Name",
+              truncate: true,
+              render: (s) => (
+                <span className="font-medium">
+                  {s.name} {isMe(s) && <span className="text-xs font-normal text-gray-500">(you)</span>}
+                </span>
+              ),
+            },
+            { key: "email", header: "Email", truncate: true, render: (s) => <span className="text-gray-600">{s.email}</span> },
+            { key: "role", header: "Role", accessor: (s) => ROLE_LABELS[s.role] ?? s.role, render: (s) => <RoleBadge role={s.role} /> },
+            { key: "actions", header: "", render: actions },
+          ]}
+        />
       ) : (
-        <div className="bg-white rounded-lg border overflow-hidden overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
-              <tr>
-                <th className="px-4 py-3">Name</th>
-                <th className="px-4 py-3">Email</th>
-                <th className="px-4 py-3">Role</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {staff.map((s) => (
-                <tr key={s.staff_id}>
-                  <td className="px-4 py-3 font-medium">{s.name}</td>
-                  <td className="px-4 py-3 text-gray-600">{s.email}</td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${s.role === "admin" ? "bg-violet-100 text-violet-700" : "bg-sky-100 text-sky-700"}`}>
-                      {s.role === "admin" ? "Admin" : "Terminal Staff"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
-                    <button type="button" onClick={() => openEdit(s)} aria-label="Edit" title="Edit" className="text-gray-500 hover:text-emerald-700 inline-flex items-center">
-                      <Pencil className="w-4 h-4" />
-                    </button>
-                    <button type="button" onClick={() => handleDelete(s)} aria-label="Delete" title="Delete" className="text-gray-500 hover:text-rose-600 inline-flex items-center">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <CardGrid
+          {...shared}
+          label="Staff accounts"
+          sortFields={SORT_FIELDS}
+          renderCard={(s) => (
+            <>
+              <div className="flex items-start gap-3">
+                <span className={`w-11 h-11 shrink-0 rounded-full flex items-center justify-center text-sm font-bold ${s.role === "admin" ? "bg-violet-100 text-violet-800" : "bg-sky-100 text-sky-800"}`} aria-hidden="true">
+                  {initials(s.name)}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-ink-900 truncate" title={s.name}>
+                    {s.name} {isMe(s) && <span className="text-xs font-normal text-gray-500">(you)</span>}
+                  </p>
+                  <p className="text-sm text-gray-600 truncate" title={s.email}>
+                    {s.email}
+                  </p>
+                </div>
+                <RoleBadge role={s.role} />
+              </div>
+              <div className="flex justify-end gap-1 border-t border-slate-100 pt-2 mt-auto">{actions(s)}</div>
+            </>
+          )}
+        />
       )}
 
       {editing && (
@@ -142,10 +198,8 @@ export default function AdminUserManagement() {
           onClose={() => setEditing(null)}
           footer={
             <>
-              <button type="button" onClick={() => setEditing(null)} className="px-4 py-2 text-sm font-semibold text-gray-600">Cancel</button>
-              <button type="submit" form="staff-form" disabled={isSaving} className="px-4 py-2 text-sm font-semibold text-white bg-emerald-700 hover:bg-emerald-600 disabled:opacity-60 rounded">
-                {isSaving ? "Saving…" : "Save"}
-              </button>
+              <CancelButton onClick={() => setEditing(null)} />
+              <SubmitButton form="staff-form" isSaving={isSaving} />
             </>
           }
         >
@@ -165,6 +219,19 @@ export default function AdminUserManagement() {
         </Modal>
       )}
     </div>
+  );
+}
+
+// Role isn't a status, so it isn't a StatusBadge — but it follows the same
+// pill shape, with an icon so colour isn't the only cue.
+function RoleBadge({ role }) {
+  const admin = role === "admin";
+  const Icon = admin ? ShieldCheck : UserRound;
+  return (
+    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${admin ? "bg-violet-100 text-violet-800" : "bg-sky-100 text-sky-800"}`}>
+      <Icon className="w-3.5 h-3.5" aria-hidden="true" />
+      {ROLE_LABELS[role] ?? role}
+    </span>
   );
 }
 

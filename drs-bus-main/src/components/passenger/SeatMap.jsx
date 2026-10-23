@@ -7,19 +7,33 @@ const BACK_ROW_SEATS = 5; // the back bench: 2 · 1 in the aisle · 2
 /**
  * Visual, clickable bus seat map.
  *
- * totalSeats: the bus's real capacity (seats are numbered 1..totalSeats,
- * the same ids the booking API validates). Callers render this only once
- * the trip has loaded — it never shows a placeholder bus.
+ * layout: the bus's own seat layout ({ cols, rows: [[{ t, l }]] } — see
+ * server/src/services/seatLayout.js), passed when /api/trips/:id/seats says
+ * layoutSource "custom". Drawn cell for cell; seat ids are its labels.
+ *
+ * Without a layout: the original auto layout from totalSeats (seats
+ * numbered 1..totalSeats, 2 · aisle · 2 with a 5-seat back bench), exactly
+ * as every bus looked before layouts existed.
+ *
+ * Seat ids are strings in both cases (onToggleSeat gets "7", "1A", ...).
+ * Callers render this only once the trip has loaded — it never shows a
+ * placeholder bus.
  *
  * occupiedSeatIds: from GET /api/trips/:id/seats (TripDetail refreshes it
  * every 30s and after a seat conflict; WalkInSales after every sale).
+ * readOnly: draw only (the Fleet seat layout editor's preview).
  */
-export default function SeatMap({
+export default function SeatMap({ layout, ...props }) {
+  return layout ? <LayoutSeatMap layout={layout} {...props} /> : <AutoSeatMap {...props} />;
+}
+
+function AutoSeatMap({
   totalSeats = 52,
   occupiedSeatIds = [],
-  selectedSeatIds,
+  selectedSeatIds = [],
   onToggleSeat,
   maxSeats = 6,
+  readOnly = false,
 }) {
   const rows = useMemo(() => {
     const hasBackRow = totalSeats >= BACK_ROW_SEATS;
@@ -72,6 +86,7 @@ export default function SeatMap({
                       selectedSeatIds={selectedSeatIds}
                       onToggleSeat={onToggleSeat}
                       maxSeats={maxSeats}
+                      readOnly={readOnly}
                     />
                   ))}
                 </div>
@@ -84,6 +99,7 @@ export default function SeatMap({
                       selectedSeatIds={selectedSeatIds}
                       onToggleSeat={onToggleSeat}
                       maxSeats={maxSeats}
+                      readOnly={readOnly}
                     />
                   </div>
                 ) : (
@@ -98,6 +114,7 @@ export default function SeatMap({
                       selectedSeatIds={selectedSeatIds}
                       onToggleSeat={onToggleSeat}
                       maxSeats={maxSeats}
+                      readOnly={readOnly}
                     />
                   ))}
                 </div>
@@ -112,16 +129,85 @@ export default function SeatMap({
   );
 }
 
-function Seat({ id, occupiedSeatIds, selectedSeatIds, onToggleSeat, maxSeats }) {
-  const isOccupied = occupiedSeatIds.map(String).includes(String(id));
-  const isSelected = selectedSeatIds.map(String).includes(String(id));
+// A custom layout, drawn cell for cell. Columns that never hold a seat,
+// driver or door (the aisle) are narrow, like the auto layout's aisle; the
+// grid scrolls inside the card on very narrow phones instead of pushing the
+// page sideways.
+function LayoutSeatMap({ layout, occupiedSeatIds = [], selectedSeatIds = [], onToggleSeat, maxSeats = 6, readOnly = false }) {
+  const columns = useMemo(() => {
+    const cols = layout.cols ?? layout.rows[0]?.length ?? 0;
+    return Array.from({ length: cols }, (_, c) =>
+      layout.rows.some((row) => ["seat", "driver", "door"].includes(row[c]?.t)) ? "2.25rem" : "1rem"
+    ).join(" ");
+  }, [layout]);
+
+  return (
+    <div className="card p-5">
+      <div className="max-w-full overflow-x-auto">
+        <div className="mx-auto w-fit rounded-t-[2.5rem] rounded-b-2xl border-2 border-slate-200 bg-slate-50/70 px-4 sm:px-5 pt-5 pb-5">
+          <div className="grid gap-x-2 gap-y-2.5 justify-center items-center" style={{ gridTemplateColumns: columns }}>
+            {layout.rows.map((row, r) =>
+              row.map((cell, c) => {
+                const key = `${r}-${c}`;
+                if (cell.t === "seat") {
+                  return (
+                    <Seat
+                      key={key}
+                      id={cell.l}
+                      occupiedSeatIds={occupiedSeatIds}
+                      selectedSeatIds={selectedSeatIds}
+                      onToggleSeat={onToggleSeat}
+                      maxSeats={maxSeats}
+                      readOnly={readOnly}
+                    />
+                  );
+                }
+                if (cell.t === "driver") return <DriverCell key={key} />;
+                if (cell.t === "door") return <DoorCell key={key} />;
+                // aisle and blank: empty space
+                return <div key={key} className="h-10" aria-hidden="true" />;
+              })
+            )}
+          </div>
+        </div>
+      </div>
+
+      <Legend />
+    </div>
+  );
+}
+
+// Also used by the Fleet layout editor, so its grid looks like the real map.
+export function DriverCell() {
+  return (
+    <div className="w-9 h-10 flex items-center justify-center" role="img" aria-label="Driver">
+      <div className="w-8 h-8 rounded-full bg-brand-forest-900 flex items-center justify-center shadow-sm">
+        <LifeBuoy className="w-4 h-4 text-brand-sunrise-400" aria-hidden="true" />
+      </div>
+    </div>
+  );
+}
+
+export function DoorCell() {
+  return (
+    <div className="w-9 h-10 rounded-md border-2 border-dashed border-slate-300 flex items-center justify-center" role="img" aria-label="Door">
+      <span className="text-[9px] font-semibold uppercase tracking-wide text-ink-600/70">Door</span>
+    </div>
+  );
+}
+
+function Seat({ id, occupiedSeatIds, selectedSeatIds, onToggleSeat, maxSeats, readOnly = false }) {
+  const seatId = String(id);
+  const isOccupied = occupiedSeatIds.map(String).includes(seatId);
+  const isSelected = selectedSeatIds.map(String).includes(seatId);
   const atLimit = !isSelected && selectedSeatIds.length >= maxSeats;
 
   return (
     <button
       type="button"
-      disabled={isOccupied || atLimit}
-      onClick={() => onToggleSeat(id)}
+      disabled={readOnly || isOccupied || atLimit}
+      onClick={() => onToggleSeat?.(seatId)}
+      title={seatId.length > 3 ? seatId : undefined}
       aria-pressed={isSelected}
       aria-label={`Seat ${id}${
         isOccupied ? ", occupied" : isSelected ? ", selected" : ", available"
@@ -135,10 +221,13 @@ function Seat({ id, occupiedSeatIds, selectedSeatIds, onToggleSeat, maxSeats }) 
           ? SEAT_STYLES.selected + " scale-105"
           : atLimit
           ? "bg-white border-slate-200 text-slate-300 cursor-not-allowed"
+          : readOnly
+          ? SEAT_STYLES.available
           : SEAT_STYLES.available + " hover:border-brand-green-500 hover:text-brand-green-600 hover:-translate-y-0.5",
       ].join(" ")}
     >
-      {id}
+      {/* labels can be up to 10 characters; long ones shrink and clip (full text in title) */}
+      <span className={`block max-w-full px-0.5 truncate ${seatId.length > 3 ? "text-[9px]" : ""}`}>{seatId}</span>
     </button>
   );
 }

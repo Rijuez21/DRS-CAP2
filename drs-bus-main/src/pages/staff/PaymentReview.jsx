@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Wallet, AlertTriangle, RefreshCw, Search, Copy, Clock, PlaneTakeoff, Image as ImageIcon, UserCheck } from "lucide-react";
+import { Wallet, AlertTriangle, RefreshCw, Search, Copy, Clock, PlaneTakeoff, Image as ImageIcon, UserCheck, SlidersHorizontal, X } from "lucide-react";
 import * as api from "../../lib/api";
 import { getSocket } from "../../lib/socket";
 import { useAuth } from "../../context/AuthContext";
 import EmptyState from "../../components/common/EmptyState";
+import PageHeading from "../../components/common/PageHeading";
 import InlineAlert from "../../components/common/InlineAlert";
 import PaymentStatusBadge from "../../components/payments/PaymentStatusBadge";
 import PaymentReviewPanel from "../../components/payments/PaymentReviewPanel";
@@ -57,6 +58,10 @@ export default function PaymentReview() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const openId = params.get("submission");
+  // Hick's Law: date range, route, departure window and "assigned to me"
+  // are rarer — behind "More filters" (open if any of them is in use).
+  const advancedActive = [filters.from, filters.to, filters.routeId, filters.departingWithinHours, filters.mine].filter(Boolean).length;
+  const [showMore, setShowMore] = useState(false);
 
   useEffect(() => {
     const id = setTimeout(() => setQuery(search.trim()), 300);
@@ -149,19 +154,17 @@ export default function PaymentReview() {
 
   return (
     <div className="p-4 sm:p-6 space-y-4">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold">Payment Verification</h1>
-          <p className="text-sm text-gray-500 max-w-2xl">
-            Find each transfer in the official GCash / bank records before verifying. A receipt screenshot alone is never proof of payment.
-          </p>
-        </div>
-        {user?.role === "admin" && (
-          <Link to="/admin/payment-settings" className="text-sm font-semibold text-brand-green-600 hover:underline">
-            Payment methods →
-          </Link>
-        )}
-      </header>
+      <PageHeading
+        title="Payment Verification"
+        subtitle="Find each transfer in the official GCash / bank records before verifying. A receipt screenshot alone is never proof of payment."
+        actions={
+          user?.role === "admin" && (
+            <Link to="/admin/payment-settings" className="inline-flex items-center h-10 text-sm font-semibold text-brand-green-600 hover:underline">
+              Payment methods →
+            </Link>
+          )
+        }
+      />
 
       {summary && (summary.overdue > 0 || summary.departingSoon > 0) && (
         <div className="flex flex-wrap gap-2">
@@ -206,14 +209,15 @@ export default function PaymentReview() {
         ))}
       </div>
 
-      <div className="bg-white rounded-lg border p-3 space-y-3">
-        <div className="flex flex-wrap gap-2">
+      <div className="sticky top-14 lg:top-0 z-20 bg-white rounded-xl border p-3 space-y-3 shadow-sm">
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Payment status">
           {STATUS_FILTERS.map((f) => (
             <button
               key={f.value}
               type="button"
               onClick={() => setFilter("status", f.value)}
-              className={`px-3 py-1.5 rounded-full text-sm font-medium border ${
+              aria-pressed={filters.status === f.value}
+              className={`px-3 min-h-10 md:min-h-9 rounded-full text-sm font-medium border ${
                 filters.status === f.value ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
               }`}
             >
@@ -221,19 +225,29 @@ export default function PaymentReview() {
             </button>
           ))}
         </div>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
-          <div className="relative lg:col-span-2">
-            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-full sm:w-80">
+            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
             <input
-              type="search"
+              type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Booking ref, name or transaction ref…"
               aria-label="Search payments"
-              className="input pl-9"
+              className="input min-h-11 md:min-h-10 pl-9 pr-10"
             />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                aria-label="Clear search"
+                className="absolute right-1 top-1/2 -translate-y-1/2 w-9 h-9 inline-flex items-center justify-center rounded-md text-gray-400 hover:text-gray-700 hover:bg-slate-100"
+              >
+                <X className="w-4 h-4" aria-hidden="true" />
+              </button>
+            )}
           </div>
-          <select className="input" value={filters.method} onChange={(e) => setFilter("method", e.target.value)} aria-label="Payment method">
+          <select className="input min-h-11 md:min-h-10 w-auto" value={filters.method} onChange={(e) => setFilter("method", e.target.value)} aria-label="Payment method">
             <option value="">All methods</option>
             {Object.entries(PAYMENT_METHOD_LABELS).map(([v, l]) => (
               <option key={v} value={v}>
@@ -241,43 +255,55 @@ export default function PaymentReview() {
               </option>
             ))}
           </select>
-          <select className="input" value={filters.routeId} onChange={(e) => setFilter("routeId", e.target.value)} aria-label="Route">
-            <option value="">All routes</option>
-            {routes.map((r) => (
-              <option key={r.route_id} value={r.route_id}>
-                {r.origin} → {r.destination}
-              </option>
-            ))}
-          </select>
-          <select className="input" value={filters.departingWithinHours} onChange={(e) => setFilter("departingWithinHours", e.target.value)} aria-label="Departure">
-            <option value="">Any departure</option>
-            <option value="3">Departing within 3 h</option>
-            <option value="6">Within 6 h</option>
-            <option value="24">Within 24 h</option>
-            <option value="72">Within 3 days</option>
-          </select>
-          <select className="input" value={filters.sort} onChange={(e) => setFilter("sort", e.target.value)} aria-label="Sort">
+          <select className="input min-h-11 md:min-h-10 w-auto" value={filters.sort} onChange={(e) => setFilter("sort", e.target.value)} aria-label="Sort">
             <option value="priority">Departing soonest first</option>
             <option value="oldest">Oldest first</option>
             <option value="newest">Newest first</option>
           </select>
-        </div>
-        <div className="flex flex-wrap items-center gap-3 text-sm">
-          <label className="flex items-center gap-1.5">
-            <span className="text-gray-500">Submitted from</span>
-            <input type="date" className="input w-auto" value={filters.from} onChange={(e) => setFilter("from", e.target.value)} />
-          </label>
-          <label className="flex items-center gap-1.5">
-            <span className="text-gray-500">to</span>
-            <input type="date" className="input w-auto" value={filters.to} onChange={(e) => setFilter("to", e.target.value)} />
-          </label>
-          <label className="flex items-center gap-1.5">
-            <input type="checkbox" checked={filters.mine} onChange={(e) => setFilter("mine", e.target.checked)} /> Assigned to me
-          </label>
-          <button type="button" onClick={() => load()} className="ml-auto inline-flex items-center gap-1 text-gray-500 hover:text-gray-800">
-            <RefreshCw className="w-3.5 h-3.5" /> Refresh
+          <button
+            type="button"
+            onClick={() => setShowMore((v) => !v)}
+            aria-expanded={showMore || advancedActive > 0}
+            className="inline-flex items-center gap-1.5 min-h-11 md:min-h-10 px-3 rounded-lg border bg-white text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            <SlidersHorizontal className="w-4 h-4" aria-hidden="true" />
+            More filters{advancedActive > 0 && ` (${advancedActive})`}
+          </button>
+          {!isLoading && <span className="text-xs text-gray-500" aria-live="polite">{rows.length} shown</span>}
+          <button type="button" onClick={() => load()} className="ml-auto inline-flex items-center gap-1 min-h-11 md:min-h-10 px-3 rounded-lg text-sm text-gray-600 hover:text-gray-900 hover:bg-slate-100">
+            <RefreshCw className="w-4 h-4" aria-hidden="true" /> Refresh
           </button>
         </div>
+        {(showMore || advancedActive > 0) && (
+          <div className="flex flex-wrap items-center gap-3 text-sm border-t border-slate-100 pt-3">
+            <select className="input min-h-11 md:min-h-10 w-auto" value={filters.routeId} onChange={(e) => setFilter("routeId", e.target.value)} aria-label="Route">
+              <option value="">All routes</option>
+              {routes.map((r) => (
+                <option key={r.route_id} value={r.route_id}>
+                  {r.origin} → {r.destination}
+                </option>
+              ))}
+            </select>
+            <select className="input min-h-11 md:min-h-10 w-auto" value={filters.departingWithinHours} onChange={(e) => setFilter("departingWithinHours", e.target.value)} aria-label="Departure">
+              <option value="">Any departure</option>
+              <option value="3">Departing within 3 h</option>
+              <option value="6">Within 6 h</option>
+              <option value="24">Within 24 h</option>
+              <option value="72">Within 3 days</option>
+            </select>
+            <label className="flex items-center gap-1.5">
+              <span className="text-gray-500">Submitted from</span>
+              <input type="date" className="input min-h-11 md:min-h-10 w-auto" value={filters.from} onChange={(e) => setFilter("from", e.target.value)} />
+            </label>
+            <label className="flex items-center gap-1.5">
+              <span className="text-gray-500">to</span>
+              <input type="date" className="input min-h-11 md:min-h-10 w-auto" value={filters.to} onChange={(e) => setFilter("to", e.target.value)} />
+            </label>
+            <label className="flex items-center gap-2 min-h-11 md:min-h-10">
+              <input type="checkbox" className="w-4 h-4" checked={filters.mine} onChange={(e) => setFilter("mine", e.target.checked)} /> Assigned to me
+            </label>
+          </div>
+        )}
       </div>
 
       <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
@@ -285,37 +311,63 @@ export default function PaymentReview() {
       <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_18rem]">
         <div>
           {isLoading ? (
-            <div className="space-y-2" aria-busy="true">
-              {[0, 1, 2].map((i) => (
-                <div key={i} className="h-16 rounded-lg bg-white border animate-pulse" />
-              ))}
+            <div aria-busy="true">
+              {/* same skeleton as DataTable: header + placeholder rows on desktop, cards on phones */}
+              <div className="hidden md:block bg-white rounded-lg border overflow-hidden">
+                <div className="h-10 bg-slate-50 border-b" />
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <div key={i} className="px-4 py-3 border-b border-slate-100 last:border-0">
+                    <div className="h-4 rounded bg-slate-200/70 animate-pulse" />
+                  </div>
+                ))}
+              </div>
+              <div className="md:hidden space-y-2">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="h-24 rounded-lg bg-white border animate-pulse" />
+                ))}
+              </div>
             </div>
           ) : rows.length === 0 ? (
             <EmptyState
               icon={query ? Search : Wallet}
               title={query ? `Nothing matches "${query}"` : filters.status === "open" ? "No payments waiting for a decision" : "No payments here"}
               description={filters.status === "open" && !query ? "New proofs appear here automatically." : "Try other filters."}
+              action={
+                (query || advancedActive > 0 || filters.method) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearch("");
+                      setIsLoading(true);
+                      setFilters((f) => ({ ...f, method: "", from: "", to: "", routeId: "", departingWithinHours: "", mine: false }));
+                    }}
+                    className="mt-2 min-h-11 px-4 text-sm font-semibold text-brand-green-600 border border-brand-green-600/40 rounded-lg hover:bg-brand-green-500/10"
+                  >
+                    Clear search and filters
+                  </button>
+                )
+              }
             />
           ) : (
             <>
               {/* Desktop table */}
-              <div className="hidden md:block bg-white rounded-lg border overflow-x-auto">
-                <table className="w-full text-sm min-w-[56rem]">
-                  <thead className="bg-slate-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+              <div className="hidden md:block bg-white rounded-lg border max-h-[70vh] overflow-auto">
+                <table className="w-full text-sm min-w-[56rem]" aria-label="Payments">
+                  <thead className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide [&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50 [&_th]:border-b [&_th]:whitespace-nowrap">
                     <tr>
-                      <th className="px-3 py-3">Booking</th>
-                      <th className="px-3 py-3">Passenger</th>
-                      <th className="px-3 py-3">Trip · seat</th>
-                      <th className="px-3 py-3 text-right">Due / claimed</th>
-                      <th className="px-3 py-3">Method · ref</th>
-                      <th className="px-3 py-3">Submitted</th>
-                      <th className="px-3 py-3">Status</th>
-                      <th className="px-3 py-3" />
+                      <th scope="col" className="px-3 py-3">Booking</th>
+                      <th scope="col" className="px-3 py-3">Passenger</th>
+                      <th scope="col" className="px-3 py-3">Trip · seat</th>
+                      <th scope="col" className="px-3 py-3 text-right">Due / claimed</th>
+                      <th scope="col" className="px-3 py-3">Method · ref</th>
+                      <th scope="col" className="px-3 py-3">Submitted</th>
+                      <th scope="col" className="px-3 py-3">Status</th>
+                      <th scope="col" className="px-3 py-3 text-right"><span className="sr-only">Actions</span></th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y">
+                  <tbody className="divide-y divide-slate-100">
                     {rows.map((r) => (
-                      <tr key={r.submission_id} className="align-top hover:bg-slate-50/60 cursor-pointer" onClick={() => open(r.submission_id)}>
+                      <tr key={r.submission_id} className="align-top even:bg-slate-50/50 hover:bg-brand-green-500/5 cursor-pointer" onClick={() => open(r.submission_id)}>
                         <td className="px-3 py-3">
                           {r.seats.map((s) => (
                             <div key={s.payment_id} className="font-mono text-xs font-semibold whitespace-nowrap">
@@ -360,7 +412,7 @@ export default function PaymentReview() {
                               e.stopPropagation();
                               open(r.submission_id);
                             }}
-                            className={`text-xs font-semibold rounded-lg px-3 py-1.5 ${["Pending", "Escalated"].includes(r.status) ? "bg-brand-green-600 hover:bg-brand-green-500 text-white" : "border bg-white"}`}
+                            className={`inline-flex items-center min-h-9 text-sm font-semibold rounded-lg px-3 ${["Pending", "Escalated"].includes(r.status) ? "bg-brand-green-600 hover:bg-brand-green-500 text-white" : "border bg-white"}`}
                           >
                             {["Pending", "Escalated"].includes(r.status) ? "Review" : "Open"}
                           </button>
@@ -374,7 +426,7 @@ export default function PaymentReview() {
               <ul className="md:hidden space-y-2">
                 {rows.map((r) => (
                   <li key={r.submission_id}>
-                    <button type="button" onClick={() => open(r.submission_id)} className="w-full text-left bg-white rounded-lg border p-3 space-y-1">
+                    <button type="button" onClick={() => open(r.submission_id)} className={`w-full text-left bg-white rounded-xl border p-4 space-y-1 min-h-16 hover:border-slate-300 ${r.departing_soon ? "border-l-4 border-l-rose-500" : ""}`}>
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-mono text-xs font-semibold">{r.seats.map((s) => s.booking_reference).join(", ")}</span>
                         <PaymentStatusBadge status={r.status} />

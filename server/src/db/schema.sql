@@ -37,7 +37,8 @@ CREATE TABLE IF NOT EXISTS buses (
   bus_id INT AUTO_INCREMENT PRIMARY KEY, -- ERD labels this "busnum"
   bus_number VARCHAR(10) UNIQUE, -- addition: the terminal-facing "queue number" (108, 208, ...) used to call/identify a bus, separate from the internal bus_id
   plate_num VARCHAR(20) NOT NULL UNIQUE,
-  capacity INT, -- nullable: unknown capacity shouldn't be seeded as a guessed number — the bus record can exist, capacity gets filled in via Fleet Management once it's on hand
+  capacity INT, -- nullable: unknown capacity shouldn't be seeded as a guessed number — the bus record can exist, capacity gets filled in via Fleet Management once it's on hand. With a seat_layout it is that layout's seat count (set by the server)
+  seat_layout JSON NULL, -- addition: the admin-designed seat map ({version, cols, rows: [[{t, l}]]}, see services/seatLayout.js); NULL = generated 2 · aisle · 2 layout, seats 1..capacity
   type ENUM('ordinary', 'air_conditioned'), -- nullable, same reasoning as capacity
   year_model YEAR,
   status ENUM('Active', 'Idle', 'Maintenance') NOT NULL DEFAULT 'Active',

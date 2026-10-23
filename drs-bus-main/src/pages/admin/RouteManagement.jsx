@@ -1,18 +1,32 @@
 import { useEffect, useMemo, useState } from "react";
-import { Route as RouteIcon, Plus, Pencil, Power, Search, MapPin } from "lucide-react";
+import { Route as RouteIcon, Plus, Pencil, Power, MapPin } from "lucide-react";
 import * as api from "../../lib/api";
-import EmptyState from "../../components/common/EmptyState";
+import DataTable from "../../components/common/DataTable";
+import PageHeading from "../../components/common/PageHeading";
+import OverflowMenu from "../../components/common/OverflowMenu";
+import { CancelButton, PrimaryButton, SubmitButton, TextAction } from "../../components/common/Buttons";
 import InlineAlert from "../../components/common/InlineAlert";
+import StatusBadge from "../../components/common/StatusBadge";
 import Modal from "../../components/admin/Modal";
 import StopPinMap from "../../components/admin/StopPinMap";
 import { hasPin } from "../../lib/stopMarkers";
+import { formatPeso } from "../../lib/format";
 
 const emptyForm = { origin: "", destination: "", distance: "", baseFare: "", specialFare: "" };
 
 const PIN_FILTERS = [
-  { value: "all", label: "All" },
-  { value: "pinned", label: "Pinned" },
-  { value: "unpinned", label: "Not pinned" },
+  {
+    key: "pin",
+    label: "Filter by map pin",
+    type: "chips",
+    defaultValue: "all",
+    options: [
+      { value: "all", label: "All" },
+      { value: "pinned", label: "Pinned" },
+      { value: "unpinned", label: "Not pinned" },
+    ],
+    match: (r, value) => (value === "pinned" ? hasPin(r) : !hasPin(r)),
+  },
 ];
 
 // Table 4's Route Management: add/edit routes, and "deactivate" (not
@@ -34,8 +48,6 @@ export default function AdminRouteManagement() {
   const [editing, setEditing] = useState(null); // null | 'new' | route object
   const [form, setForm] = useState(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
-  const [search, setSearch] = useState("");
-  const [pinFilter, setPinFilter] = useState("all");
   const [pinning, setPinning] = useState(null); // route whose pin dialog is open
 
   function load() {
@@ -45,16 +57,6 @@ export default function AdminRouteManagement() {
   useEffect(load, []);
 
   const pinnedCount = useMemo(() => routes.filter(hasPin).length, [routes]);
-
-  // Search and the Pinned filter narrow the list together.
-  const filteredRoutes = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return routes.filter((r) => {
-      if (pinFilter === "pinned" && !hasPin(r)) return false;
-      if (pinFilter === "unpinned" && hasPin(r)) return false;
-      return !q || r.origin.toLowerCase().includes(q) || r.destination.toLowerCase().includes(q);
-    });
-  }, [routes, search, pinFilter]);
 
   // Patch the saved row in place (no reload) so the table keeps its scroll
   // position while the admin works down the list pinning stops.
@@ -133,135 +135,104 @@ export default function AdminRouteManagement() {
     }
   }
 
+  const columns = [
+    { key: "origin", header: "Origin", truncate: true, render: (r) => <span className="font-medium">{r.origin}</span> },
+    { key: "destination", header: "Destination", truncate: true, primary: true, render: (r) => <span className="font-medium">{r.destination}</span> },
+    { key: "distance", header: "Distance (km)", type: "number", render: (r) => <span className="text-gray-600 tabular-nums">{r.distance ?? "—"}</span> },
+    { key: "base_fare", header: "Regular Fare", type: "number", render: (r) => <span className="text-gray-600 tabular-nums">{formatPeso(r.base_fare)}</span> },
+    {
+      key: "special_fare",
+      header: "Student/Special Fare",
+      type: "number",
+      render: (r) => <span className="text-gray-600 tabular-nums">{r.special_fare != null ? formatPeso(r.special_fare) : "—"}</span>,
+    },
+    {
+      key: "is_active",
+      header: "Status",
+      type: "status",
+      accessor: (r) => (r.is_active ? "Active" : "Inactive"),
+      render: (r) => <StatusBadge status={r.is_active ? "Active" : "Inactive"} />,
+    },
+    {
+      key: "pinned",
+      header: "Pinned",
+      accessor: (r) => (hasPin(r) ? "Pinned" : "Not pinned"),
+      render: (r) =>
+        hasPin(r) ? (
+          <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 whitespace-nowrap" title={`${Number(r.latitude).toFixed(6)}, ${Number(r.longitude).toFixed(6)}`}>
+            <MapPin className="w-4 h-4 fill-emerald-100" /> Pinned
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-xs text-slate-400 whitespace-nowrap">
+            <MapPin className="w-4 h-4" /> Not pinned
+          </span>
+        ),
+    },
+    {
+      key: "actions",
+      header: "",
+      render: (r) => (
+        <>
+          <TextAction onClick={() => setPinning(r)}>
+            <MapPin className="w-3.5 h-3.5" aria-hidden="true" /> {hasPin(r) ? "Move pin" : "Pin"}
+            <span className="sr-only"> {r.destination} on the map</span>
+          </TextAction>
+          <TextAction onClick={() => openEdit(r)}>
+            <Pencil className="w-3.5 h-3.5" aria-hidden="true" /> Edit
+          </TextAction>
+          <OverflowMenu
+            label={`More actions for ${r.destination}`}
+            items={[
+              {
+                label: r.is_active ? "Deactivate (hide from booking)" : "Reactivate",
+                icon: Power,
+                tone: r.is_active ? "danger" : undefined,
+                onClick: () => toggleActive(r),
+              },
+            ]}
+          />
+        </>
+      ),
+    },
+  ];
+
   return (
-    <div className="p-6 space-y-4">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold">Route Management</h1>
-          <p className="text-sm text-gray-500">Origins, destinations, distance, and regular / student fares.</p>
-        </div>
-        <button
-          type="button"
-          onClick={openNew}
-          className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-semibold px-3 py-2 rounded"
-        >
-          <Plus className="w-4 h-4" /> Add Route
-        </button>
-      </header>
+    <div className="p-4 sm:p-6 space-y-4">
+      <PageHeading
+        title="Routes"
+        subtitle="Origins, destinations, distance, and regular / student fares."
+        actions={
+          <PrimaryButton icon={Plus} onClick={openNew}>
+            Add Route
+          </PrimaryButton>
+        }
+      />
 
       <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
       <InlineAlert type="success" message={success} onDismiss={() => setSuccess("")} />
 
-      {!isLoading && routes.length > 0 && (
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative w-full max-w-sm">
-            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by origin or destination…"
-              className="input pl-9"
-            />
-          </div>
-          <div className="inline-flex rounded-lg border bg-white p-0.5" role="group" aria-label="Filter by map pin">
-            {PIN_FILTERS.map((f) => (
-              <button
-                key={f.value}
-                type="button"
-                onClick={() => setPinFilter(f.value)}
-                aria-pressed={pinFilter === f.value}
-                className={`px-3 py-1.5 text-sm font-medium rounded-md ${pinFilter === f.value ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"}`}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-          <span className="text-xs text-gray-500">
-            {pinnedCount} of {routes.length} stops pinned
-          </span>
-        </div>
-      )}
-
-      {isLoading ? (
-        <p className="text-sm text-gray-500">Loading…</p>
-      ) : routes.length === 0 ? (
-        <EmptyState icon={RouteIcon} title="No routes yet" description="Add a route to start scheduling trips." />
-      ) : filteredRoutes.length === 0 ? (
-        <p className="text-sm text-gray-500">
-          {search.trim()
-            ? `No ${pinFilter === "pinned" ? "pinned " : pinFilter === "unpinned" ? "unpinned " : ""}routes match "${search.trim()}".`
-            : pinFilter === "pinned"
-              ? "No stops are pinned yet. Use the pin button on a row to place one."
-              : "Every stop is pinned."}
-        </p>
-      ) : (
-        <div className="bg-white rounded-lg border overflow-hidden overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0">
-              <tr>
-                <th className="px-4 py-3">Origin</th>
-                <th className="px-4 py-3">Destination</th>
-                <th className="px-4 py-3">Distance (km)</th>
-                <th className="px-4 py-3">Regular Fare</th>
-                <th className="px-4 py-3">Student/Special Fare</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Pinned</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {filteredRoutes.map((r) => (
-                <tr key={r.route_id} className={r.is_active ? "" : "opacity-60"}>
-                  <td className="px-4 py-3 font-medium">{r.origin}</td>
-                  <td className="px-4 py-3">{r.destination}</td>
-                  <td className="px-4 py-3 text-gray-600">{r.distance ?? "—"}</td>
-                  <td className="px-4 py-3 text-gray-600">₱{r.base_fare}</td>
-                  <td className="px-4 py-3 text-gray-600">{r.special_fare != null ? `₱${r.special_fare}` : "—"}</td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${r.is_active ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
-                      {r.is_active ? "Active" : "Inactive"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    {hasPin(r) ? (
-                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700" title={`${Number(r.latitude).toFixed(6)}, ${Number(r.longitude).toFixed(6)}`}>
-                        <MapPin className="w-4 h-4 fill-emerald-100" /> Pinned
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-xs text-slate-400">
-                        <MapPin className="w-4 h-4" /> Not pinned
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
-                    <button
-                      type="button"
-                      onClick={() => setPinning(r)}
-                      aria-label={`Pin ${r.destination} on map`}
-                      title={hasPin(r) ? "Move or clear the map pin" : "Pin on map"}
-                      className={`inline-flex items-center ${hasPin(r) ? "text-emerald-700 hover:text-emerald-600" : "text-gray-500 hover:text-emerald-700"}`}
-                    >
-                      <MapPin className="w-4 h-4" />
-                    </button>
-                    <button type="button" onClick={() => openEdit(r)} aria-label="Edit" title="Edit" className="text-gray-500 hover:text-emerald-700 inline-flex items-center">
-                      <Pencil className="w-4 h-4" />
-                    </button>
-                    <button type="button" onClick={() => toggleActive(r)} aria-label={r.is_active ? "Deactivate" : "Activate"} title={r.is_active ? "Deactivate route (hide from booking)" : "Activate route"} className="text-gray-500 hover:text-rose-600 inline-flex items-center">
-                      <Power className="w-4 h-4" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {routes.length > 0 && (
-        <p className="text-xs text-gray-400">
-          Showing {filteredRoutes.length} of {routes.length} routes.
-        </p>
-      )}
+      <DataTable
+        label="Routes"
+        columns={columns}
+        rows={routes}
+        rowKey={(r) => r.route_id}
+        isLoading={isLoading}
+        syncUrl
+        pageSize={25}
+        searchKeys={["origin", "destination"]}
+        searchPlaceholder="Search by origin or destination…"
+        filters={PIN_FILTERS}
+        rowClassName={(r) => (r.is_active ? "" : "opacity-60")}
+        minWidth="64rem"
+        emptyState={{ icon: RouteIcon, title: "No routes yet", description: "Add a route to start scheduling trips." }}
+        toolbar={
+          routes.length > 0 && (
+            <span className="text-xs text-gray-500">
+              {pinnedCount} of {routes.length} stops pinned
+            </span>
+          )
+        }
+      />
 
       {pinning && <StopPinMap route={pinning} allRoutes={routes} onSaved={handlePinSaved} onClose={() => setPinning(null)} />}
 
@@ -271,17 +242,8 @@ export default function AdminRouteManagement() {
           onClose={() => setEditing(null)}
           footer={
             <>
-              <button type="button" onClick={() => setEditing(null)} className="px-4 py-2 text-sm font-semibold text-gray-600">
-                Cancel
-              </button>
-              <button
-                type="submit"
-                form="route-form"
-                disabled={isSaving}
-                className="px-4 py-2 text-sm font-semibold text-white bg-emerald-700 hover:bg-emerald-600 disabled:opacity-60 rounded"
-              >
-                {isSaving ? "Saving…" : "Save"}
-              </button>
+              <CancelButton onClick={() => setEditing(null)} />
+              <SubmitButton form="route-form" isSaving={isSaving} />
             </>
           }
         >
