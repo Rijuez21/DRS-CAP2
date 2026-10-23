@@ -17,7 +17,10 @@ import { ingestLocation } from "./locationService.js";
 // (connected?, last message, last fix, raw messages) is kept in memory here
 // and pushed live to the "gps:admin" Socket.io room.
 
-const ONLINE_MS = 5 * 60 * 1000; // SinoTrack's platform also calls a unit offline after a few silent minutes
+// Offline after this long silent. The ST-901L-4G reports every 10 s while
+// moving but only every 300 s when parked (RCONF "GPRS UPLOAD TIME:10,300"),
+// so this must stay above 5 min or a parked bus flickers offline.
+const ONLINE_MS = 7 * 60 * 1000;
 const LOG_SIZE = 40;
 const TRAIL_SIZE = 200;
 const MAX_DEVICES = 20; // anyone can open a TCP connection; don't let junk IDs grow memory
@@ -94,9 +97,11 @@ function parseText(text) {
   if (parts[0] !== "HQ" || !deviceId || !/^[0-9A-Za-z]{1,32}$/.test(deviceId)) return null;
   const out = { deviceId, type };
 
-  if (type === "V1" || type === "V4" || type === "V19" || type === "V0") {
-    // V4 is a command reply that echoes the position after its own fields;
-    // find the fix by its "A"/"V" validity marker rather than a fixed index.
+  if (type !== "LINK") {
+    // Position reports come under several types: V1 is the usual one, but
+    // the ST-901L-4G sends V8, and V4 is a command reply that echoes the
+    // position after its own fields. So any type may carry a fix — find it
+    // by its "<hhmmss>,<A|V>" marker rather than by type or a fixed index.
     let i = 3;
     while (i < parts.length && !(/^\d{6}$/.test(parts[i]) && /^[AV]$/.test(parts[i + 1] ?? ""))) i += 1;
     if (i < parts.length - 9) {
