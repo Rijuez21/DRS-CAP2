@@ -225,7 +225,8 @@ export default function GpsTracker() {
       <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
       <InlineAlert type="success" message={success} onDismiss={() => setSuccess("")} />
 
-      {listener && <ListenerCard listener={listener} />}
+      {/* Only when something is down: the listener, or the tracker being looked at. */}
+      {listener && (!listener.running || !selected?.online) && <ListenerCard listener={listener} />}
 
       {devices.length > 1 && (
         <div className="flex flex-wrap gap-2">
@@ -265,8 +266,6 @@ export default function GpsTracker() {
             onAssign={assign}
           />
 
-          <VerifyCard verify={verify} verifying={verifying} onVerify={() => runVerify(selectedId)} now={now} />
-
           <div className="bg-white rounded-xl border overflow-hidden">
             <div className="flex border-b text-sm">
               {[
@@ -290,6 +289,8 @@ export default function GpsTracker() {
               {tab === "log" && <RawLog log={detail?.log ?? []} now={now} />}
             </div>
           </div>
+
+          <VerifyCard verify={verify} verifying={verifying} onVerify={() => runVerify(selectedId)} now={now} />
         </>
       )}
     </div>
