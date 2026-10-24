@@ -13,6 +13,7 @@ import EmptyState from "../../components/common/EmptyState";
 import LocationPermissionCard from "../../components/common/LocationPermissionCard";
 import { useGeolocation } from "../../hooks/useGeolocation";
 import { useRoadRoute } from "../../hooks/useRoadRoute";
+import { useMatchedRoute } from "../../hooks/useMatchedRoute";
 import { formatDistance } from "../../lib/geo";
 
 // The SinoTrack-style device page: is the ST-906L connected, what did it
@@ -654,7 +655,9 @@ function Playback({ bus }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const lineRef = useRef(null);
+  const matchedRef = useRef(null);
   const markerRef = useRef(null);
+  const matched = useMatchedRoute(points);
 
   async function load(e) {
     e?.preventDefault();
@@ -683,7 +686,9 @@ function Playback({ bus }) {
     markerRef.current = null;
     if (!points?.length) return;
     const latLngs = points.map((p) => [p.latitude, p.longitude]);
-    const line = L.polyline(latLngs, { color: "#2563eb", weight: 4, opacity: 0.75 });
+    // The raw recorded trace: faint and dashed, under the road-matched route
+    // drawn below, so any stretch that couldn't be matched still shows.
+    const line = L.polyline(latLngs, { color: "#64748b", weight: 2, opacity: 0.6, dashArray: "6 6" });
     lineRef.current = L.layerGroup([
       line,
       L.circleMarker(latLngs[0], { radius: 6, color: "#16a34a", fillOpacity: 1 }).bindTooltip("Start"),
@@ -691,6 +696,17 @@ function Playback({ bus }) {
     ]).addTo(map);
     map.fitBounds(line.getBounds(), { padding: [30, 30] });
   }, [map, points]);
+
+  // The route snapped to the roads, filled in as each piece comes back.
+  useEffect(() => {
+    if (!map) return;
+    matchedRef.current?.remove();
+    matchedRef.current = null;
+    if (!matched.segments.length) return;
+    matchedRef.current = L.layerGroup(
+      matched.segments.map((path) => L.polyline(path, { color: "#2563eb", weight: 5, opacity: 0.8 }))
+    ).addTo(map);
+  }, [map, matched.segments]);
 
   // Move the playback marker.
   useEffect(() => {
@@ -747,6 +763,19 @@ function Playback({ bus }) {
         )}
       </form>
       {error && <p className="text-sm text-rose-600">{error}</p>}
+      {points?.length > 1 && matched.status !== "idle" && (
+        <p className={`text-xs ${matched.status === "failed" || matched.status === "partial" ? "text-amber-700" : "text-gray-500"}`}>
+          {matched.status === "loading"
+            ? `Snapping the route to the roads… ${matched.total ? `${matched.done}/${matched.total}` : ""}`
+            : matched.status === "none"
+              ? "The bus barely moved in this time range, so there's no road route to draw."
+              : matched.status === "ok"
+              ? "Blue line follows the roads. Dashed line = the raw recorded positions."
+              : matched.status === "partial"
+                ? "Some stretches couldn't be matched to a road (e.g. long signal gaps); they show only as the dashed line."
+                : "The road-matching service couldn't be reached, so only the raw recorded positions (dashed) are shown."}
+        </p>
+      )}
       {points && points.length === 0 && <p className="text-sm text-gray-500">No positions saved for {bus.plateNum} in this time range.</p>}
       {points?.length > 0 && (
         <div className="flex flex-wrap items-center gap-3 text-sm">
