@@ -10,6 +10,10 @@ import { getSocket } from "../../lib/socket";
 import { keepMapSized } from "../../lib/leafletAutoResize";
 import InlineAlert from "../../components/common/InlineAlert";
 import EmptyState from "../../components/common/EmptyState";
+import LocationPermissionCard from "../../components/common/LocationPermissionCard";
+import { useGeolocation } from "../../hooks/useGeolocation";
+import { useRoadRoute } from "../../hooks/useRoadRoute";
+import { formatDistance } from "../../lib/geo";
 
 // The SinoTrack-style device page: is the ST-906L connected, what did it
 // last report, where is it now, and where has the bus been. The tracker
@@ -506,44 +510,111 @@ function useLeafletMap() {
   return [containerRef, map];
 }
 
+const meIcon = L.divIcon({
+  className: "",
+  html: `<div style="width:18px;height:18px;border-radius:9999px;background:#2563eb;border:3px solid white;box-shadow:0 0 0 2px rgba(37,99,235,.35),0 1px 3px rgba(0,0,0,.4)"></div>`,
+  iconSize: [18, 18],
+  iconAnchor: [9, 9],
+});
+
+// The bus (tracker) and, once the admin shares their location, where they
+// are plus the road route from them to the bus — like "find my vehicle".
+// No trail: past positions are what the Playback tab is for.
 function LiveMap({ detail }) {
   const [containerRef, map] = useLeafletMap();
-  const markerRef = useRef(null);
-  const trailRef = useRef(null);
+  const busMarkerRef = useRef(null);
+  const meMarkerRef = useRef(null);
+  const routeLineRef = useRef(null);
   const centredRef = useRef(false);
+  const framedBothRef = useRef(false);
   const [follow, setFollow] = useState(true);
   const fix = detail?.lastValidFix;
-  const trail = detail?.trail;
+  // Asked only via the button below (or silently if already allowed).
+  const { status: meStatus, position: me, request: requestMe } = useGeolocation();
+  const { route, status: routeStatus } = useRoadRoute(me, fix, detail?.deviceId ?? null);
 
+  // The bus.
   useEffect(() => {
-    if (!map) return;
-    if (trail?.length) {
-      const latLngs = trail.map((p) => [p.latitude, p.longitude]);
-      if (!trailRef.current) trailRef.current = L.polyline(latLngs, { color: "#059669", weight: 4, opacity: 0.6 }).addTo(map);
-      else trailRef.current.setLatLngs(latLngs);
-    }
-    if (!fix) return;
+    if (!map || !fix) return;
     const latLng = [fix.latitude, fix.longitude];
-    if (!markerRef.current) markerRef.current = L.marker(latLng, { icon: arrowIcon(fix.course) }).addTo(map);
+    if (!busMarkerRef.current) busMarkerRef.current = L.marker(latLng, { icon: arrowIcon(fix.course) }).addTo(map);
     else {
-      markerRef.current.setLatLng(latLng);
-      markerRef.current.setIcon(arrowIcon(fix.course));
+      busMarkerRef.current.setLatLng(latLng);
+      busMarkerRef.current.setIcon(arrowIcon(fix.course));
     }
-    markerRef.current.bindTooltip(`${fix.speedKmh} km/h · ${new Date(fix.time).toLocaleTimeString()}`);
+    busMarkerRef.current.bindTooltip(`Bus · ${fix.speedKmh} km/h · ${new Date(fix.time).toLocaleTimeString()}`);
     if (!centredRef.current) {
       map.setView(latLng, 16);
       centredRef.current = true;
-    } else if (follow) map.panTo(latLng);
-  }, [map, fix, trail, follow]);
+    } else if (follow && !me) map.panTo(latLng);
+  }, [map, fix, follow, me]);
+
+  // You.
+  useEffect(() => {
+    if (!map || !me) return;
+    const latLng = [me.latitude, me.longitude];
+    if (!meMarkerRef.current) meMarkerRef.current = L.marker(latLng, { icon: meIcon, zIndexOffset: 500 }).bindTooltip("You").addTo(map);
+    else meMarkerRef.current.setLatLng(latLng);
+  }, [map, me]);
+
+  // Road route from you to the bus (dashed straight line if the router is unreachable).
+  useEffect(() => {
+    if (!map) return;
+    if (!route) {
+      routeLineRef.current?.remove();
+      routeLineRef.current = null;
+      return;
+    }
+    const style = { color: "#2563eb", weight: 5, opacity: 0.75, dashArray: route.isFallback ? "8 8" : null };
+    if (!routeLineRef.current) routeLineRef.current = L.polyline(route.path, style).addTo(map);
+    else {
+      routeLineRef.current.setLatLngs(route.path);
+      routeLineRef.current.setStyle(style);
+    }
+    // Show both ends once; after that the admin controls the map.
+    if (!framedBothRef.current) {
+      map.fitBounds(routeLineRef.current.getBounds(), { padding: [40, 40], maxZoom: 17 });
+      framedBothRef.current = true;
+    }
+  }, [map, route]);
+
+  useEffect(
+    () => () => {
+      busMarkerRef.current = null;
+      meMarkerRef.current = null;
+      routeLineRef.current = null;
+    },
+    []
+  );
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between text-sm">
-        <p className="text-gray-500">{fix ? `Last fix ${new Date(fix.time).toLocaleString()}` : "Waiting for the tracker's first satellite fix…"}</p>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <p className="text-gray-500">{fix ? `Bus last fix ${new Date(fix.time).toLocaleString()}` : "Waiting for the tracker's first satellite fix…"}</p>
         <label className="flex items-center gap-2">
-          <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> Follow
+          <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> Follow bus
         </label>
       </div>
+
+      {meStatus === "ok" ? (
+        route && (
+          <p className="text-sm font-medium text-blue-800 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+            You are {formatDistance(route.distanceKm)} from the bus{" "}
+            {route.isFallback
+              ? "in a straight line (road route unavailable)"
+              : `by road · about ${Math.max(1, Math.round(route.durationMin))} min by car`}
+            {routeStatus === "loading" ? " · updating…" : ""}
+          </p>
+        )
+      ) : (
+        <LocationPermissionCard
+          compact
+          status={meStatus}
+          reason="Show where you are on the map, with the road route from you to the bus."
+          onRequest={requestMe}
+        />
+      )}
+
       <div ref={containerRef} className="w-full h-[26rem] rounded-lg overflow-hidden border" />
     </div>
   );
