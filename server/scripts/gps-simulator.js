@@ -82,6 +82,8 @@ const socket = net.connect(port, host, () => {
   send();
   setInterval(send, intervalMs);
 });
+// The server acknowledges each message with "*HQ,<id>,R12,<hhmmss>#".
+socket.on("data", (chunk) => console.log("server replied", chunk.toString("latin1")));
 socket.on("error", (err) => {
   console.error(`Can't reach ${host}:${port} — ${err.message}. Is the backend running?`);
   process.exit(1);

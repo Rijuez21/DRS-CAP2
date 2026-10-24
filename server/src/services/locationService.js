@@ -29,7 +29,10 @@ export async function deviceIsReporting(busId) {
  *
  * @param {import('socket.io').Server} io
  */
-export async function ingestLocation(io, { busId, latitude, longitude, timestamp, syncStatus = "synced", source = "phone" }) {
+// live = false: an older point (a tracker catching up on positions it
+// stored without signal) — saved for route history only, so the "current
+// position" cache and the live maps don't jump back to where the bus was.
+export async function ingestLocation(io, { busId, latitude, longitude, timestamp, syncStatus = "synced", source = "phone", live = true }) {
   const [result] = await pool.query(
     `INSERT INTO location_tracking (bus_id, latitude, longitude, timestamp, sync_status, source)
      VALUES (?, ?, ?, ?, ?, ?)`,
@@ -42,6 +45,7 @@ export async function ingestLocation(io, { busId, latitude, longitude, timestamp
   );
 
   const point = { tracking_id: result.insertId, busId, latitude, longitude, timestamp, syncStatus, source };
+  if (!live) return point;
 
   if (source === "device") {
     redis

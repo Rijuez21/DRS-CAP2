@@ -51,6 +51,7 @@ function deviceState(deviceId) {
       lastValidFix: null,
       link: null, // signal / satellites / battery from LINK heartbeats
       lastIngest: null, // { at, busId } or { at, error }
+      recentFixKeys: [], // last stored fixes, to drop re-sent duplicates
       trail: [],
       log: [],
     };
@@ -225,6 +226,17 @@ async function handleFrame(frame, socket, conn) {
   }
   if (!parsed) return;
 
+  // Acknowledge every text message. The ST-901L-4G re-sends the same
+  // record every ~2 s until it gets "*HQ,<id>,R12,<hhmmss>#" back (seen in
+  // the field: one V8 record repeated ~41,000 times overnight), so without
+  // this it never moves on to newer positions. The time echoes the
+  // message's own time field, as in SinoTrack/Traccar logs.
+  if (frame.kind === "text" && parsed.type !== "LINK") {
+    const msgTime = raw.split(",")[3];
+    const time = /^\d{6}$/.test(msgTime ?? "") ? msgTime : new Date().toISOString().slice(11, 19).replace(/:/g, "");
+    if (!socket.destroyed) socket.write(`*HQ,${parsed.deviceId},R12,${time}#`);
+  }
+
   const d = deviceState(parsed.deviceId);
   if (conn.deviceId !== parsed.deviceId) {
     conn.deviceId = parsed.deviceId;
@@ -240,9 +252,16 @@ async function handleFrame(frame, socket, conn) {
 
   if (parsed.fix) {
     d.fix = parsed.fix;
-    if (parsed.fix.valid) {
-      d.lastValidFix = parsed.fix;
-      d.trail.push({ latitude: parsed.fix.latitude, longitude: parsed.fix.longitude, time: parsed.fix.time });
+    const { valid, time, latitude, longitude } = parsed.fix;
+    // A re-sent record (same time and place) is only stored once.
+    const key = `${time}|${latitude}|${longitude}`;
+    if (valid && !d.recentFixKeys.includes(key)) {
+      d.recentFixKeys.push(key);
+      if (d.recentFixKeys.length > 50) d.recentFixKeys.shift();
+      // Stored records uploaded after a signal gap arrive out of order;
+      // "current position" only ever moves forward in time.
+      if (!d.lastValidFix || time >= d.lastValidFix.time) d.lastValidFix = parsed.fix;
+      d.trail.push({ latitude, longitude, time });
       if (d.trail.length > TRAIL_SIZE) d.trail.shift();
       await recordFix(d, parsed.fix);
     }
@@ -271,6 +290,8 @@ async function recordFix(d, fix) {
       timestamp: sane ? fix.time : new Date().toISOString(),
       syncStatus: sane && time < now - 2 * 60 * 1000 ? "buffered" : "synced",
       source: "device",
+      // Only the newest fix moves the bus on the live maps.
+      live: fix === d.lastValidFix,
     });
     d.lastIngest = { at: new Date().toISOString(), busId: bus.bus_id };
   } catch (err) {
