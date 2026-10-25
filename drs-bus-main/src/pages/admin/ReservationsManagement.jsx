@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
-import { Ticket, XCircle } from "lucide-react";
+import { Ticket, XCircle, Armchair, Bus } from "lucide-react";
 import * as api from "../../lib/api";
-import DataTable from "../../components/common/DataTable";
+import ListFrame from "../../components/common/ListFrame";
+import SectionGroup from "../../components/common/SectionGroup";
+import { groupBy } from "../../lib/groupBy";
+import { SkeletonList } from "../../components/common/Skeletons";
 import OverflowMenu from "../../components/common/OverflowMenu";
 import PageHeading from "../../components/common/PageHeading";
 import InlineAlert from "../../components/common/InlineAlert";
@@ -18,6 +21,13 @@ const CHANNEL_LABELS = { online: "Online", walk_in: "Walk-in", flagged: "Flagged
 const FILTERS = [
   { key: "status", label: "Status", allLabel: "All statuses", serverSide: true, options: STATUS_OPTIONS.map((s) => ({ value: s, label: s })) },
   { key: "channel", label: "Channel", allLabel: "All channels", serverSide: true, options: CHANNEL_OPTIONS.map((c) => ({ value: c, label: CHANNEL_LABELS[c] })) },
+];
+const SORT_FIELDS = [
+  { key: "booked_at", label: "Booked", type: "date" },
+  { key: "trip", label: "Trip departure", type: "date", sortValue: (b) => b.departure_time },
+  { key: "passenger_name", label: "Passenger" },
+  { key: "status", label: "Status", type: "status" },
+  { key: "seat_number", label: "Seat", accessor: (b) => b.seat_number },
 ];
 const routeLabel = (b) => `${b.origin} → ${b.destination}`;
 
@@ -63,71 +73,86 @@ export default function AdminReservationsManagement() {
     }
   }
 
-  const columns = [
-    {
-      key: "passenger_name",
-      header: "Passenger",
-      truncate: true,
-      render: (b) => (
-        <span>
-          <span className="block font-medium">{b.passenger_name}</span>
-          <span className="block text-xs text-gray-500 font-mono">#{b.booking_id}</span>
-        </span>
-      ),
-    },
-    { key: "status", header: "Status", type: "status", render: (b) => <StatusBadge status={b.status} /> },
-    {
-      key: "trip",
-      header: "Trip",
-      accessor: routeLabel,
-      sortValue: (b) => b.departure_time,
-      type: "date",
-      render: (b) => (
-        <div className="text-gray-600">
-          <div className="truncate max-w-[16rem]" title={routeLabel(b)}>{routeLabel(b)}</div>
-          <div className="text-xs text-gray-400 whitespace-nowrap">
-            {formatDate(b.departure_time)} · {formatTime(b.departure_time)}
-          </div>
-        </div>
-      ),
-    },
-    { key: "seat_number", header: "Seat", align: "right", render: (b) => <span className="text-gray-600 tabular-nums">{b.seat_number}</span> },
-    { key: "channel", header: "Channel", accessor: (b) => CHANNEL_LABELS[b.channel] ?? b.channel, render: (b) => <span className="text-gray-600">{CHANNEL_LABELS[b.channel] ?? b.channel}</span> },
-    { key: "booked_at", header: "Booked", type: "date", render: (b) => <span className="text-gray-600 text-xs whitespace-nowrap">{formatDateTime(b.booked_at) ?? "—"}</span> },
-    {
-      key: "actions",
-      header: "",
-      render: (b) =>
-        b.status !== "Cancelled" && b.status !== "Boarded" && b.status !== "No-Show" ? (
-          <OverflowMenu
-            label={`More actions for booking #${b.booking_id}`}
-            items={[{ label: "Cancel booking", icon: XCircle, tone: "danger", onClick: () => handleCancel(b) }]}
-          />
-        ) : null,
-    },
-  ];
-
   return (
     <div className="p-4 sm:p-6 space-y-4">
-      <PageHeading title="Reservations" subtitle="Every booking across all channels. Newest first." />
+      <PageHeading title="Reservations" subtitle="Every booking across all channels, grouped by trip. Most recently booked trips first." />
 
       <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
       <InlineAlert type="success" message={success} onDismiss={() => setSuccess("")} />
 
-      <DataTable
-        label="Bookings"
+      <ListFrame
         state={table}
-        columns={columns}
         rows={bookings}
-        rowKey={(b) => b.booking_id}
+        fields={SORT_FIELDS}
         isLoading={isLoading}
+        paging="more"
+        pageSize={30}
         searchKeys={["passenger_name", routeLabel, "seat_number", "booking_id"]}
         searchPlaceholder="Search passenger, trip or seat…"
         filters={FILTERS}
-        minWidth="56rem"
+        skeleton={<SkeletonList count={4} />}
         emptyState={{ icon: Ticket, title: "No bookings yet" }}
         toolbar={bookings.length >= 500 && <span className="text-xs text-amber-700">Newest 500 shown — narrow by status or channel to see older ones.</span>}
-      />
+      >
+        {(pageRows) => (
+          <div className="space-y-4">
+            {groupBy(pageRows, (b) => b.trip_id).map(([tripId, items]) => {
+              const t = items[0];
+              const live = items.filter((b) => b.status !== "Cancelled" && b.status !== "No-Show").length;
+              return (
+                <SectionGroup
+                  key={tripId}
+                  id={`trip-${tripId}`}
+                  icon={Bus}
+                  title={routeLabel(t)}
+                  subtitle={`${formatDate(t.departure_time)} · ${formatTime(t.departure_time)} · ${t.plate_num ?? "Bus"}`}
+                  count={items.length}
+                  countLabel={items.length === 1 ? "booking" : "bookings"}
+                  aside={
+                    <>
+                      <span className="text-xs text-gray-500">{live} active</span>
+                      <StatusBadge status={t.trip_status} />
+                    </>
+                  }
+                >
+                  <ul className="divide-y divide-slate-100">
+                    {items.map((b) => {
+                      const cancellable = b.status !== "Cancelled" && b.status !== "Boarded" && b.status !== "No-Show";
+                      return (
+                        <li key={b.booking_id} className={`flex flex-wrap sm:flex-nowrap items-center gap-x-4 gap-y-1.5 px-4 py-3 hover:bg-brand-green-500/5 ${b.status === "Cancelled" ? "opacity-60" : ""}`}>
+                          <span className="inline-flex items-center gap-1.5 w-16 shrink-0 rounded-lg bg-slate-100 px-2 py-1 text-sm font-semibold tabular-nums text-ink-900" title="Seat">
+                            <Armchair className="w-3.5 h-3.5 text-gray-500" aria-hidden="true" />
+                            {b.seat_number}
+                          </span>
+                          <div className="min-w-[10rem] flex-1">
+                            <p className="font-medium text-ink-900 truncate" title={b.passenger_name}>
+                              {b.passenger_name}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              <span className="font-mono">#{b.booking_id}</span> · {CHANNEL_LABELS[b.channel] ?? b.channel} · booked {formatDateTime(b.booked_at) ?? "—"}
+                            </p>
+                          </div>
+                          <div className="sm:w-32 flex sm:justify-end">
+                            <StatusBadge status={b.status} />
+                          </div>
+                          <div className="w-9 shrink-0 flex justify-end">
+                            {cancellable && (
+                              <OverflowMenu
+                                label={`More actions for booking #${b.booking_id}`}
+                                items={[{ label: "Cancel booking", icon: XCircle, tone: "danger", onClick: () => handleCancel(b) }]}
+                              />
+                            )}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </SectionGroup>
+              );
+            })}
+          </div>
+        )}
+      </ListFrame>
     </div>
   );
 }

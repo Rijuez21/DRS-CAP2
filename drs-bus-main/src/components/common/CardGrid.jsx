@@ -13,7 +13,7 @@ export default function CardGrid({ sortFields = [], renderCard, rowKey, label, c
       {(pageRows) => (
         <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label={label}>
           {pageRows.map((item) => (
-            <li key={rowKey(item)} className={`rounded-xl border bg-white p-4 flex flex-col gap-3 hover:border-slate-300 transition-colors ${cardClassName?.(item) ?? ""}`}>
+            <li key={rowKey(item)} className={`panel panel-hover p-4 flex flex-col gap-3 ${cardClassName?.(item) ?? ""}`}>
               {renderCard(item)}
             </li>
           ))}

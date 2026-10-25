@@ -65,6 +65,21 @@
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-brand-green-600) 25%, transparent);
   }
 
+  /* Admin/staff surfaces: one white panel style for every card, section
+     and chart box, so the back office reads as a single system. */
+  .panel {
+    background-color: #fff;
+    border: 1px solid rgb(148 163 184);
+    border-radius: 1rem;
+    box-shadow: 0 1px 2px rgb(18 39 27 / 0.08), 0 6px 20px -14px rgb(18 39 27 / 0.3);  }
+  .panel-hover {
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .panel-hover:hover {
+    border-color: color-mix(in srgb, var(--color-brand-green-500) 40%, transparent);
+    box-shadow: 0 1px 2px rgb(18 39 27 / 0.05), 0 10px 24px -14px rgb(18 39 27 / 0.28);
+  }
+
   /* Passenger area surfaces. .card is the default white panel; add
      .card-interactive to anything clickable so every tappable card lifts
      the same way. Utilities (rounded-*, p-*) still override these. */

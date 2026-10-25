@@ -81,7 +81,7 @@ const headerText = (c) => (typeof c.header === "string" && c.header ? c.header :
 
 function Shell({ columns, t, label, minWidth, hideOnPhone, children }) {
   return (
-    <div className={`${hideOnPhone ? "hidden md:block" : ""} bg-white rounded-xl border max-h-[70vh] overflow-auto`}>
+    <div className={`${hideOnPhone ? "hidden md:block" : ""} panel max-h-[70vh] overflow-auto`}>
       <table className="w-full text-sm" style={{ minWidth }} aria-label={label}>
         <thead className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
           <tr>
@@ -142,7 +142,7 @@ function AutoCard({ columns, row, onClick, className = "" }) {
   const render = (c) => (c.render ? c.render(row) : row[c.key] ?? "—");
 
   return (
-    <div className={`bg-white rounded-xl border p-4 space-y-2 ${onClick ? "cursor-pointer" : ""} ${className}`} onClick={onClick ? () => onClick(row) : undefined}>
+    <div className={`panel p-4 space-y-2 ${onClick ? "cursor-pointer" : ""} ${className}`} onClick={onClick ? () => onClick(row) : undefined}>
       <div className="flex items-start justify-between gap-2">
         <div className="font-medium min-w-0 break-words">{render(primary)}</div>
         {status && <div className="shrink-0">{render(status)}</div>}

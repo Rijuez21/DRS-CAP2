@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Route as RouteIcon, Plus, Pencil, Power, MapPin } from "lucide-react";
+import { Route as RouteIcon, Plus, Pencil, Power, MapPin, Navigation } from "lucide-react";
 import * as api from "../../lib/api";
-import DataTable from "../../components/common/DataTable";
+import ListFrame from "../../components/common/ListFrame";
+import SectionGroup from "../../components/common/SectionGroup";
+import { groupBy } from "../../lib/groupBy";
+import { SkeletonCards } from "../../components/common/Skeletons";
 import PageHeading from "../../components/common/PageHeading";
 import OverflowMenu from "../../components/common/OverflowMenu";
 import { CancelButton, PrimaryButton, SubmitButton, TextAction } from "../../components/common/Buttons";
@@ -13,6 +16,13 @@ import { hasPin } from "../../lib/stopMarkers";
 import { formatPeso } from "../../lib/format";
 
 const emptyForm = { origin: "", destination: "", distance: "", baseFare: "", specialFare: "" };
+
+const SORT_FIELDS = [
+  { key: "destination", label: "Destination" },
+  { key: "distance", label: "Distance", type: "number" },
+  { key: "base_fare", label: "Regular fare", type: "number" },
+  { key: "is_active", label: "Status", type: "status", accessor: (r) => (r.is_active ? "Active" : "Inactive") },
+];
 
 const PIN_FILTERS = [
   {
@@ -135,66 +145,30 @@ export default function AdminRouteManagement() {
     }
   }
 
-  const columns = [
-    { key: "origin", header: "Origin", truncate: true, render: (r) => <span className="font-medium">{r.origin}</span> },
-    { key: "destination", header: "Destination", truncate: true, primary: true, render: (r) => <span className="font-medium">{r.destination}</span> },
-    { key: "distance", header: "Distance (km)", type: "number", render: (r) => <span className="text-gray-600 tabular-nums">{r.distance ?? "—"}</span> },
-    { key: "base_fare", header: "Regular Fare", type: "number", render: (r) => <span className="text-gray-600 tabular-nums">{formatPeso(r.base_fare)}</span> },
-    {
-      key: "special_fare",
-      header: "Student/Special Fare",
-      type: "number",
-      render: (r) => <span className="text-gray-600 tabular-nums">{r.special_fare != null ? formatPeso(r.special_fare) : "—"}</span>,
-    },
-    {
-      key: "is_active",
-      header: "Status",
-      type: "status",
-      accessor: (r) => (r.is_active ? "Active" : "Inactive"),
-      render: (r) => <StatusBadge status={r.is_active ? "Active" : "Inactive"} />,
-    },
-    {
-      key: "pinned",
-      header: "Pinned",
-      accessor: (r) => (hasPin(r) ? "Pinned" : "Not pinned"),
-      render: (r) =>
-        hasPin(r) ? (
-          <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 whitespace-nowrap" title={`${Number(r.latitude).toFixed(6)}, ${Number(r.longitude).toFixed(6)}`}>
-            <MapPin className="w-4 h-4 fill-emerald-100" /> Pinned
-          </span>
-        ) : (
-          <span className="inline-flex items-center gap-1 text-xs text-slate-400 whitespace-nowrap">
-            <MapPin className="w-4 h-4" /> Not pinned
-          </span>
-        ),
-    },
-    {
-      key: "actions",
-      header: "",
-      render: (r) => (
-        <>
-          <TextAction onClick={() => setPinning(r)}>
-            <MapPin className="w-3.5 h-3.5" aria-hidden="true" /> {hasPin(r) ? "Move pin" : "Pin"}
-            <span className="sr-only"> {r.destination} on the map</span>
-          </TextAction>
-          <TextAction onClick={() => openEdit(r)}>
-            <Pencil className="w-3.5 h-3.5" aria-hidden="true" /> Edit
-          </TextAction>
-          <OverflowMenu
-            label={`More actions for ${r.destination}`}
-            items={[
-              {
-                label: r.is_active ? "Deactivate (hide from booking)" : "Reactivate",
-                icon: Power,
-                tone: r.is_active ? "danger" : undefined,
-                onClick: () => toggleActive(r),
-              },
-            ]}
-          />
-        </>
-      ),
-    },
-  ];
+  function routeActions(r) {
+    return (
+      <>
+        <TextAction onClick={() => setPinning(r)}>
+          <MapPin className="w-3.5 h-3.5" aria-hidden="true" /> {hasPin(r) ? "Move pin" : "Pin"}
+          <span className="sr-only"> {r.destination} on the map</span>
+        </TextAction>
+        <TextAction onClick={() => openEdit(r)}>
+          <Pencil className="w-3.5 h-3.5" aria-hidden="true" /> Edit
+        </TextAction>
+        <OverflowMenu
+          label={`More actions for ${r.destination}`}
+          items={[
+            {
+              label: r.is_active ? "Deactivate (hide from booking)" : "Reactivate",
+              icon: Power,
+              tone: r.is_active ? "danger" : undefined,
+              onClick: () => toggleActive(r),
+            },
+          ]}
+        />
+      </>
+    );
+  }
 
   return (
     <div className="p-4 sm:p-6 space-y-4">
@@ -211,19 +185,17 @@ export default function AdminRouteManagement() {
       <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
       <InlineAlert type="success" message={success} onDismiss={() => setSuccess("")} />
 
-      <DataTable
-        label="Routes"
-        columns={columns}
+      <ListFrame
         rows={routes}
-        rowKey={(r) => r.route_id}
+        fields={SORT_FIELDS}
         isLoading={isLoading}
         syncUrl
-        pageSize={25}
+        pageSize={24}
+        paging="more"
         searchKeys={["origin", "destination"]}
         searchPlaceholder="Search by origin or destination…"
         filters={PIN_FILTERS}
-        rowClassName={(r) => (r.is_active ? "" : "opacity-60")}
-        minWidth="64rem"
+        skeleton={<SkeletonCards count={6} />}
         emptyState={{ icon: RouteIcon, title: "No routes yet", description: "Add a route to start scheduling trips." }}
         toolbar={
           routes.length > 0 && (
@@ -232,7 +204,63 @@ export default function AdminRouteManagement() {
             </span>
           )
         }
-      />
+      >
+        {(pageRows) => (
+          <div className="space-y-4">
+            {groupBy(pageRows, (r) => r.origin).map(([origin, items], i) => {
+              const total = routes.filter((r) => r.origin === origin);
+              const pinned = total.filter(hasPin).length;
+              return (
+                <SectionGroup
+                  key={origin}
+                  id={`origin-${i}`}
+                  icon={Navigation}
+                  title={`From ${origin}`}
+                  subtitle={`${total.filter((r) => r.is_active).length} active · ${pinned} of ${total.length} stops pinned`}
+                  count={items.length}
+                  countLabel={items.length === 1 ? "stop" : "stops"}
+                >
+                  <ul className="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3" aria-label={`Routes from ${origin}`}>
+                    {items.map((r) => (
+                      <li key={r.route_id} className={`rounded-xl border border-slate-300 bg-white p-3.5 flex flex-col gap-3 hover:border-brand-green-500/50 transition-colors ${r.is_active ? "" : "opacity-60 bg-slate-50"}`}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-semibold text-ink-900 break-words">{r.destination}</p>
+                            <p className="text-xs text-gray-500 tabular-nums">{r.distance != null ? `${r.distance} km` : "Distance not set"}</p>
+                          </div>
+                          <StatusBadge status={r.is_active ? "Active" : "Inactive"} />
+                        </div>
+                        <dl className="grid grid-cols-2 gap-2 text-sm">
+                          <div className="rounded-lg bg-slate-50 px-2.5 py-1.5">
+                            <dt className="text-[11px] uppercase tracking-wide text-gray-500">Regular</dt>
+                            <dd className="font-semibold tabular-nums text-ink-900">{formatPeso(r.base_fare)}</dd>
+                          </div>
+                          <div className="rounded-lg bg-slate-50 px-2.5 py-1.5">
+                            <dt className="text-[11px] uppercase tracking-wide text-gray-500">Student</dt>
+                            <dd className="font-semibold tabular-nums text-ink-900">{r.special_fare != null ? formatPeso(r.special_fare) : "—"}</dd>
+                          </div>
+                        </dl>
+                        <div className="flex items-center gap-1 border-t border-slate-100 pt-2 mt-auto">
+                          {hasPin(r) ? (
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700" title={`${Number(r.latitude).toFixed(6)}, ${Number(r.longitude).toFixed(6)}`}>
+                              <MapPin className="w-4 h-4 fill-emerald-100" aria-hidden="true" /> Pinned
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-xs text-slate-400">
+                              <MapPin className="w-4 h-4" aria-hidden="true" /> Not pinned
+                            </span>
+                          )}
+                          <div className="ml-auto flex items-center gap-1">{routeActions(r)}</div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </SectionGroup>
+              );
+            })}
+          </div>
+        )}
+      </ListFrame>
 
       {pinning && <StopPinMap route={pinning} allRoutes={routes} onSaved={handlePinSaved} onClose={() => setPinning(null)} />}
 

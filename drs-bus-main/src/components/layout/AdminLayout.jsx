@@ -1,5 +1,6 @@
 import { LayoutDashboard, Bus, Map, Route, IdCard, CalendarClock, Ticket, BarChart3, Users, Wallet, QrCode, Satellite } from "lucide-react";
 import RoleLayout from "./RoleLayout";
+import sunLogo from "../../assets/logo-sun.svg";
 
 // Admin work is mostly desktop, but the four most-checked screens are
 // bottom tabs on a phone; everything else is in the menu.
@@ -19,13 +20,16 @@ const links = [
 ];
 
 const theme = {
-  sidebar: "bg-slate-800",
-  activeLink: "bg-slate-950 text-white",
-  idleLink: "text-white/80 hover:bg-slate-700 hover:text-white",
-  muted: "text-slate-400",
-  tabActive: "text-slate-900",
+  sidebar: "bg-linear-to-b from-brand-forest-900 to-brand-forest-950",
+  activeLink: "bg-white/10 text-white shadow-[inset_3px_0_0_var(--color-brand-sunrise-400)]",
+  idleLink: "text-white/70 hover:bg-white/5 hover:text-white",
+  muted: "text-white/50",
+  tabActive: "text-brand-forest-900",
+  tabBar: "bg-white/90 backdrop-blur-md border-t border-slate-200/70 shadow-[0_-8px_24px_-16px_rgba(18,39,27,0.35)]",
+  tabPill: "bg-brand-green-500/15 text-brand-green-600",
+  avatar: "bg-brand-sunrise-400 text-brand-forest-950",
 };
 
 export default function AdminLayout() {
-  return <RoleLayout title="DRS Admin" links={links} theme={theme} bell="staff" />;
+  return <RoleLayout title="DRS Admin" links={links} theme={theme} bell="staff" logo={sunLogo} />;
 }
