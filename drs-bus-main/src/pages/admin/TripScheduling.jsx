@@ -9,6 +9,7 @@ import PageHeading from "../../components/common/PageHeading";
 import InlineAlert from "../../components/common/InlineAlert";
 import Modal from "../../components/admin/Modal";
 import StatusBadge from "../../components/common/StatusBadge";
+import SectionGroup from "../../components/common/SectionGroup";
 import { useAuth } from "../../context/AuthContext";
 import { formatDate, formatTime } from "../../lib/format";
 
@@ -229,7 +230,7 @@ export default function AdminTripScheduling() {
         syncUrl
         initialSort={{ key: "departure_time", dir: "asc" }}
         pageSize={25}
-        paging="more"
+        paging="pages"
         searchKeys={[routeLabel, "plate_num", "bus_number", "driver_name"]}
         searchPlaceholder="Search route, bus or driver…"
         filters={statusFilters}
@@ -244,15 +245,16 @@ export default function AdminTripScheduling() {
         {(pageRows, { state }) => (
           <div className="space-y-5">
             {groupByDay(pageRows, state).map(([day, trips]) => (
-              <section key={day} aria-labelledby={`day-${day}`}>
-                <h2 id={`day-${day}`} className="flex items-baseline gap-2 mb-2">
-                  <span className="font-display text-base font-bold text-ink-900">{dayLabel(day)}</span>
-                  <span className="text-xs text-gray-500">
-                    {RELATIVE_DAYS.includes(dayLabel(day)) && `${formatDate(`${day}T00:00:00`)} · `}
-                    {trips.length} trip{trips.length === 1 ? "" : "s"}
-                  </span>
-                </h2>
-                <ul className="rounded-xl border bg-white divide-y divide-slate-100">
+              <SectionGroup
+                key={day}
+                id={`day-${day}`}
+                icon={CalendarClock}
+                title={dayLabel(day)}
+                subtitle={RELATIVE_DAYS.includes(dayLabel(day)) ? formatDate(`${day}T00:00:00`) : undefined}
+                count={trips.length}
+                countLabel={trips.length === 1 ? "trip" : "trips"}
+              >
+                <ul className="divide-y divide-slate-100">
                   {trips.map((t) => {
                     const booked = Number(t.booked_count ?? 0);
                     const full = t.capacity != null && booked >= t.capacity;
@@ -291,7 +293,7 @@ export default function AdminTripScheduling() {
                     );
                   })}
                 </ul>
-              </section>
+              </SectionGroup>
             ))}
           </div>
         )}

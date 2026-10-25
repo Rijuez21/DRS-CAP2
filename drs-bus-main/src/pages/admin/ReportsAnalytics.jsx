@@ -3,6 +3,7 @@ import { Download } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
 import * as api from "../../lib/api";
 import InlineAlert from "../../components/common/InlineAlert";
+import PageHeading from "../../components/common/PageHeading";
 import { formatDate } from "../../lib/format";
 
 const REPORT_TYPES = [
@@ -53,13 +54,10 @@ export default function ReportsAnalytics() {
   }, [reportType, from, to]);
 
   return (
-    <div className="p-6 space-y-4">
-      <header>
-        <h1 className="text-xl font-bold">Reports & Analytics</h1>
-        <p className="text-sm text-gray-500">Fleet-wide performance, cost, and reservation trends.</p>
-      </header>
+    <div className="p-4 sm:p-6 space-y-4">
+      <PageHeading title="Reports & Analytics" subtitle="Fleet-wide performance, cost, and reservation trends." />
 
-      <div className="flex flex-wrap items-end gap-3">
+      <div className="panel flex flex-wrap items-end gap-3 p-4">
         <label className="block">
           <span className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Report</span>
           <select value={reportType} onChange={(e) => changeFilter(setReportType)(e.target.value)} className="input max-w-xs">
@@ -90,7 +88,7 @@ export default function ReportsAnalytics() {
             }
           }}
           disabled={isExporting}
-          className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-60 text-white text-sm font-semibold px-3 py-2 rounded"
+          className="inline-flex items-center gap-1.5 min-h-10 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-60 text-white text-sm font-semibold px-4 rounded-lg shadow-sm sm:ml-auto"
         >
           <Download className="w-4 h-4" /> {isExporting ? "Preparing…" : "Export CSV"}
         </button>
@@ -102,11 +100,15 @@ export default function ReportsAnalytics() {
       {isLoading ? (
         <p className="text-sm text-gray-500">Loading…</p>
       ) : (
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
+        <section className="panel p-4 sm:p-5">
+          <h2 className="font-display font-semibold text-ink-900">{REPORT_TYPES.find((r) => r.key === reportType)?.label}</h2>
+          <p className="text-xs text-gray-500 mb-3">
+            {formatDate(from)} – {formatDate(to)}
+          </p>
           {reportType === "on-time-performance" && <OnTimeChart rows={data} />}
           {reportType === "fleet-utilization" && <UtilizationChart rows={data} />}
           {reportType === "reservation-trends" && <TrendsChart data={data} />}
-        </div>
+        </section>
       )}
     </div>
   );

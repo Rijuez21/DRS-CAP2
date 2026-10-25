@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Route as RouteIcon, Plus, Pencil, Power, MapPin, Navigation } from "lucide-react";
+import { Route as RouteIcon, Plus, Pencil, Power, MapPin, Navigation, ChevronRight } from "lucide-react";
 import * as api from "../../lib/api";
 import ListFrame from "../../components/common/ListFrame";
 import SectionGroup from "../../components/common/SectionGroup";
@@ -59,12 +59,27 @@ export default function AdminRouteManagement() {
   const [form, setForm] = useState(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
   const [pinning, setPinning] = useState(null); // route whose pin dialog is open
+  const [statusView, setStatusView] = useState("active"); // "active" | "inactive" | "all"
+  const [expandedIds, setExpandedIds] = useState(() => new Set()); // rows opened into cards
 
   function load() {
     api.getAdminRoutes().then(setRoutes).catch((err) => setError(err.message)).finally(() => setIsLoading(false));
   }
 
   useEffect(load, []);
+
+  const shownRoutes = useMemo(
+    () => routes.filter((r) => (statusView === "all" ? true : statusView === "active" ? r.is_active : !r.is_active)),
+    [routes, statusView]
+  );
+  function toggleRow(id) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   const pinnedCount = useMemo(() => routes.filter(hasPin).length, [routes]);
 
@@ -186,23 +201,53 @@ export default function AdminRouteManagement() {
       <InlineAlert type="success" message={success} onDismiss={() => setSuccess("")} />
 
       <ListFrame
-        rows={routes}
+        rows={shownRoutes}
         fields={SORT_FIELDS}
         isLoading={isLoading}
         syncUrl
-        pageSize={24}
-        paging="more"
+        pageSize={25}
+        paging="pages"
         searchKeys={["origin", "destination"]}
         searchPlaceholder="Search by origin or destination…"
         filters={PIN_FILTERS}
         skeleton={<SkeletonCards count={6} />}
         emptyState={{ icon: RouteIcon, title: "No routes yet", description: "Add a route to start scheduling trips." }}
         toolbar={
-          routes.length > 0 && (
-            <span className="text-xs text-gray-500">
-              {pinnedCount} of {routes.length} stops pinned
-            </span>
-          )
+          <>
+            <div className="inline-flex rounded-lg border bg-white p-0.5" role="group" aria-label="Show routes">
+              {[["active", "Active"], ["inactive", "Inactive"], ["all", "All"]].map(([v, label]) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setStatusView(v)}
+                  aria-pressed={statusView === v}
+                  className={`px-3 min-h-10 md:min-h-9 text-sm font-medium rounded-md ${statusView === v ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setExpandedIds(new Set(shownRoutes.map((r) => r.route_id)))}
+              className="min-h-11 md:min-h-10 px-3 rounded-lg border bg-white text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Expand all
+            </button>
+            <button
+              type="button"
+              onClick={() => setExpandedIds(new Set())}
+              disabled={expandedIds.size === 0}
+              className="min-h-11 md:min-h-10 px-3 rounded-lg border bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Collapse all
+            </button>
+            {routes.length > 0 && (
+              <span className="text-xs text-gray-500">
+                {pinnedCount} of {routes.length} stops pinned
+              </span>
+            )}
+          </>
         }
       >
         {(pageRows) => (
@@ -220,40 +265,61 @@ export default function AdminRouteManagement() {
                   count={items.length}
                   countLabel={items.length === 1 ? "stop" : "stops"}
                 >
-                  <ul className="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3" aria-label={`Routes from ${origin}`}>
-                    {items.map((r) => (
-                      <li key={r.route_id} className={`rounded-xl border border-slate-300 bg-white p-3.5 flex flex-col gap-3 hover:border-brand-green-500/50 transition-colors ${r.is_active ? "" : "opacity-60 bg-slate-50"}`}>
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="font-semibold text-ink-900 break-words">{r.destination}</p>
-                            <p className="text-xs text-gray-500 tabular-nums">{r.distance != null ? `${r.distance} km` : "Distance not set"}</p>
-                          </div>
-                          <StatusBadge status={r.is_active ? "Active" : "Inactive"} />
-                        </div>
-                        <dl className="grid grid-cols-2 gap-2 text-sm">
-                          <div className="rounded-lg bg-slate-50 px-2.5 py-1.5">
-                            <dt className="text-[11px] uppercase tracking-wide text-gray-500">Regular</dt>
-                            <dd className="font-semibold tabular-nums text-ink-900">{formatPeso(r.base_fare)}</dd>
-                          </div>
-                          <div className="rounded-lg bg-slate-50 px-2.5 py-1.5">
-                            <dt className="text-[11px] uppercase tracking-wide text-gray-500">Student</dt>
-                            <dd className="font-semibold tabular-nums text-ink-900">{r.special_fare != null ? formatPeso(r.special_fare) : "—"}</dd>
-                          </div>
-                        </dl>
-                        <div className="flex items-center gap-1 border-t border-slate-100 pt-2 mt-auto">
-                          {hasPin(r) ? (
-                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700" title={`${Number(r.latitude).toFixed(6)}, ${Number(r.longitude).toFixed(6)}`}>
-                              <MapPin className="w-4 h-4 fill-emerald-100" aria-hidden="true" /> Pinned
+                  <ul className="divide-y divide-slate-100" aria-label={`Routes from ${origin}`}>
+                    {items.map((r) => {
+                      const open = expandedIds.has(r.route_id);
+                      return (
+                        <li key={r.route_id} className={r.is_active ? "" : "bg-slate-50"}>
+                          <button
+                            type="button"
+                            onClick={() => toggleRow(r.route_id)}
+                            aria-expanded={open}
+                            className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-brand-green-500/5"
+                          >
+                            <ChevronRight className={`w-4 h-4 shrink-0 text-gray-400 transition-transform ${open ? "rotate-90" : ""}`} aria-hidden="true" />
+                            <span className={`min-w-0 flex-1 ${r.is_active ? "" : "opacity-60"}`}>
+                              <span className="block font-semibold text-ink-900 truncate">{r.destination}</span>
+                              <span className="block text-xs text-gray-500 tabular-nums">{r.distance != null ? `${r.distance} km` : "Distance not set"}</span>
                             </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-xs text-slate-400">
-                              <MapPin className="w-4 h-4" aria-hidden="true" /> Not pinned
-                            </span>
+                            {!r.is_active && <StatusBadge status="Inactive" />}
+                            <MapPin className={`w-4 h-4 shrink-0 ${hasPin(r) ? "text-emerald-600 fill-emerald-100" : "text-slate-300"}`} aria-label={hasPin(r) ? "Pinned" : "Not pinned"} />
+                            <span className="w-16 text-right text-sm font-semibold tabular-nums text-ink-900">{formatPeso(r.base_fare)}</span>
+                          </button>
+                          {open && (
+                            <div className="px-4 pb-4 pl-11">
+                              <div className="rounded-xl border border-slate-300 bg-white p-3.5 flex flex-col gap-3">
+                                <div className="flex items-start justify-between gap-2">
+                                  <p className="font-semibold text-ink-900 break-words">
+                                    {r.origin} → {r.destination}
+                                  </p>
+                                  <StatusBadge status={r.is_active ? "Active" : "Inactive"} />
+                                </div>
+                                <dl className="grid grid-cols-3 gap-2 text-sm">
+                                  <div className="rounded-lg bg-slate-50 px-2.5 py-1.5">
+                                    <dt className="text-[11px] uppercase tracking-wide text-gray-500">Distance</dt>
+                                    <dd className="font-semibold tabular-nums text-ink-900">{r.distance != null ? `${r.distance} km` : "—"}</dd>
+                                  </div>
+                                  <div className="rounded-lg bg-slate-50 px-2.5 py-1.5">
+                                    <dt className="text-[11px] uppercase tracking-wide text-gray-500">Regular</dt>
+                                    <dd className="font-semibold tabular-nums text-ink-900">{formatPeso(r.base_fare)}</dd>
+                                  </div>
+                                  <div className="rounded-lg bg-slate-50 px-2.5 py-1.5">
+                                    <dt className="text-[11px] uppercase tracking-wide text-gray-500">Student</dt>
+                                    <dd className="font-semibold tabular-nums text-ink-900">{r.special_fare != null ? formatPeso(r.special_fare) : "—"}</dd>
+                                  </div>
+                                </dl>
+                                <div className="flex flex-wrap items-center gap-1 border-t border-slate-100 pt-2">
+                                  <span className={`inline-flex items-center gap-1 text-xs ${hasPin(r) ? "font-semibold text-emerald-700" : "text-slate-400"}`}>
+                                    <MapPin className="w-4 h-4" aria-hidden="true" /> {hasPin(r) ? "Pinned" : "Not pinned"}
+                                  </span>
+                                  <div className="ml-auto flex items-center gap-1">{routeActions(r)}</div>
+                                </div>
+                              </div>
+                            </div>
                           )}
-                          <div className="ml-auto flex items-center gap-1">{routeActions(r)}</div>
-                        </div>
-                      </li>
-                    ))}
+                        </li>
+                      );
+                    })}
                   </ul>
                 </SectionGroup>
               );

@@ -4,6 +4,9 @@ import { Plus, Pencil, QrCode, Upload, Smartphone, Landmark, Wallet } from "luci
 import * as api from "../../lib/api";
 import InlineAlert from "../../components/common/InlineAlert";
 import EmptyState from "../../components/common/EmptyState";
+import PageHeading from "../../components/common/PageHeading";
+import StatusBadge from "../../components/common/StatusBadge";
+import { PrimaryButton, TextAction } from "../../components/common/Buttons";
 import Modal from "../../components/admin/Modal";
 import { RECEIPT_ACCEPT, readImageFile } from "../../lib/image";
 import { formatDateTime, PAYMENT_METHOD_LABELS } from "../../lib/format";
@@ -70,25 +73,25 @@ export default function PaymentSettings() {
 
   return (
     <div className="p-4 sm:p-6 space-y-4 max-w-4xl">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold">Payment Methods</h1>
-          <p className="text-sm text-gray-500 max-w-2xl">The official accounts passengers pay for online bookings. Only active methods are shown at checkout.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Link to="/admin/payments" className="text-sm font-semibold text-brand-green-600 hover:underline">
-            Payment Verification →
-          </Link>
-          <button type="button" onClick={() => edit(null)} className="inline-flex items-center gap-1.5 bg-slate-900 text-white text-sm font-semibold rounded-lg px-3 py-2">
-            <Plus className="w-4 h-4" /> Add method
-          </button>
-        </div>
-      </header>
+      <PageHeading
+        title="Payment Methods"
+        subtitle="The official accounts passengers pay for online bookings. Only active methods are shown at checkout."
+        actions={
+          <>
+            <Link to="/admin/payments" className="text-sm font-semibold text-brand-green-600 hover:underline px-1">
+              Payment Verification →
+            </Link>
+            <PrimaryButton icon={Plus} onClick={() => edit(null)}>
+              Add method
+            </PrimaryButton>
+          </>
+        }
+      />
 
       <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
       <InlineAlert type="success" message={success} onDismiss={() => setSuccess("")} />
 
-      <p className="text-xs text-gray-600 bg-amber-50 border border-amber-200 rounded-lg p-3">
+      <p className="text-xs text-gray-600 bg-amber-50 border border-amber-300 rounded-xl p-3">
         Double-check every account name and number before activating — passengers send real money here. Changes apply to new checkouts immediately and are recorded in the audit log.
       </p>
 
@@ -101,20 +104,20 @@ export default function PaymentSettings() {
           {methods.map((m) => {
             const Icon = ICONS[m.method_type] ?? Wallet;
             return (
-              <li key={m.method_id} className="bg-white rounded-lg border p-4 space-y-2">
+              <li key={m.method_id} className={`panel panel-hover p-4 space-y-3 ${m.is_active ? "" : "bg-slate-50"}`}>
                 <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Icon className="w-5 h-5 text-brand-green-600 shrink-0" />
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="w-10 h-10 shrink-0 rounded-xl bg-brand-forest-900 text-brand-sunrise-400 flex items-center justify-center" aria-hidden="true">
+                      <Icon className="w-5 h-5" />
+                    </span>
                     <div className="min-w-0">
-                      <p className="font-semibold truncate">{m.display_name}</p>
+                      <p className="font-semibold text-ink-900 truncate">{m.display_name}</p>
                       <p className="text-xs text-gray-500">{PAYMENT_METHOD_LABELS[m.method_type]}</p>
                     </div>
                   </div>
-                  <span className={`text-xs font-semibold rounded-full px-2 py-0.5 ${m.is_active ? "bg-brand-green-500/15 text-brand-green-600" : "bg-slate-100 text-slate-500"}`}>
-                    {m.is_active ? "Active" : "Hidden"}
-                  </span>
+                  <StatusBadge status={m.is_active ? "Active" : "Inactive"} label={m.is_active ? "Active" : "Hidden"} />
                 </div>
-                <dl className="text-sm space-y-0.5">
+                <dl className="text-sm space-y-0.5 rounded-lg bg-slate-50 px-3 py-2">
                   {m.bank_name && <p>{m.bank_name}</p>}
                   <p>{m.account_name || <span className="text-gray-400">No account name</span>}</p>
                   <p className="font-mono">{m.account_number || <span className="font-sans text-gray-400">No account number</span>}</p>
@@ -124,13 +127,13 @@ export default function PaymentSettings() {
                   Updated {formatDateTime(m.updated_at)}
                   {m.updated_by_name ? ` by ${m.updated_by_name}` : ""}
                 </p>
-                <div className="flex gap-3 pt-1">
-                  <button type="button" onClick={() => edit(m)} className="text-sm font-semibold text-sky-700 inline-flex items-center gap-1">
-                    <Pencil className="w-3.5 h-3.5" /> Edit
-                  </button>
-                  <button type="button" onClick={() => toggle(m)} className="text-sm font-semibold text-gray-600">
+                <div className="flex justify-end gap-1 border-t border-slate-100 pt-2">
+                  <TextAction onClick={() => edit(m)}>
+                    <Pencil className="w-3.5 h-3.5" aria-hidden="true" /> Edit
+                  </TextAction>
+                  <TextAction onClick={() => toggle(m)} tone={m.is_active ? "danger" : "primary"}>
                     {m.is_active ? "Hide" : "Activate"}
-                  </button>
+                  </TextAction>
                 </div>
               </li>
             );
