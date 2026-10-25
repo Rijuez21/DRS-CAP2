@@ -1,0 +1,688 @@
+diff --git a/drs-bus-main/src/components/common/CardGrid.jsx b/drs-bus-main/src/components/common/CardGrid.jsx
+index f2fadb8..e90b663 100644
+--- a/drs-bus-main/src/components/common/CardGrid.jsx
++++ b/drs-bus-main/src/components/common/CardGrid.jsx
+@@ -13,7 +13,7 @@ export default function CardGrid({ sortFields = [], renderCard, rowKey, label, c
+       {(pageRows) => (
+         <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label={label}>
+           {pageRows.map((item) => (
+-            <li key={rowKey(item)} className={`rounded-xl border bg-white p-4 flex flex-col gap-3 hover:border-slate-300 transition-colors ${cardClassName?.(item) ?? ""}`}>
++            <li key={rowKey(item)} className={`panel panel-hover p-4 flex flex-col gap-3 ${cardClassName?.(item) ?? ""}`}>
+               {renderCard(item)}
+             </li>
+           ))}
+diff --git a/drs-bus-main/src/components/common/DataTable.jsx b/drs-bus-main/src/components/common/DataTable.jsx
+index d15a598..7630e76 100644
+--- a/drs-bus-main/src/components/common/DataTable.jsx
++++ b/drs-bus-main/src/components/common/DataTable.jsx
+@@ -81,7 +81,7 @@ const headerText = (c) => (typeof c.header === "string" && c.header ? c.header :
+ 
+ function Shell({ columns, t, label, minWidth, hideOnPhone, children }) {
+   return (
+-    <div className={`${hideOnPhone ? "hidden md:block" : ""} bg-white rounded-xl border max-h-[70vh] overflow-auto`}>
++    <div className={`${hideOnPhone ? "hidden md:block" : ""} panel max-h-[70vh] overflow-auto`}>
+       <table className="w-full text-sm" style={{ minWidth }} aria-label={label}>
+         <thead className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+           <tr>
+@@ -142,7 +142,7 @@ function AutoCard({ columns, row, onClick, className = "" }) {
+   const render = (c) => (c.render ? c.render(row) : row[c.key] ?? "—");
+ 
+   return (
+-    <div className={`bg-white rounded-xl border p-4 space-y-2 ${onClick ? "cursor-pointer" : ""} ${className}`} onClick={onClick ? () => onClick(row) : undefined}>
++    <div className={`panel p-4 space-y-2 ${onClick ? "cursor-pointer" : ""} ${className}`} onClick={onClick ? () => onClick(row) : undefined}>
+       <div className="flex items-start justify-between gap-2">
+         <div className="font-medium min-w-0 break-words">{render(primary)}</div>
+         {status && <div className="shrink-0">{render(status)}</div>}
+diff --git a/drs-bus-main/src/components/common/SectionGroup.jsx b/drs-bus-main/src/components/common/SectionGroup.jsx
+new file mode 100644
+index 0000000..69a7e76
+--- /dev/null
++++ b/drs-bus-main/src/components/common/SectionGroup.jsx
+@@ -0,0 +1,55 @@
++import { useState } from "react";
++import { ChevronDown } from "lucide-react";
++
++// A titled, collapsible chunk of a list — "everything from Baguio", "this
++// departure's bookings". Replaces one long table with sections people can
++// scan, and fold away once they are done with them.
++//
++//   title      main label (e.g. "Baguio City")
++//   subtitle   one quiet line under it
++//   count      number shown in the pill beside the title
++//   aside      anything on the right of the header (a badge, a total)
++//   icon       lucide icon for the tile at the left of the header
++//   children   the section body
++export default function SectionGroup({ id, title, subtitle, count, countLabel, aside, icon: Icon, defaultOpen = true, children }) {
++  const [open, setOpen] = useState(defaultOpen);
++  const bodyId = `${id}-body`;
++
++  return (
++    <section className="panel overflow-hidden" aria-labelledby={id}>
++      <h2 id={id} className="m-0">
++        <button
++          type="button"
++          onClick={() => setOpen((v) => !v)}
++          aria-expanded={open}
++          aria-controls={bodyId}
++          className="w-full flex items-center gap-3 px-4 py-3 text-left bg-linear-to-r from-brand-green-500/8 to-transparent hover:from-brand-green-500/14 transition-colors"
++        >
++          {Icon && (
++            <span className="w-9 h-9 shrink-0 rounded-xl bg-brand-forest-900 text-brand-sunrise-400 flex items-center justify-center" aria-hidden="true">
++              <Icon className="w-4.5 h-4.5" />
++            </span>
++          )}
++          <span className="min-w-0 flex-1">
++            <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
++              <span className="font-display text-base font-bold text-ink-900 break-words">{title}</span>
++              {count != null && (
++                <span className="px-2 py-0.5 rounded-full bg-slate-900/6 text-xs font-semibold text-slate-600 tabular-nums">
++                  {count} {countLabel}
++                </span>
++              )}
++            </span>
++            {subtitle && <span className="block text-xs text-gray-500 mt-0.5">{subtitle}</span>}
++          </span>
++          {aside && <span className="hidden sm:inline-flex items-center gap-2 shrink-0">{aside}</span>}
++          <ChevronDown className={`w-5 h-5 shrink-0 text-gray-400 transition-transform ${open ? "" : "-rotate-90"}`} aria-hidden="true" />
++        </button>
++      </h2>
++      {open && (
++        <div id={bodyId} className="border-t border-slate-100">
++          {children}
++        </div>
++      )}
++    </section>
++  );
++}
+diff --git a/drs-bus-main/src/components/layout/AdminLayout.jsx b/drs-bus-main/src/components/layout/AdminLayout.jsx
+index 7ef8834..2b9073e 100644
+--- a/drs-bus-main/src/components/layout/AdminLayout.jsx
++++ b/drs-bus-main/src/components/layout/AdminLayout.jsx
+@@ -1,5 +1,6 @@
+ import { LayoutDashboard, Bus, Map, Route, IdCard, CalendarClock, Ticket, BarChart3, Users, Wallet, QrCode, Satellite } from "lucide-react";
+ import RoleLayout from "./RoleLayout";
++import sunLogo from "../../assets/logo-sun.svg";
+ 
+ // Admin work is mostly desktop, but the four most-checked screens are
+ // bottom tabs on a phone; everything else is in the menu.
+@@ -19,13 +20,16 @@ const links = [
+ ];
+ 
+ const theme = {
+-  sidebar: "bg-slate-800",
+-  activeLink: "bg-slate-950 text-white",
+-  idleLink: "text-white/80 hover:bg-slate-700 hover:text-white",
+-  muted: "text-slate-400",
+-  tabActive: "text-slate-900",
++  sidebar: "bg-linear-to-b from-brand-forest-900 to-brand-forest-950",
++  activeLink: "bg-white/10 text-white shadow-[inset_3px_0_0_var(--color-brand-sunrise-400)]",
++  idleLink: "text-white/70 hover:bg-white/5 hover:text-white",
++  muted: "text-white/50",
++  tabActive: "text-brand-forest-900",
++  tabBar: "bg-white/90 backdrop-blur-md border-t border-slate-200/70 shadow-[0_-8px_24px_-16px_rgba(18,39,27,0.35)]",
++  tabPill: "bg-brand-green-500/15 text-brand-green-600",
++  avatar: "bg-brand-sunrise-400 text-brand-forest-950",
+ };
+ 
+ export default function AdminLayout() {
+-  return <RoleLayout title="DRS Admin" links={links} theme={theme} bell="staff" />;
++  return <RoleLayout title="DRS Admin" links={links} theme={theme} bell="staff" logo={sunLogo} />;
+ }
+diff --git a/drs-bus-main/src/index.css b/drs-bus-main/src/index.css
+index 719f0c0..7d181b1 100644
+--- a/drs-bus-main/src/index.css
++++ b/drs-bus-main/src/index.css
+@@ -65,6 +65,22 @@
+     box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-brand-green-600) 25%, transparent);
+   }
+ 
++  /* Admin/staff surfaces: one white panel style for every card, section
++     and chart box, so the back office reads as a single system. */
++  .panel {
++    background-color: #fff;
++    border: 1px solid rgb(226 232 240 / 0.9);
++    border-radius: 1rem;
++    box-shadow: 0 1px 2px rgb(18 39 27 / 0.04), 0 6px 20px -14px rgb(18 39 27 / 0.2);
++  }
++  .panel-hover {
++    transition: border-color 0.15s ease, box-shadow 0.15s ease;
++  }
++  .panel-hover:hover {
++    border-color: color-mix(in srgb, var(--color-brand-green-500) 40%, transparent);
++    box-shadow: 0 1px 2px rgb(18 39 27 / 0.05), 0 10px 24px -14px rgb(18 39 27 / 0.28);
++  }
++
+   /* Passenger area surfaces. .card is the default white panel; add
+      .card-interactive to anything clickable so every tappable card lifts
+      the same way. Utilities (rounded-*, p-*) still override these. */
+diff --git a/drs-bus-main/src/lib/groupBy.js b/drs-bus-main/src/lib/groupBy.js
+new file mode 100644
+index 0000000..e84c158
+--- /dev/null
++++ b/drs-bus-main/src/lib/groupBy.js
+@@ -0,0 +1,11 @@
++// Keeps first-appearance order, so the list's own sort decides which
++// chunk comes first and how the items inside it are ordered.
++export function groupBy(rows, keyOf) {
++  const groups = new Map();
++  for (const row of rows) {
++    const k = keyOf(row);
++    if (!groups.has(k)) groups.set(k, []);
++    groups.get(k).push(row);
++  }
++  return [...groups.entries()];
++}
+diff --git a/drs-bus-main/src/pages/admin/Dashboard.jsx b/drs-bus-main/src/pages/admin/Dashboard.jsx
+index b57d7eb..2327a8c 100644
+--- a/drs-bus-main/src/pages/admin/Dashboard.jsx
++++ b/drs-bus-main/src/pages/admin/Dashboard.jsx
+@@ -3,6 +3,9 @@ import { Bus, CalendarClock, Ticket } from "lucide-react";
+ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+ import * as api from "../../lib/api";
+ import InlineAlert from "../../components/common/InlineAlert";
++import PageHeading from "../../components/common/PageHeading";
++import EmptyState from "../../components/common/EmptyState";
++import { initials } from "../../lib/format";
+ import { formatDate } from "../../lib/format";
+ 
+ // The backend logs raw action codes (create, update, delete, status_change,
+@@ -40,6 +43,8 @@ function describeActivity({ action, entity_type: entityType, entity_id: entityId
+   }
+ }
+ 
++const shortDay = (d) => new Date(d).toLocaleDateString("en-PH", { month: "short", day: "numeric" });
++
+ // Table 4's Dashboard and Reporting: metric cards + recent-activity feed
+ // (from audit_log) + a trend chart. Reuses recharts rather than adding a
+ // second charting library (Phase 5's ReportsAnalytics.jsx uses the same one).
+@@ -51,60 +56,71 @@ export default function AdminDashboard() {
+     api.getDashboardSummary().then(setSummary).catch((err) => setError(err.message));
+   }, []);
+ 
+-  if (error) return <div className="p-6"><InlineAlert type="error" message={error} /></div>;
+-  if (!summary) return <div className="p-6 text-sm text-gray-500">Loading…</div>;
++  if (error) return <div className="p-4 sm:p-6"><InlineAlert type="error" message={error} /></div>;
++  if (!summary) return <div className="p-4 sm:p-6 text-sm text-gray-500">Loading…</div>;
+ 
+   const cards = [
+-    { icon: Bus, label: "Active Fleet", value: summary.activeFleetCount },
+-    { icon: CalendarClock, label: "Today's Trips", value: summary.todaysTripCount },
+-    { icon: Ticket, label: "Reservations (This Week)", value: summary.reservationsThisWeek },
++    { icon: Bus, label: "Active Fleet", value: summary.activeFleetCount, tone: "bg-brand-green-500/15 text-emerald-700" },
++    { icon: CalendarClock, label: "Today's Trips", value: summary.todaysTripCount, tone: "bg-sky-500/15 text-sky-700" },
++    { icon: Ticket, label: "Reservations (This Week)", value: summary.reservationsThisWeek, tone: "bg-brand-sunrise-500/20 text-amber-700" },
+   ];
+ 
+   return (
+-    <div className="p-6 space-y-6">
+-      <header>
+-        <h1 className="text-xl font-bold">Dashboard</h1>
+-        <p className="text-sm text-gray-500">Fleet, trips, and reservations at a glance.</p>
+-      </header>
++    <div className="p-4 sm:p-6 space-y-5">
++      <PageHeading title="Dashboard" subtitle="Fleet, trips, and reservations at a glance." />
+ 
+-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+-        {cards.map(({ icon: Icon, label, value, alert }) => (
+-          <div key={label} className={`rounded-xl border p-4 bg-white ${alert ? "border-rose-300" : "border-slate-200"}`}>
+-            <Icon className={`w-5 h-5 mb-2 ${alert ? "text-rose-600" : "text-emerald-700"}`} />
+-            <p className={`text-2xl font-bold ${alert ? "text-rose-600" : ""}`}>{value}</p>
+-            <p className="text-xs text-gray-500">{label}</p>
++      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
++        {cards.map(({ icon: Icon, label, value, tone }) => (
++          <div key={label} className="panel p-4 flex items-center gap-4">
++            <span className={`w-12 h-12 shrink-0 rounded-2xl flex items-center justify-center ${tone}`}>
++              <Icon className="w-6 h-6" aria-hidden="true" />
++            </span>
++            <div>
++              <p className="font-display text-3xl font-bold tabular-nums leading-none text-ink-900">{value}</p>
++              <p className="text-xs text-gray-500 mt-1.5">{label}</p>
++            </div>
+           </div>
+         ))}
+       </div>
+ 
+       <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4">
+-        <div className="bg-white rounded-xl border border-slate-200 p-4">
+-          <h2 className="font-semibold text-sm mb-3">Reservations — Last 7 Days</h2>
+-          <ResponsiveContainer width="100%" height={220}>
++        <section className="panel p-4 sm:p-5">
++          <h2 className="font-display font-semibold text-ink-900">Reservations</h2>
++          <p className="text-xs text-gray-500 mb-3">Bookings made each day, last 7 days</p>
++          <ResponsiveContainer width="100%" height={240}>
+             <LineChart data={summary.dailyReservationTrend}>
+-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+-              <XAxis dataKey="day" tickFormatter={(d) => formatDate(d)} fontSize={12} />
+-              <YAxis allowDecimals={false} fontSize={12} />
++              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
++              <XAxis dataKey="day" tickFormatter={shortDay} fontSize={12} tickLine={false} axisLine={false} />
++              <YAxis allowDecimals={false} fontSize={12} tickLine={false} axisLine={false} width={28} />
+               <Tooltip labelFormatter={(d) => formatDate(d)} />
+-              <Line type="monotone" dataKey="count" stroke="#2f9e5c" strokeWidth={2} dot={false} />
++              <Line type="monotone" dataKey="count" stroke="#2f9e5c" strokeWidth={2.5} dot={{ r: 3, fill: "#2f9e5c" }} activeDot={{ r: 5 }} />
+             </LineChart>
+           </ResponsiveContainer>
+-        </div>
++        </section>
+ 
+-        <div className="bg-white rounded-xl border border-slate-200 p-4">
+-          <h2 className="font-semibold text-sm mb-3">Recent Activity</h2>
+-          <ul className="space-y-3 text-sm max-h-56 overflow-y-auto">
+-            {summary.recentActivity.length === 0 && <li className="text-gray-400">No activity yet.</li>}
+-            {summary.recentActivity.map((a) => (
+-              <li key={a.audit_id} className="flex flex-col">
+-                <span>
+-                  <span className="font-semibold">{a.staff_name}</span> {describeActivity(a)}
+-                </span>
+-                <span className="text-xs text-gray-400">{new Date(a.created_at).toLocaleString()}</span>
+-              </li>
+-            ))}
+-          </ul>
+-        </div>
++        <section className="panel p-4 sm:p-5">
++          <h2 className="font-display font-semibold text-ink-900">Recent activity</h2>
++          <p className="text-xs text-gray-500 mb-3">What staff changed lately</p>
++          {summary.recentActivity.length === 0 ? (
++            <EmptyState title="No activity yet" />
++          ) : (
++            <ul className="space-y-3 text-sm max-h-64 overflow-y-auto pr-1">
++              {summary.recentActivity.map((a) => (
++                <li key={a.audit_id} className="flex items-start gap-3">
++                  <span className="w-8 h-8 shrink-0 rounded-full bg-brand-forest-900 text-brand-sunrise-400 flex items-center justify-center text-[11px] font-bold" aria-hidden="true">
++                    {initials(a.staff_name)}
++                  </span>
++                  <span className="flex flex-col min-w-0">
++                    <span>
++                      <span className="font-semibold">{a.staff_name}</span> {describeActivity(a)}
++                    </span>
++                    <span className="text-xs text-gray-400">{new Date(a.created_at).toLocaleString()}</span>
++                  </span>
++                </li>
++              ))}
++            </ul>
++          )}
++        </section>
+       </div>
+     </div>
+   );
+diff --git a/drs-bus-main/src/pages/admin/ReservationsManagement.jsx b/drs-bus-main/src/pages/admin/ReservationsManagement.jsx
+index 97b4e4e..865c4cd 100644
+--- a/drs-bus-main/src/pages/admin/ReservationsManagement.jsx
++++ b/drs-bus-main/src/pages/admin/ReservationsManagement.jsx
+@@ -1,7 +1,10 @@
+ import { useEffect, useState } from "react";
+-import { Ticket, XCircle } from "lucide-react";
++import { Ticket, XCircle, Armchair, Bus } from "lucide-react";
+ import * as api from "../../lib/api";
+-import DataTable from "../../components/common/DataTable";
++import ListFrame from "../../components/common/ListFrame";
++import SectionGroup from "../../components/common/SectionGroup";
++import { groupBy } from "../../lib/groupBy";
++import { SkeletonList } from "../../components/common/Skeletons";
+ import OverflowMenu from "../../components/common/OverflowMenu";
+ import PageHeading from "../../components/common/PageHeading";
+ import InlineAlert from "../../components/common/InlineAlert";
+@@ -19,6 +22,13 @@ const FILTERS = [
+   { key: "status", label: "Status", allLabel: "All statuses", serverSide: true, options: STATUS_OPTIONS.map((s) => ({ value: s, label: s })) },
+   { key: "channel", label: "Channel", allLabel: "All channels", serverSide: true, options: CHANNEL_OPTIONS.map((c) => ({ value: c, label: CHANNEL_LABELS[c] })) },
+ ];
++const SORT_FIELDS = [
++  { key: "booked_at", label: "Booked", type: "date" },
++  { key: "trip", label: "Trip departure", type: "date", sortValue: (b) => b.departure_time },
++  { key: "passenger_name", label: "Passenger" },
++  { key: "status", label: "Status", type: "status" },
++  { key: "seat_number", label: "Seat", accessor: (b) => b.seat_number },
++];
+ const routeLabel = (b) => `${b.origin} → ${b.destination}`;
+ 
+ // Table 4's Reservations Oversight: filterable, read-only except cancel.
+@@ -63,71 +73,86 @@ export default function AdminReservationsManagement() {
+     }
+   }
+ 
+-  const columns = [
+-    {
+-      key: "passenger_name",
+-      header: "Passenger",
+-      truncate: true,
+-      render: (b) => (
+-        <span>
+-          <span className="block font-medium">{b.passenger_name}</span>
+-          <span className="block text-xs text-gray-500 font-mono">#{b.booking_id}</span>
+-        </span>
+-      ),
+-    },
+-    { key: "status", header: "Status", type: "status", render: (b) => <StatusBadge status={b.status} /> },
+-    {
+-      key: "trip",
+-      header: "Trip",
+-      accessor: routeLabel,
+-      sortValue: (b) => b.departure_time,
+-      type: "date",
+-      render: (b) => (
+-        <div className="text-gray-600">
+-          <div className="truncate max-w-[16rem]" title={routeLabel(b)}>{routeLabel(b)}</div>
+-          <div className="text-xs text-gray-400 whitespace-nowrap">
+-            {formatDate(b.departure_time)} · {formatTime(b.departure_time)}
+-          </div>
+-        </div>
+-      ),
+-    },
+-    { key: "seat_number", header: "Seat", align: "right", render: (b) => <span className="text-gray-600 tabular-nums">{b.seat_number}</span> },
+-    { key: "channel", header: "Channel", accessor: (b) => CHANNEL_LABELS[b.channel] ?? b.channel, render: (b) => <span className="text-gray-600">{CHANNEL_LABELS[b.channel] ?? b.channel}</span> },
+-    { key: "booked_at", header: "Booked", type: "date", render: (b) => <span className="text-gray-600 text-xs whitespace-nowrap">{formatDateTime(b.booked_at) ?? "—"}</span> },
+-    {
+-      key: "actions",
+-      header: "",
+-      render: (b) =>
+-        b.status !== "Cancelled" && b.status !== "Boarded" && b.status !== "No-Show" ? (
+-          <OverflowMenu
+-            label={`More actions for booking #${b.booking_id}`}
+-            items={[{ label: "Cancel booking", icon: XCircle, tone: "danger", onClick: () => handleCancel(b) }]}
+-          />
+-        ) : null,
+-    },
+-  ];
+-
+   return (
+     <div className="p-4 sm:p-6 space-y-4">
+-      <PageHeading title="Reservations" subtitle="Every booking across all channels. Newest first." />
++      <PageHeading title="Reservations" subtitle="Every booking across all channels, grouped by trip. Most recently booked trips first." />
+ 
+       <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
+       <InlineAlert type="success" message={success} onDismiss={() => setSuccess("")} />
+ 
+-      <DataTable
+-        label="Bookings"
++      <ListFrame
+         state={table}
+-        columns={columns}
+         rows={bookings}
+-        rowKey={(b) => b.booking_id}
++        fields={SORT_FIELDS}
+         isLoading={isLoading}
++        paging="more"
++        pageSize={30}
+         searchKeys={["passenger_name", routeLabel, "seat_number", "booking_id"]}
+         searchPlaceholder="Search passenger, trip or seat…"
+         filters={FILTERS}
+-        minWidth="56rem"
++        skeleton={<SkeletonList count={4} />}
+         emptyState={{ icon: Ticket, title: "No bookings yet" }}
+         toolbar={bookings.length >= 500 && <span className="text-xs text-amber-700">Newest 500 shown — narrow by status or channel to see older ones.</span>}
+-      />
++      >
++        {(pageRows) => (
++          <div className="space-y-4">
++            {groupBy(pageRows, (b) => b.trip_id).map(([tripId, items]) => {
++              const t = items[0];
++              const live = items.filter((b) => b.status !== "Cancelled" && b.status !== "No-Show").length;
++              return (
++                <SectionGroup
++                  key={tripId}
++                  id={`trip-${tripId}`}
++                  icon={Bus}
++                  title={routeLabel(t)}
++                  subtitle={`${formatDate(t.departure_time)} · ${formatTime(t.departure_time)} · ${t.plate_num ?? "Bus"}`}
++                  count={items.length}
++                  countLabel={items.length === 1 ? "booking" : "bookings"}
++                  aside={
++                    <>
++                      <span className="text-xs text-gray-500">{live} active</span>
++                      <StatusBadge status={t.trip_status} />
++                    </>
++                  }
++                >
++                  <ul className="divide-y divide-slate-100">
++                    {items.map((b) => {
++                      const cancellable = b.status !== "Cancelled" && b.status !== "Boarded" && b.status !== "No-Show";
++                      return (
++                        <li key={b.booking_id} className={`flex flex-wrap sm:flex-nowrap items-center gap-x-4 gap-y-1.5 px-4 py-3 hover:bg-brand-green-500/5 ${b.status === "Cancelled" ? "opacity-60" : ""}`}>
++                          <span className="inline-flex items-center gap-1.5 w-16 shrink-0 rounded-lg bg-slate-100 px-2 py-1 text-sm font-semibold tabular-nums text-ink-900" title="Seat">
++                            <Armchair className="w-3.5 h-3.5 text-gray-500" aria-hidden="true" />
++                            {b.seat_number}
++                          </span>
++                          <div className="min-w-[10rem] flex-1">
++                            <p className="font-medium text-ink-900 truncate" title={b.passenger_name}>
++                              {b.passenger_name}
++                            </p>
++                            <p className="text-xs text-gray-500">
++                              <span className="font-mono">#{b.booking_id}</span> · {CHANNEL_LABELS[b.channel] ?? b.channel} · booked {formatDateTime(b.booked_at) ?? "—"}
++                            </p>
++                          </div>
++                          <div className="sm:w-32 flex sm:justify-end">
++                            <StatusBadge status={b.status} />
++                          </div>
++                          <div className="w-9 shrink-0 flex justify-end">
++                            {cancellable && (
++                              <OverflowMenu
++                                label={`More actions for booking #${b.booking_id}`}
++                                items={[{ label: "Cancel booking", icon: XCircle, tone: "danger", onClick: () => handleCancel(b) }]}
++                              />
++                            )}
++                          </div>
++                        </li>
++                      );
++                    })}
++                  </ul>
++                </SectionGroup>
++              );
++            })}
++          </div>
++        )}
++      </ListFrame>
+     </div>
+   );
+ }
+diff --git a/drs-bus-main/src/pages/admin/RouteManagement.jsx b/drs-bus-main/src/pages/admin/RouteManagement.jsx
+index ccff093..7449105 100644
+--- a/drs-bus-main/src/pages/admin/RouteManagement.jsx
++++ b/drs-bus-main/src/pages/admin/RouteManagement.jsx
+@@ -1,7 +1,10 @@
+ import { useEffect, useMemo, useState } from "react";
+-import { Route as RouteIcon, Plus, Pencil, Power, MapPin } from "lucide-react";
++import { Route as RouteIcon, Plus, Pencil, Power, MapPin, Navigation } from "lucide-react";
+ import * as api from "../../lib/api";
+-import DataTable from "../../components/common/DataTable";
++import ListFrame from "../../components/common/ListFrame";
++import SectionGroup from "../../components/common/SectionGroup";
++import { groupBy } from "../../lib/groupBy";
++import { SkeletonCards } from "../../components/common/Skeletons";
+ import PageHeading from "../../components/common/PageHeading";
+ import OverflowMenu from "../../components/common/OverflowMenu";
+ import { CancelButton, PrimaryButton, SubmitButton, TextAction } from "../../components/common/Buttons";
+@@ -14,6 +17,13 @@ import { formatPeso } from "../../lib/format";
+ 
+ const emptyForm = { origin: "", destination: "", distance: "", baseFare: "", specialFare: "" };
+ 
++const SORT_FIELDS = [
++  { key: "destination", label: "Destination" },
++  { key: "distance", label: "Distance", type: "number" },
++  { key: "base_fare", label: "Regular fare", type: "number" },
++  { key: "is_active", label: "Status", type: "status", accessor: (r) => (r.is_active ? "Active" : "Inactive") },
++];
++
+ const PIN_FILTERS = [
+   {
+     key: "pin",
+@@ -135,66 +145,30 @@ export default function AdminRouteManagement() {
+     }
+   }
+ 
+-  const columns = [
+-    { key: "origin", header: "Origin", truncate: true, render: (r) => <span className="font-medium">{r.origin}</span> },
+-    { key: "destination", header: "Destination", truncate: true, primary: true, render: (r) => <span className="font-medium">{r.destination}</span> },
+-    { key: "distance", header: "Distance (km)", type: "number", render: (r) => <span className="text-gray-600 tabular-nums">{r.distance ?? "—"}</span> },
+-    { key: "base_fare", header: "Regular Fare", type: "number", render: (r) => <span className="text-gray-600 tabular-nums">{formatPeso(r.base_fare)}</span> },
+-    {
+-      key: "special_fare",
+-      header: "Student/Special Fare",
+-      type: "number",
+-      render: (r) => <span className="text-gray-600 tabular-nums">{r.special_fare != null ? formatPeso(r.special_fare) : "—"}</span>,
+-    },
+-    {
+-      key: "is_active",
+-      header: "Status",
+-      type: "status",
+-      accessor: (r) => (r.is_active ? "Active" : "Inactive"),
+-      render: (r) => <StatusBadge status={r.is_active ? "Active" : "Inactive"} />,
+-    },
+-    {
+-      key: "pinned",
+-      header: "Pinned",
+-      accessor: (r) => (hasPin(r) ? "Pinned" : "Not pinned"),
+-      render: (r) =>
+-        hasPin(r) ? (
+-          <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 whitespace-nowrap" title={`${Number(r.latitude).toFixed(6)}, ${Number(r.longitude).toFixed(6)}`}>
+-            <MapPin className="w-4 h-4 fill-emerald-100" /> Pinned
+-          </span>
+-        ) : (
+-          <span className="inline-flex items-center gap-1 text-xs text-slate-400 whitespace-nowrap">
+-            <MapPin className="w-4 h-4" /> Not pinned
+-          </span>
+-        ),
+-    },
+-    {
+-      key: "actions",
+-      header: "",
+-      render: (r) => (
+-        <>
+-          <TextAction onClick={() => setPinning(r)}>
+-            <MapPin className="w-3.5 h-3.5" aria-hidden="true" /> {hasPin(r) ? "Move pin" : "Pin"}
+-            <span className="sr-only"> {r.destination} on the map</span>
+-          </TextAction>
+-          <TextAction onClick={() => openEdit(r)}>
+-            <Pencil className="w-3.5 h-3.5" aria-hidden="true" /> Edit
+-          </TextAction>
+-          <OverflowMenu
+-            label={`More actions for ${r.destination}`}
+-            items={[
+-              {
+-                label: r.is_active ? "Deactivate (hide from booking)" : "Reactivate",
+-                icon: Power,
+-                tone: r.is_active ? "danger" : undefined,
+-                onClick: () => toggleActive(r),
+-              },
+-            ]}
+-          />
+-        </>
+-      ),
+-    },
+-  ];
++  function routeActions(r) {
++    return (
++      <>
++        <TextAction onClick={() => setPinning(r)}>
++          <MapPin className="w-3.5 h-3.5" aria-hidden="true" /> {hasPin(r) ? "Move pin" : "Pin"}
++          <span className="sr-only"> {r.destination} on the map</span>
++        </TextAction>
++        <TextAction onClick={() => openEdit(r)}>
++          <Pencil className="w-3.5 h-3.5" aria-hidden="true" /> Edit
++        </TextAction>
++        <OverflowMenu
++          label={`More actions for ${r.destination}`}
++          items={[
++            {
++              label: r.is_active ? "Deactivate (hide from booking)" : "Reactivate",
++              icon: Power,
++              tone: r.is_active ? "danger" : undefined,
++              onClick: () => toggleActive(r),
++            },
++          ]}
++        />
++      </>
++    );
++  }
+ 
+   return (
+     <div className="p-4 sm:p-6 space-y-4">
+@@ -211,19 +185,17 @@ export default function AdminRouteManagement() {
+       <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
+       <InlineAlert type="success" message={success} onDismiss={() => setSuccess("")} />
+ 
+-      <DataTable
+-        label="Routes"
+-        columns={columns}
++      <ListFrame
+         rows={routes}
+-        rowKey={(r) => r.route_id}
++        fields={SORT_FIELDS}
+         isLoading={isLoading}
+         syncUrl
+-        pageSize={25}
++        pageSize={24}
++        paging="more"
+         searchKeys={["origin", "destination"]}
+         searchPlaceholder="Search by origin or destination…"
+         filters={PIN_FILTERS}
+-        rowClassName={(r) => (r.is_active ? "" : "opacity-60")}
+-        minWidth="64rem"
++        skeleton={<SkeletonCards count={6} />}
+         emptyState={{ icon: RouteIcon, title: "No routes yet", description: "Add a route to start scheduling trips." }}
+         toolbar={
+           routes.length > 0 && (
+@@ -232,7 +204,63 @@ export default function AdminRouteManagement() {
+             </span>
+           )
+         }
+-      />
++      >
++        {(pageRows) => (
++          <div className="space-y-4">
++            {groupBy(pageRows, (r) => r.origin).map(([origin, items], i) => {
++              const total = routes.filter((r) => r.origin === origin);
++              const pinned = total.filter(hasPin).length;
++              return (
++                <SectionGroup
++                  key={origin}
++                  id={`origin-${i}`}
++                  icon={Navigation}
++                  title={`From ${origin}`}
++                  subtitle={`${total.filter((r) => r.is_active).length} active · ${pinned} of ${total.length} stops pinned`}
++                  count={items.length}
++                  countLabel={items.length === 1 ? "stop" : "stops"}
++                >
++                  <ul className="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3" aria-label={`Routes from ${origin}`}>
++                    {items.map((r) => (
++                      <li key={r.route_id} className={`rounded-xl border border-slate-200 bg-white p-3.5 flex flex-col gap-3 hover:border-brand-green-500/50 transition-colors ${r.is_active ? "" : "opacity-60 bg-slate-50"}`}>
++                        <div className="flex items-start justify-between gap-2">
++                          <div className="min-w-0">
++                            <p className="font-semibold text-ink-900 break-words">{r.destination}</p>
++                            <p className="text-xs text-gray-500 tabular-nums">{r.distance != null ? `${r.distance} km` : "Distance not set"}</p>
++                          </div>
++                          <StatusBadge status={r.is_active ? "Active" : "Inactive"} />
++                        </div>
++                        <dl className="grid grid-cols-2 gap-2 text-sm">
++                          <div className="rounded-lg bg-slate-50 px-2.5 py-1.5">
++                            <dt className="text-[11px] uppercase tracking-wide text-gray-500">Regular</dt>
++                            <dd className="font-semibold tabular-nums text-ink-900">{formatPeso(r.base_fare)}</dd>
++                          </div>
++                          <div className="rounded-lg bg-slate-50 px-2.5 py-1.5">
++                            <dt className="text-[11px] uppercase tracking-wide text-gray-500">Student</dt>
++                            <dd className="font-semibold tabular-nums text-ink-900">{r.special_fare != null ? formatPeso(r.special_fare) : "—"}</dd>
++                          </div>
++                        </dl>
++                        <div className="flex items-center gap-1 border-t border-slate-100 pt-2 mt-auto">
++                          {hasPin(r) ? (
++                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700" title={`${Number(r.latitude).toFixed(6)}, ${Number(r.longitude).toFixed(6)}`}>
++                              <MapPin className="w-4 h-4 fill-emerald-100" aria-hidden="true" /> Pinned
++                            </span>
++                          ) : (
++                            <span className="inline-flex items-center gap-1 text-xs text-slate-400">
++                              <MapPin className="w-4 h-4" aria-hidden="true" /> Not pinned
++                            </span>
++                          )}
++                          <div className="ml-auto flex items-center gap-1">{routeActions(r)}</div>
++                        </div>
++                      </li>
++                    ))}
++                  </ul>
++                </SectionGroup>
++              );
++            })}
++          </div>
++        )}
++      </ListFrame>
+ 
+       {pinning && <StopPinMap route={pinning} allRoutes={routes} onSaved={handlePinSaved} onClose={() => setPinning(null)} />}
+ 
