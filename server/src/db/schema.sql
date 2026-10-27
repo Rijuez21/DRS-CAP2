@@ -76,11 +76,13 @@ CREATE TABLE IF NOT EXISTS commuters (
   commuter_id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(150) NOT NULL,
   email VARCHAR(150) NOT NULL UNIQUE,
-  phoneno VARCHAR(20),
+  phoneno VARCHAR(20), -- sign-up stores +639XXXXXXXXX (cleanPhMobile); NULL for older accounts and the walk-in placeholder
   password_hash VARCHAR(255) NOT NULL,
   discount_category ENUM('student', 'pwd', 'senior') NULL, -- addition: verified fare discount (20%), NULL = regular fare
   discount_verified_at DATETIME NULL,
-  discount_expires_at DATETIME NULL -- addition: one year after approval for students, NULL (no expiry) for PWD / senior citizens
+  discount_expires_at DATETIME NULL, -- addition: one year after approval for students, NULL (no expiry) for PWD / senior citizens
+  terms_accepted_at DATETIME NULL, -- addition: when the passenger ticked "I agree to the Terms of Use and Privacy Policy" at sign-up
+  UNIQUE KEY uq_commuters_phoneno (phoneno) -- addition: one account per mobile number (NULLs don't collide)
 );
 
 -- addition: the document's ERD scopes only Commuter + Driver accounts.

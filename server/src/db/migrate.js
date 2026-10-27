@@ -1,4 +1,5 @@
 import { pool } from "./pool.js";
+import { cleanPhMobile } from "../services/passwordPolicy.js";
 import {
   PAYMENT_TABLE_STATEMENTS,
   PAYMENT_ALTER_STATEMENTS,
@@ -238,7 +239,52 @@ const STATEMENTS = [
   )`,
   `ALTER TABLE buses ADD COLUMN owner_id INT NULL`,
   `ALTER TABLE buses ADD CONSTRAINT fk_buses_owner FOREIGN KEY (owner_id) REFERENCES bus_owners(owner_id) ON DELETE SET NULL`,
+
+  // ---- Passenger sign-up consent (routes/auth.js POST /register) --------
+  // addition: when the passenger accepted the Terms of Use and Privacy
+  // Policy. NULL for accounts made before the checkbox existed. Re-running
+  // is a no-op.
+  `ALTER TABLE commuters ADD COLUMN terms_accepted_at DATETIME NULL`,
 ];
+
+// ---- One passenger account per mobile number (routes/auth.js) -----------
+// Added only after tidyCommuterPhones() has made the existing data fit it.
+// NULLs don't collide in a MySQL unique index, so older accounts without a
+// number are fine. Re-running is a no-op (ER_DUP_KEYNAME is ignored).
+const COMMUTER_PHONE_UNIQUE = [`CREATE UNIQUE INDEX uq_commuters_phoneno ON commuters (phoneno)`];
+
+// Before this, commuters.phoneno was optional free text. Blank values become
+// NULL, Philippine mobile numbers are rewritten as +639XXXXXXXXX (the format
+// sign-up now stores), and when two accounts hold the same number the oldest
+// keeps it and the others are set to NULL, so the unique index can't fail.
+// Anything else is left as it was. Running it again changes nothing.
+async function tidyCommuterPhones(db) {
+  const [rows] = await db.query(`SELECT commuter_id, phoneno FROM commuters WHERE phoneno IS NOT NULL ORDER BY commuter_id`);
+  const seen = new Set();
+  const cleared = [];
+  let rewritten = 0;
+  for (const row of rows) {
+    const mobile = cleanPhMobile(row.phoneno);
+    let next = mobile.value ?? (row.phoneno.trim() || null);
+    // Lowercased because the index compares with the column's
+    // case-insensitive collation.
+    const key = next?.toLowerCase();
+    if (next !== null && seen.has(key)) {
+      cleared.push(row.commuter_id);
+      next = null;
+    }
+    if (next !== null) seen.add(key);
+    if (next !== row.phoneno) {
+      await db.query(`UPDATE commuters SET phoneno = ? WHERE commuter_id = ?`, [next, row.commuter_id]);
+      if (next !== null) rewritten += 1;
+    }
+  }
+  if (rewritten > 0) console.log(`Passenger phones: rewrote ${rewritten} number(s) in the +639XXXXXXXXX format.`);
+  // IDs only — the numbers themselves stay out of the log.
+  if (cleared.length > 0) {
+    console.log(`Passenger phones: cleared a duplicate mobile number on commuter #${cleared.join(", #")} (an older account keeps it).`);
+  }
+}
 
 const IGNORABLE = new Set(["ER_DUP_FIELDNAME", "ER_TABLE_EXISTS_ERROR", "ER_DUP_KEYNAME", "ER_FK_DUP_NAME", "ER_DUP_KEY"]);
 
@@ -259,6 +305,8 @@ async function apply(statements) {
 
 async function main() {
   await apply(STATEMENTS);
+  await tidyCommuterPhones(pool);
+  await apply(COMMUTER_PHONE_UNIQUE);
 
   // ---- Manual payment verification (db/paymentMigration.js) -----------
   // New tables, then additive columns, then the legacy backfill, then the

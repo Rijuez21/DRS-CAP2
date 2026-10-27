@@ -49,3 +49,16 @@ export function cleanPhone(value) {
   if (!/^[0-9+()\- ]{7,20}$/.test(phone)) return { error: "Enter a valid phone number" };
   return { value: phone };
 }
+
+// Passenger sign-up only (staff, driver and owner forms keep cleanPhone).
+// Accepts a Philippine mobile number as 09XXXXXXXXX, 639XXXXXXXXX or
+// +639XXXXXXXXX, with spaces or dashes, and stores it as +639XXXXXXXXX so
+// one number can't be registered twice in two formats. The frontend has a
+// copy of this rule (LoginForm.jsx); this one decides.
+export function cleanPhMobile(value) {
+  if (typeof value !== "string" || !value.trim()) return { error: "Enter your mobile number" };
+  const compact = value.trim().replace(/[\s-]/g, "");
+  const match = /^(?:\+?63|0)(9\d{9})$/.exec(compact);
+  if (!match) return { error: "Enter a valid Philippine mobile number, e.g. 0917 123 4567" };
+  return { value: `+63${match[1]}` };
+}

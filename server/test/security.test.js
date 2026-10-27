@@ -125,11 +125,14 @@ describe("registration and password policy", () => {
       { name: "<script>", email: "ok5@test.local", password: "Good-pass-123" },
       { name: "A", email: "ok6@test.local", password: "Good-pass-123", phoneno: "call me maybe" },
     ];
-    for (const body of cases) {
+    // A valid mobile number and consent by default, so each case fails on
+    // the field it's testing (signup.test.js covers those two).
+    for (const c of cases) {
+      const body = { phoneno: "09170000001", acceptedTerms: true, ...c };
       const r = await api("POST", "/api/auth/register", { body });
       assert.equal(r.status, 400, JSON.stringify(body));
     }
-    const ok = await api("POST", "/api/auth/register", { body: { name: "Real Person", email: "Real.Person@Test.local", password: "Good-pass-123" } });
+    const ok = await api("POST", "/api/auth/register", { body: { name: "Real Person", email: "Real.Person@Test.local", phoneno: "09170000001", password: "Good-pass-123", acceptedTerms: true } });
     assert.equal(ok.status, 201);
     assert.equal(ok.data.email, "real.person@test.local");
   });

@@ -5,7 +5,7 @@ import { pool } from "../db/pool.js";
 import { signToken } from "../middleware/auth.js";
 import { isReservedEmail } from "../services/bookingRules.js";
 import { rateLimit, failureLimiter } from "../services/rateLimit.js";
-import { whyPasswordWeak, cleanEmail, cleanName, cleanPhone, PASSWORD_MAX } from "../services/passwordPolicy.js";
+import { whyPasswordWeak, cleanEmail, cleanName, cleanPhMobile, PASSWORD_MAX } from "../services/passwordPolicy.js";
 
 export const authRouter = Router();
 
@@ -14,7 +14,7 @@ export const authRouter = Router();
 // have login pages in drs-bus-main, so they're backed by staff_accounts
 // (see schema.sql) instead of a table the document actually defines.
 const ACCOUNT_TABLES = {
-  passenger: { table: "commuters", idCol: "commuter_id", nameCol: "name" },
+  passenger: { table: "commuters", idCol: "commuter_id", nameCol: "name", extra: ", phoneno" },
   driver: { table: "drivers", idCol: "driver_id", nameCol: "name", extra: ", duty_status" },
   staff: { table: "staff_accounts", idCol: "staff_id", nameCol: "name", roleFilter: "terminal_staff" },
   admin: { table: "staff_accounts", idCol: "staff_id", nameCol: "name", roleFilter: "admin" },
@@ -86,7 +86,10 @@ authRouter.post("/login", loginRequestsPerIp, async (req, res) => {
     }
 
     const token = signToken({ id: account.id, role, passwordHash: account.password_hash });
-    res.json({ user: { id: account.id, name: account.name, email: account.email, role }, token });
+    const user = { id: account.id, name: account.name, email: account.email, role };
+    // Shown on the passenger Profile page.
+    if (role === "passenger") user.phoneno = account.phoneno ?? null;
+    res.json({ user, token });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Login failed" });
@@ -103,10 +106,14 @@ authRouter.post("/register", registerPerIp, async (req, res) => {
   if (name.error) return res.status(400).json({ error: name.error });
   const email = cleanEmail(body.email);
   if (email.error) return res.status(400).json({ error: email.error });
-  const phone = cleanPhone(body.phoneno);
+  const phone = cleanPhMobile(body.phoneno);
   if (phone.error) return res.status(400).json({ error: phone.error });
   const weak = whyPasswordWeak(body.password, { email: email.value, name: name.value });
   if (weak) return res.status(400).json({ error: weak });
+  // The sign-up checkbox; when it was ticked is kept in terms_accepted_at.
+  if (body.acceptedTerms !== true) {
+    return res.status(400).json({ error: "Accept the Terms of Use and Privacy Policy to create an account" });
+  }
   // The walk-in placeholder account (see bookingRules.js) — answered like
   // any taken email so it doesn't advertise itself.
   if (isReservedEmail(email.value)) {
@@ -116,11 +123,15 @@ authRouter.post("/register", registerPerIp, async (req, res) => {
   try {
     const passwordHash = await bcrypt.hash(body.password, 10);
     const [result] = await pool.query(
-      `INSERT INTO commuters (name, email, phoneno, password_hash) VALUES (?, ?, ?, ?)`,
+      `INSERT INTO commuters (name, email, phoneno, password_hash, terms_accepted_at) VALUES (?, ?, ?, ?, NOW())`,
       [name.value, email.value, phone.value, passwordHash]
     );
-    res.status(201).json({ commuter_id: result.insertId, name: name.value, email: email.value, role: "passenger" });
+    res.status(201).json({ commuter_id: result.insertId, name: name.value, email: email.value, phoneno: phone.value, role: "passenger" });
   } catch (err) {
+    // uq_commuters_phoneno: see schema.sql / migrate.js
+    if (err.code === "ER_DUP_ENTRY" && /uq_commuters_phoneno/.test(err.sqlMessage ?? "")) {
+      return res.status(409).json({ error: "An account with that mobile number already exists" });
+    }
     if (err.code === "ER_DUP_ENTRY") {
       return res.status(409).json({ error: "An account with that email already exists" });
     }

@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { LogOut, Mail, Ticket, TicketCheck, CircleX, CalendarClock, Hand, ChevronRight, BadgePercent } from "lucide-react";
+import { LogOut, Mail, Phone, Ticket, TicketCheck, CircleX, CalendarClock, Hand, ChevronRight, BadgePercent } from "lucide-react";
 import StatsRow from "../../components/passenger/StatsRow";
 import { useAuth } from "../../context/AuthContext";
 import * as api from "../../lib/api";
 import { initials, formatDate } from "../../lib/format";
+import { formatPhMobile } from "../../lib/phone";
 import { CATEGORY_LABELS, DISCOUNT_PERCENT } from "../../lib/discounts";
 
 const SHORTCUTS = [
@@ -73,6 +74,12 @@ export default function Profile() {
           {user?.email && (
             <p className="flex items-center gap-1.5 text-sm text-ink-600">
               <Mail className="w-3.5 h-3.5" /> {user.email}
+            </p>
+          )}
+          {/* Saved in the browser at login, so older sessions don't have it until the next sign-in. */}
+          {user?.phoneno && (
+            <p className="flex items-center gap-1.5 text-sm text-ink-600">
+              <Phone className="w-3.5 h-3.5" /> {formatPhMobile(user.phoneno)}
             </p>
           )}
           <span className="mt-1 rounded-full bg-brand-green-500/12 text-brand-green-600 px-3 py-0.5 text-xs font-semibold">Passenger</span>

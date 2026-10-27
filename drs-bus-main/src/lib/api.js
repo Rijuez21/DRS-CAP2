@@ -72,8 +72,8 @@ async function request(path, { method = "GET", body, params } = {}) {
 export const login = ({ email, password, role }) =>
   request("/api/auth/login", { method: "POST", body: { email, password, role } });
 
-export const register = ({ name, email, phoneno, password }) =>
-  request("/api/auth/register", { method: "POST", body: { name, email, phoneno, password } });
+export const register = ({ name, email, phoneno, password, acceptedTerms }) =>
+  request("/api/auth/register", { method: "POST", body: { name, email, phoneno, password, acceptedTerms } });
 
 // ---- Routes -------------------------------------------------------------
 export const getRoutes = () => request("/api/routes");

@@ -28,8 +28,10 @@ async function freshLegacyDb() {
   await admin.end();
   conn = await mysql.createConnection(`${ADMIN_URL}/${DB}`);
   opened.push(conn);
+  // \r?\n: a Windows checkout has CRLF endings, and "." doesn't match \r, so
+  // the comment strip below missed and a ";" inside a comment split a statement.
   const sql = readFileSync(path.join(root, "test/fixtures/legacy-schema.sql"), "utf8")
-    .split("\n")
+    .split(/\r?\n/)
     .map((l) => l.replace(/--.*$/, ""))
     .join("\n");
   for (const statement of sql.split(";").map((s) => s.trim()).filter(Boolean)) await conn.query(statement);
@@ -89,6 +91,31 @@ test("upgrades a legacy database without losing data, and is re-runnable", async
   assert.equal(b.payment_deadline, null, "existing bookings get no hold (behaviour unchanged)");
   const [cols] = await conn.query(`SHOW INDEX FROM payments WHERE Key_name IN ('uq_payments_open_booking', 'uq_payments_verified_booking')`);
   assert.equal(cols.length, 2);
+});
+
+test("existing passenger phones are tidied so the unique mobile-number index can be added", async () => {
+  await freshLegacyDb();
+  await conn.query(
+    `INSERT INTO commuters (name, email, phoneno, password_hash) VALUES
+     ('Old A', 'a1@t', '0917 123 4567', 'h'), ('Old B', 'b1@t', '+639171234567', 'h'),
+     ('Blank 1', 'c1@t', '', 'h'), ('Blank 2', 'c2@t', '  ', 'h'),
+     ('Land 1', 'd1@t', '(074) 442-1234', 'h'), ('Land 2', 'd2@t', '(074) 442-1234 ', 'h'),
+     ('No phone', 'e1@t', NULL, 'h')`
+  );
+  const r = migrate();
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+  assert.match(r.stdout, /cleared a duplicate mobile number on commuter #4, #8/);
+  const [rows] = await conn.query(`SELECT email, phoneno, terms_accepted_at FROM commuters WHERE email LIKE '%1@t' OR email LIKE '%2@t' ORDER BY commuter_id`);
+  assert.deepEqual(
+    rows.map((row) => [row.email, row.phoneno]),
+    [["a1@t", "+639171234567"], ["b1@t", null], ["c1@t", null], ["c2@t", null], ["d1@t", "(074) 442-1234"], ["d2@t", null], ["e1@t", null]]
+  );
+  assert.ok(rows.every((row) => row.terms_accepted_at === null), "older accounts have no recorded consent");
+  const [idx] = await conn.query(`SHOW INDEX FROM commuters WHERE Key_name = 'uq_commuters_phoneno' AND Non_unique = 0`);
+  assert.equal(idx.length, 1);
+  const again = migrate();
+  assert.equal(again.status, 0, again.stderr);
+  assert.doesNotMatch(again.stdout, /Passenger phones:/);
 });
 
 test("pre-existing duplicate open payments block only the unique keys, with a clear message", async () => {
