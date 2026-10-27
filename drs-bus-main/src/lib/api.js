@@ -171,6 +171,36 @@ export const confirmRefund = (paymentId, { refundReference, note }) =>
   request(`/api/payments/${paymentId}/refund-confirm`, { method: "PATCH", body: { refundReference, note } });
 export const cancelRefund = (paymentId, note) => request(`/api/payments/${paymentId}/refund-cancel`, { method: "PATCH", body: { note } });
 
+// ---- Student / PWD / senior fare discount (server/src/routes/discounts.js) ----
+// Passenger: { active, expired, latest, can_apply, cannot_apply_reason, used_on_trip }.
+// tripId (optional) also says whether their discounted seat on that trip is taken.
+export const getMyDiscount = (tripId) => request("/api/discounts/mine", { params: { tripId } });
+export const submitDiscountId = ({ category, idNumber, idImage }) =>
+  request("/api/discounts", { method: "POST", body: { category, idNumber, idImage } });
+// Staff / admin review
+export const getDiscountApplications = (status) => request("/api/discounts", { params: { status } });
+export const approveDiscount = (applicationId) => request(`/api/discounts/${applicationId}/approve`, { method: "PATCH" });
+export const rejectDiscount = (applicationId, reason) =>
+  request(`/api/discounts/${applicationId}/reject`, { method: "PATCH", body: { reason } });
+// The ID photo is private (same as payment receipts): fetched with the login
+// header and shown through an object URL. Revoke it when done.
+export async function fetchDiscountIdObjectUrl(applicationId) {
+  let response;
+  try {
+    response = await fetch(`${BASE_URL}/api/discounts/${applicationId}/image`, {
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+    });
+  } catch {
+    throw new Error("Can't reach the server. Check your connection and try again.");
+  }
+  if (!response.ok) {
+    if (response.status === 401 && authToken) unauthorizedHandler?.();
+    const data = await response.json().catch(() => null);
+    throw new Error(data?.error || `Couldn't load the ID photo (${response.status})`);
+  }
+  return URL.createObjectURL(await response.blob());
+}
+
 // ---- Tracking -------------------------------------------------------------
 export const getLatestLocation = (busId) => request(`/api/tracking/${busId}/latest`);
 export const getFleetLocations = () => request("/api/tracking/fleet/latest");
@@ -189,12 +219,11 @@ export const getGpsHistory = ({ busId, from, to }) => request("/api/gps/history"
 // Kept separate from the Bookings section above on purpose: the Book Ahead
 // flow (TripDetail -> createBooking) never calls any of these.
 export const getInTransitBuses = (params) => request("/api/tracking/in-transit", { params });
-// Pickup = the GPS fix itself, or (pinnedManually) a spot the passenger
-// tapped on the map plus the device fix it must stay close to.
-export const createFlagRequest = ({ tripId, pickupLatitude, pickupLongitude, pickupAccuracy, pickupLandmark, pinnedManually, deviceLatitude, deviceLongitude, deviceAccuracy }) =>
+// Pickup = the passenger's shared GPS fix itself.
+export const createFlagRequest = ({ tripId, pickupLatitude, pickupLongitude, pickupAccuracy, pickupLandmark }) =>
   request("/api/bookings/flags", {
     method: "POST",
-    body: { tripId, pickupLatitude, pickupLongitude, pickupAccuracy, pickupLandmark, pinnedManually, deviceLatitude, deviceLongitude, deviceAccuracy },
+    body: { tripId, pickupLatitude, pickupLongitude, pickupAccuracy, pickupLandmark },
   });
 export const updateFlagLocation = (flagId, { pickupLatitude, pickupLongitude, pickupAccuracy }) =>
   request(`/api/bookings/flags/${flagId}/location`, { method: "PATCH", body: { pickupLatitude, pickupLongitude, pickupAccuracy } });
@@ -239,6 +268,13 @@ export const createStaff = (payload) => request("/api/staff", { method: "POST", 
 export const updateStaff = (staffId, payload) =>
   request(`/api/staff/${staffId}`, { method: "PATCH", body: payload });
 export const deleteStaff = (staffId) => request(`/api/staff/${staffId}`, { method: "DELETE" });
+
+// ---- Bus owner accounts (admin) + the owner's own buses (owner) -------------------------------------------------------------
+export const getOwners = () => request("/api/owners");
+export const createOwner = (payload) => request("/api/owners", { method: "POST", body: payload });
+export const updateOwner = (ownerId, payload) => request(`/api/owners/${ownerId}`, { method: "PATCH", body: payload });
+export const deleteOwner = (ownerId) => request(`/api/owners/${ownerId}`, { method: "DELETE" });
+export const getMyFleet = () => request("/api/owners/me/fleet"); // same row shape as getFleetLocations
 
 // ---- Trip scheduling (admin + terminal staff) -------------------------------------------------------------
 export const createTrip = (payload) => request("/api/trips", { method: "POST", body: payload });

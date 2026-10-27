@@ -13,6 +13,7 @@ import { notifyRecipient } from "../services/notify.js";
 import { likeEscape } from "../services/validate.js";
 import { initialPaymentDeadline, bookingReference } from "../services/paymentRules.js";
 import { logAudit } from "../services/audit.js";
+import { activeDiscount, FARE_DUE_SQL } from "../services/discounts.js";
 
 export const bookingsRouter = Router();
 
@@ -73,7 +74,7 @@ const peso = (n) => `₱${Number(n).toLocaleString("en-PH", { minimumFractionDig
 const BOOKING_LIST_SELECT = `
   SELECT bk.booking_id, bk.passenger_id, bk.passenger_name, bk.seat_number, bk.status, bk.channel, bk.booked_at,
          tr.trip_id, tr.departure_time, tr.arrival_time, tr.status AS trip_status, tr.driver_id,
-         rt.origin, rt.destination, rt.base_fare, b.plate_num, b.bus_number
+         rt.origin, rt.destination, rt.base_fare, bk.discount_category, ${FARE_DUE_SQL} AS fare_due, b.plate_num, b.bus_number
   FROM bookings bk
   JOIN trips tr ON tr.trip_id = bk.trip_id
   JOIN routes rt ON rt.route_id = tr.route_id
@@ -189,16 +190,24 @@ bookingsRouter.post("/", requireRole("passenger"), async (req, res) => {
     const parsed = parseSeatRequest(req.body, trip, MAX_ONLINE_SEATS);
     if (parsed.error) return res.status(400).json({ error: parsed.error });
 
-    const [[commuter]] = await pool.query(`SELECT name FROM commuters WHERE commuter_id = ?`, [req.user.id]);
+    const [[commuter]] = await pool.query(
+      `SELECT name, discount_category, discount_verified_at, discount_expires_at FROM commuters WHERE commuter_id = ?`,
+      [req.user.id]
+    );
     if (!commuter) return res.status(404).json({ error: "Passenger account not found" });
     const passengerName = String(req.body.passengerName ?? "").trim().slice(0, 150) || commuter.name;
+
+    // A verified student / PWD / senior gets 20% off ONE seat per trip — their
+    // own (the first seat picked); seats for companions are regular fare.
+    // insertSeatsAtomically enforces the one-seat limit inside its transaction.
+    const discountCategory = activeDiscount(commuter)?.category ?? null;
 
     // Seat hold: the seat is Reserved until this deadline while the
     // passenger pays and uploads proof (PAYMENT_HOLD_MINUTES; never past
     // departure). Once proof is submitted the seat no longer expires.
     const paymentDeadline = initialPaymentDeadline(trip.departure_time);
     const result = await insertSeatsAtomically(pool, {
-      tripId, passengerId: req.user.id, passengerName, seats: parsed.seats, status: "Reserved", channel: "online", paymentDeadline,
+      tripId, passengerId: req.user.id, passengerName, seats: parsed.seats, status: "Reserved", channel: "online", paymentDeadline, discountCategory,
     });
     if (result.conflictSeat) {
       return res.status(409).json({
@@ -308,7 +317,7 @@ bookingsRouter.post("/:id/counter-payment", requireRole("staff", "admin"), async
     // staff member verifying a QR payment for the same booking.
     [[booking]] = await conn.query(
       `SELECT bk.booking_id, bk.passenger_id, bk.passenger_name, bk.status, bk.seat_number, bk.channel,
-              tr.trip_id, tr.status AS trip_status, tr.driver_id, rt.base_fare
+              tr.trip_id, tr.status AS trip_status, tr.driver_id, rt.base_fare, ${FARE_DUE_SQL} AS fare_due
        FROM bookings bk
        JOIN trips tr ON tr.trip_id = bk.trip_id
        JOIN routes rt ON rt.route_id = tr.route_id
@@ -335,7 +344,7 @@ bookingsRouter.post("/:id/counter-payment", requireRole("staff", "admin"), async
       await conn.rollback();
       return res.status(409).json({ error: "This route has no fare on file yet — set it in Route Management first." });
     }
-    const fare = Number(booking.base_fare);
+    const fare = Number(booking.fare_due); // less any student / PWD / senior discount the seat was booked with
     if (payment.cash < fare) {
       await conn.rollback();
       return res.status(400).json({ error: `Cash received (${peso(payment.cash)}) is less than the fare (${peso(fare)}).` });
@@ -501,27 +510,6 @@ const FLAG_SWEEP_INTERVAL_MS = 60 * 1000;
 // 100 m is loose enough for a phone outdoors in the Cordillera to meet
 // within seconds, tight enough that the driver stops at the right spot.
 const MAX_PICKUP_ACCURACY_M = 100;
-// A GPS fix can still land on the wrong side of the road, and indoors or on
-// a laptop it may never get under 100 m at all. So the passenger can also
-// drop the pin by hand on the map — but only inside the area their device
-// says they're in: the fix's accuracy radius plus this margin, capped at
-// MANUAL_PIN_MAX_DISTANCE_M. The device fix itself is still required, so a
-// pin can't be dropped somewhere the passenger obviously isn't.
-// Mirrored in FlagBus.jsx (display only; this is the authoritative check).
-const MANUAL_PIN_MARGIN_M = 100;
-const MANUAL_PIN_MAX_DISTANCE_M = 5000;
-
-function distanceMetres(a, b) {
-  const toRad = (deg) => (deg * Math.PI) / 180;
-  const dLat = toRad(b.latitude - a.latitude);
-  const dLng = toRad(b.longitude - a.longitude);
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.latitude)) * Math.cos(toRad(b.latitude)) * Math.sin(dLng / 2) ** 2;
-  return 2 * 6371000 * Math.asin(Math.sqrt(h));
-}
-
-function manualPinLimitMetres(deviceAccuracy) {
-  return Math.min(Math.max(deviceAccuracy, MAX_PICKUP_ACCURACY_M) + MANUAL_PIN_MARGIN_M, MANUAL_PIN_MAX_DISTANCE_M);
-}
 
 const FLAG_SELECT = `
   SELECT fr.flag_id, fr.trip_id, fr.passenger_id, fr.passenger_name,
@@ -586,13 +574,10 @@ function parseCoordinate(value, limit) {
 // the passenger), so both enforce the same "exact location" rule.
 // Returns { latitude, longitude } or { error }.
 //
-// Two ways to set the pin:
-//   GPS    { pickupLatitude, pickupLongitude, pickupAccuracy }  — the fix itself, ±100 m or better
-//   Manual { pickupLatitude, pickupLongitude, pinnedManually: true,
-//            deviceLatitude, deviceLongitude, deviceAccuracy }  — a point the passenger tapped,
-//            accepted only within the device fix's accuracy area (see manualPinLimitMetres)
+// Body: { pickupLatitude, pickupLongitude, pickupAccuracy } — the phone's
+// shared GPS fix itself, ±100 m or better.
 function parsePickupFix(body) {
-  const { pickupLatitude, pickupLongitude, pickupAccuracy, pinnedManually } = body;
+  const { pickupLatitude, pickupLongitude, pickupAccuracy } = body;
   const latitude = parseCoordinate(pickupLatitude, 90);
   const longitude = parseCoordinate(pickupLongitude, 180);
   if (latitude == null || longitude == null) {
@@ -600,26 +585,6 @@ function parsePickupFix(body) {
   }
   if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
     return { error: "pickupLatitude and pickupLongitude must be a valid coordinate pair" };
-  }
-
-  if (pinnedManually === true) {
-    const deviceLatitude = parseCoordinate(body.deviceLatitude, 90);
-    const deviceLongitude = parseCoordinate(body.deviceLongitude, 180);
-    const deviceAccuracy = Number(body.deviceAccuracy);
-    if (deviceLatitude == null || deviceLongitude == null || Number.isNaN(deviceLatitude) || Number.isNaN(deviceLongitude)) {
-      return { error: "Your device's location is still needed when you place the pin yourself. Turn on location for this site and try again." };
-    }
-    if (!Number.isFinite(deviceAccuracy) || deviceAccuracy <= 0) {
-      return { error: "deviceAccuracy (metres) is required with a manually placed pin" };
-    }
-    const limit = manualPinLimitMetres(deviceAccuracy);
-    const off = distanceMetres({ latitude, longitude }, { latitude: deviceLatitude, longitude: deviceLongitude });
-    if (off > limit) {
-      return {
-        error: `Your pin is ${Math.round(off)} m from where your device says you are (limit ${Math.round(limit)} m). Place it where you're actually standing.`,
-      };
-    }
-    return { latitude, longitude };
   }
 
   const accuracy = Number(pickupAccuracy);

@@ -6,6 +6,7 @@ import BookingSteps from "../../components/passenger/BookingSteps";
 import PaymentPanel from "../../components/passenger/PaymentPanel";
 import { LAST_BOOKING_KEY } from "../../lib/storageKeys";
 import { bookingReference } from "../../lib/format";
+import { discountedFare, CATEGORY_LABELS, DISCOUNT_PERCENT } from "../../lib/discounts";
 
 function readLastBooking() {
   try {
@@ -46,7 +47,9 @@ export default function BookingConfirmed() {
     );
   }
 
-  const total = trip?.fare != null ? trip.fare * bookings.length : null;
+  // One seat may be at the student / PWD / senior fare (bookings[].discount_category).
+  const total = trip?.fare != null ? bookings.reduce((sum, b) => sum + (b.discount_category ? discountedFare(trip.fare) : Number(trip.fare)), 0) : null;
+  const anyDiscount = bookings.some((b) => b.discount_category); // then label every seat: discounted or Regular
   const codes = bookings.map((b) => b.booking_reference ?? bookingReference(b.booking_id)).join(", ");
   const statusOf = (b) => liveStatus[b.booking_id] ?? b.status;
   const allConfirmed = bookings.every((b) => statusOf(b) === "Confirmed");
@@ -100,6 +103,11 @@ export default function BookingConfirmed() {
               <div className="text-center">
                 <p className="text-[11px] uppercase tracking-wider text-ink-600">Seat</p>
                 <p className="font-display text-lg font-bold">{b.seat_number}</p>
+                {anyDiscount && (
+                  <p className={`text-[11px] font-semibold ${b.discount_category ? "text-brand-green-600" : "text-ink-600"}`}>
+                    {b.discount_category ? `${CATEGORY_LABELS[b.discount_category]} ${DISCOUNT_PERCENT}% off` : "Regular"}
+                  </p>
+                )}
               </div>
               <StatusBadge status={statusOf(b)} />
             </div>

@@ -4,6 +4,7 @@ import { Menu, X, LogOut } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import NotificationBell from "../common/NotificationBell";
 import { initials } from "../../lib/format";
+import { logoutPath } from "../../lib/rolePaths";
 
 // One responsive shell for every role (passenger, driver, staff, admin).
 // Before, only the passenger layout adapted to phones: the driver, staff and
@@ -33,8 +34,9 @@ export default function RoleLayout({ title, links, theme, bell, logo }) {
   const tabs = links.filter((l) => l.tab);
 
   function handleLogout() {
+    const to = logoutPath(user?.role);
     signOut();
-    navigate("/");
+    navigate(to, { replace: true });
   }
 
   const bellEl = bell && user ? <NotificationBell recipientType={bell} recipientId={user.id} /> : null;

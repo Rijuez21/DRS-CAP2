@@ -43,10 +43,18 @@ function timeAgo(isoString) {
   return `${hours}h ago`;
 }
 
-// Shared by admin (/admin/tracking) and terminal staff (/staff/tracking).
+const DEFAULT_CENTER = [16.4023, 120.596]; // Baguio City — only until a bus has reported
+
+// Shared by admin (/admin/tracking), terminal staff (/staff/tracking) and
+// bus owners (/owner/tracking). Admin/staff see every active bus over the
+// "fleet" room; an owner sees only their own buses (GET /api/owners/me/fleet,
+// even ones that haven't reported yet) and listens to those buses' rooms.
 export default function FleetTracking() {
   const navigate = useNavigate();
-  const isAdmin = useLocation().pathname.startsWith("/admin");
+  const { pathname } = useLocation();
+  const isAdmin = pathname.startsWith("/admin");
+  const isOwner = pathname.startsWith("/owner");
+  const loadLocations = isOwner ? api.getMyFleet : api.getFleetLocations;
   const [buses, setBuses] = useState([]); // keyed array, one entry per bus
   const [selectedBusId, setSelectedBusId] = useState(null);
   const [error, setError] = useState("");
@@ -78,20 +86,23 @@ export default function FleetTracking() {
   }, []);
 
   // 1. Seed one marker per bus from the REST snapshot.
+  const [isLoading, setIsLoading] = useState(true);
   useEffect(() => {
     let cancelled = false;
-    api
-      .getFleetLocations()
+    loadLocations()
       .then((rows) => {
         if (!cancelled) setBuses(rows);
       })
       .catch((err) => {
         if (!cancelled) setError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadLocations]);
 
   // The snapshot only lists buses that had already reported. A bus whose
   // GPS tracker (or driver's phone) reports for the first time while this
@@ -103,15 +114,21 @@ export default function FleetTracking() {
     knownBusIdsRef.current = new Set(buses.map((b) => Number(b.busId)));
   }, [buses]);
 
-  // 2. Subscribe to the single "fleet" room instead of one room per bus.
+  // 2. Admin/staff: the single "fleet" room instead of one room per bus.
+  // Owner: one room per own bus — the fleet room would show everyone's.
+  const ownerBusIdsKey = isOwner ? buses.map((b) => b.busId).sort((a, b) => a - b).join(",") : "";
   useEffect(() => {
     const socket = getSocket();
-    const join = () => socket.emit("subscribe:fleet");
+    const ownerBusIds = ownerBusIdsKey ? ownerBusIdsKey.split(",").map(Number) : [];
+    const join = () => {
+      if (isOwner) ownerBusIds.forEach((id) => socket.emit("subscribe:bus", id));
+      else socket.emit("subscribe:fleet");
+    };
     join();
 
     function handleUpdate(point) {
       if (!knownBusIdsRef.current.has(Number(point.busId))) {
-        if (Date.now() - lastRefetchRef.current > 20000) {
+        if (!isOwner && Date.now() - lastRefetchRef.current > 20000) {
           lastRefetchRef.current = Date.now();
           api.getFleetLocations().then(setBuses).catch(() => {});
         }
@@ -136,11 +153,12 @@ export default function FleetTracking() {
     socket.on("connect", join); // rooms are lost when the connection drops — rejoin
 
     return () => {
-      socket.emit("unsubscribe:fleet");
+      if (isOwner) ownerBusIds.forEach((id) => socket.emit("unsubscribe:bus", id));
+      else socket.emit("unsubscribe:fleet");
       socket.off("location:update", handleUpdate);
       socket.off("connect", join);
     };
-  }, []);
+  }, [isOwner, ownerBusIdsKey]);
 
   // 3. Create the map once, then move/create markers as `buses` changes —
   // never recreate the whole map on every update.
@@ -148,10 +166,9 @@ export default function FleetTracking() {
     if (!mapContainerRef.current || buses.length === 0) return;
 
     if (!mapRef.current) {
-      mapRef.current = L.map(mapContainerRef.current).setView(
-        [buses[0].latitude, buses[0].longitude],
-        11
-      );
+      // An owner's list can include buses that haven't reported yet.
+      const first = buses.find((b) => b.latitude != null && b.longitude != null);
+      mapRef.current = L.map(mapContainerRef.current).setView(first ? [first.latitude, first.longitude] : DEFAULT_CENTER, 11);
       stopSizingRef.current = keepMapSized(mapRef.current);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: "© OpenStreetMap contributors",
@@ -228,9 +245,9 @@ export default function FleetTracking() {
     <div className="p-6 space-y-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold">Live Fleet Tracking</h1>
+          <h1 className="text-xl font-bold">{isOwner ? "My Buses — Live Tracking" : "Live Fleet Tracking"}</h1>
           <p className="text-sm text-gray-500">
-            Real-time GPS for every active bus — click a bus to jump to it on the map.
+            Real-time GPS for {isOwner ? "your buses" : "every active bus"} — click a bus to jump to it on the map.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-4">
@@ -252,12 +269,22 @@ export default function FleetTracking() {
 
       {error && <p className="text-sm text-rose-600 font-medium">{error}</p>}
 
-      {buses.length === 0 && !error ? (
-        <EmptyState
-          icon={RadioTower}
-          title="No buses reporting right now"
-          description="Active buses will appear here as soon as they report a GPS position."
-        />
+      {isLoading && buses.length === 0 ? (
+        <p className="text-sm text-gray-500">Loading…</p>
+      ) : buses.length === 0 && !error ? (
+        isOwner ? (
+          <EmptyState
+            icon={RadioTower}
+            title="No buses linked to your account yet"
+            description="Ask the terminal administrator to link your buses to your owner account."
+          />
+        ) : (
+          <EmptyState
+            icon={RadioTower}
+            title="No buses reporting right now"
+            description="Active buses will appear here as soon as they report a GPS position."
+          />
+        )
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
           <div
@@ -292,9 +319,11 @@ export default function FleetTracking() {
                 </p>
                 <p className="text-xs text-gray-400 mt-0.5">{bus.driverName ?? "Unassigned"}</p>
                 <div className="flex items-center gap-1.5 mt-1.5 text-xs">
-                  <Satellite className="w-3.5 h-3.5 text-emerald-600" />
+                  <Satellite className={`w-3.5 h-3.5 ${bus.timestamp ? "text-emerald-600" : "text-gray-400"}`} />
                   <span className="text-gray-500">
-                    {timeAgo(bus.timestamp)} · {bus.source === "device" ? "GPS tracker" : "Driver's phone"}
+                    {bus.timestamp
+                      ? `${timeAgo(bus.timestamp)} · ${bus.source === "device" ? "GPS tracker" : "Driver's phone"}`
+                      : "No GPS position yet"}
                   </span>
                   {bus.syncStatus === "buffered" && (
                     <span className="flex items-center gap-1 text-rose-600 font-medium ml-1">

@@ -1,12 +1,9 @@
 import { Link, Navigate, useLocation } from "react-router-dom";
 import { ShieldAlert } from "lucide-react";
 import { useAuth, AUTH_NOTICE_KEY } from "../../context/AuthContext";
+import { LOGIN_PATH, HOME_PATH, logoutPath } from "../../lib/rolePaths";
 
-// Each role's own login page and home, so a bounced user lands somewhere
-// that makes sense for them.
-const LOGIN_PATH = { passenger: "/login/passenger", driver: "/login/staff", staff: "/login/staff?as=staff", admin: "/login/admin" };
-const HOME_PATH = { passenger: "/passenger/home", driver: "/driver/dashboard", staff: "/staff/walk-in", admin: "/admin/dashboard" };
-const ROLE_LABEL = { passenger: "passengers", driver: "drivers", staff: "terminal staff", admin: "administrators" };
+const ROLE_LABEL = { passenger: "passengers", driver: "drivers", staff: "terminal staff", admin: "administrators", owner: "bus owners" };
 
 /**
  * Wrap a layout route with this to require a logged-in user of a given role.
@@ -19,9 +16,10 @@ export default function RequireRole({ role, children }) {
   const { user, signOut, signOutReason } = useAuth();
   const location = useLocation();
 
-  // They just tapped Log Out: take them home, not to a "please log in" nag.
+  // They just tapped Log Out: no "please log in" nag. Passengers go home;
+  // driver/staff/admin go back to their own login page.
   if (!user && signOutReason === "manual") {
-    return <Navigate to="/" replace />;
+    return <Navigate to={logoutPath(role)} replace />;
   }
 
   if (!user) {

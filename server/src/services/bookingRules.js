@@ -97,19 +97,35 @@ export function firstFreeSeat(bus, takenSeats) {
 // the real race guard — if someone else took a seat a moment ago, the whole
 // request rolls back and the caller learns exactly which seat.
 // paymentDeadline (optional): online seat hold — see services/paymentRules.js.
-export async function insertSeatsAtomically(pool, { tripId, passengerId, passengerName, seats, status, channel, paymentDeadline = null }) {
+// discountCategory (optional): the passenger's verified student / PWD /
+// senior category. Only ONE seat per passenger per trip gets the discount
+// (services/discounts.js) — the first seat in `seats`, and only if they hold
+// no other live discounted seat on this trip. Every other seat is regular
+// fare. Checked here, with the passenger's row locked, so two bookings sent
+// at once can't both get a discounted seat.
+export async function insertSeatsAtomically(pool, { tripId, passengerId, passengerName, seats, status, channel, paymentDeadline = null, discountCategory = null }) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
+    let discountSeat = null;
+    if (discountCategory) {
+      await conn.query(`SELECT commuter_id FROM commuters WHERE commuter_id = ? FOR UPDATE`, [passengerId]);
+      const [[already]] = await conn.query(
+        `SELECT 1 FROM bookings WHERE trip_id = ? AND passenger_id = ? AND discount_category IS NOT NULL AND status NOT IN ('Cancelled', 'No-Show') LIMIT 1`,
+        [tripId, passengerId]
+      );
+      if (!already) discountSeat = seats[0];
+    }
     const created = [];
     for (const seat of seats) {
       try {
+        const seatDiscount = seat === discountSeat ? discountCategory : null;
         const [result] = await conn.query(
-          `INSERT INTO bookings (trip_id, passenger_id, passenger_name, seat_number, status, channel, payment_deadline)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [tripId, passengerId, passengerName, seat, status, channel, paymentDeadline]
+          `INSERT INTO bookings (trip_id, passenger_id, passenger_name, seat_number, status, channel, payment_deadline, discount_category)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [tripId, passengerId, passengerName, seat, status, channel, paymentDeadline, seatDiscount]
         );
-        created.push({ booking_id: result.insertId, seat_number: seat, status, channel, payment_deadline: paymentDeadline });
+        created.push({ booking_id: result.insertId, seat_number: seat, status, channel, payment_deadline: paymentDeadline, discount_category: seatDiscount });
       } catch (err) {
         if (err.code === "ER_DUP_ENTRY") {
           await conn.rollback();

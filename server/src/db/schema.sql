@@ -30,7 +30,29 @@ CREATE TABLE IF NOT EXISTS drivers (
   hire_date DATE,
   email VARCHAR(150) UNIQUE, -- addition: the ERD has no auth field on Driver at all, but DriverLogin.jsx (like every other role) logs in with email. Nullable for the same reason as license_number — no login until a real email is on file.
   password_hash VARCHAR(255), -- nullable until email is set (a password is meaningless without something to log in with)
-  duty_status ENUM('Active', 'On Leave', 'Suspended') NOT NULL DEFAULT 'Active' -- addition: Table 4's Driver Management calls for a "duty status toggle", same additive spirit as routes.is_active
+  duty_status ENUM('Active', 'On Leave', 'Suspended') NOT NULL DEFAULT 'Active', -- addition: Table 4's Driver Management calls for a "duty status toggle", same additive spirit as routes.is_active
+  license_expiry DATE NULL, -- addition: so the admin can see when a driver's license is due for renewal
+  -- addition: employee profile, same columns as staff_accounts (services/employeeProfile.js). All nullable, filled in once known
+  employee_no VARCHAR(30) NULL UNIQUE,
+  birth_date DATE NULL,
+  sex ENUM('Male', 'Female') NULL,
+  address VARCHAR(255) NULL,
+  emergency_contact_name VARCHAR(150) NULL,
+  emergency_contact_phone VARCHAR(20) NULL
+);
+
+-- addition: bus owners (operators whose buses run out of the terminal).
+-- Their only access is the Owner portal's live map of their own buses —
+-- not an employee account, so it isn't in staff_accounts. Created by an
+-- admin in UserManagement.jsx; buses.owner_id says which buses are theirs.
+CREATE TABLE IF NOT EXISTS bus_owners (
+  owner_id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  email VARCHAR(150) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  phoneno VARCHAR(20) NULL,
+  address VARCHAR(255) NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS buses (
@@ -45,7 +67,9 @@ CREATE TABLE IF NOT EXISTS buses (
   current_driver_id INT NULL, -- addition: the driver currently assigned to this bus, so Fleet Management can show it without needing a trip record first
   boarding_point VARCHAR(150) NULL, -- addition: a named pickup point distinct from the route's official origin/destination
   gps_device_id VARCHAR(32) NULL UNIQUE, -- addition: the ID of the GPS tracker fitted to this bus (SinoTrack ST-906L), as registered in Traccar; positions forwarded to POST /api/tracking/device are matched to the bus by it
-  FOREIGN KEY (current_driver_id) REFERENCES drivers(driver_id)
+  owner_id INT NULL, -- addition: the bus owner who can track this bus in the Owner portal; NULL = no owner account linked
+  FOREIGN KEY (current_driver_id) REFERENCES drivers(driver_id),
+  CONSTRAINT fk_buses_owner FOREIGN KEY (owner_id) REFERENCES bus_owners(owner_id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS commuters (
@@ -53,7 +77,10 @@ CREATE TABLE IF NOT EXISTS commuters (
   name VARCHAR(150) NOT NULL,
   email VARCHAR(150) NOT NULL UNIQUE,
   phoneno VARCHAR(20),
-  password_hash VARCHAR(255) NOT NULL
+  password_hash VARCHAR(255) NOT NULL,
+  discount_category ENUM('student', 'pwd', 'senior') NULL, -- addition: verified fare discount (20%), NULL = regular fare
+  discount_verified_at DATETIME NULL,
+  discount_expires_at DATETIME NULL -- addition: one year after approval for students, NULL (no expiry) for PWD / senior citizens
 );
 
 -- addition: the document's ERD scopes only Commuter + Driver accounts.
@@ -64,7 +91,17 @@ CREATE TABLE IF NOT EXISTS staff_accounts (
   name VARCHAR(150) NOT NULL,
   email VARCHAR(150) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
-  role ENUM('terminal_staff', 'admin') NOT NULL
+  role ENUM('terminal_staff', 'admin') NOT NULL,
+  -- addition: employee profile recorded by the admin in UserManagement.jsx
+  -- (services/employeeProfile.js). All nullable, filled in once known.
+  employee_no VARCHAR(30) NULL UNIQUE,
+  phoneno VARCHAR(20) NULL,
+  birth_date DATE NULL,
+  sex ENUM('Male', 'Female') NULL,
+  address VARCHAR(255) NULL,
+  hire_date DATE NULL,
+  emergency_contact_name VARCHAR(150) NULL,
+  emergency_contact_phone VARCHAR(20) NULL
 );
 
 CREATE TABLE IF NOT EXISTS trips (
@@ -93,6 +130,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   booked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   payment_deadline DATETIME NULL, -- addition: online seat hold. A Reserved online booking with no proof under review is released (Cancelled, cancellation_reason 'payment_expired') once this passes. NULL = no hold (walk-ins, flagged rides, and bookings created before holds existed)
   expiry_warned_at TIMESTAMP NULL DEFAULT NULL, -- addition: when the passenger was warned their hold is about to lapse (sent once)
+  discount_category ENUM('student', 'pwd', 'senior') NULL, -- addition: the discount this seat was booked with, fixed at booking time so the fare due can't change mid-payment. NULL = full fare
   cancellation_reason VARCHAR(50) NULL, -- addition: why a booking became Cancelled when the system did it ('payment_expired'); NULL for ordinary cancels
   -- The document specifies: "UNIQUE constraint on (trip_id, seat_number)
   -- with status NOT IN ('Cancelled', 'No-Show')". MySQL has no native
@@ -351,4 +389,31 @@ CREATE TABLE IF NOT EXISTS payment_audit_logs (
   KEY idx_pal_submission (submission_id),
   KEY idx_pal_booking (booking_id),
   KEY idx_pal_created (created_at)
+);
+
+-- addition: student / PWD / senior citizen fare discount (routes/discounts.js).
+-- One row per ID a passenger submits. Terminal staff or an admin check the
+-- ID is real and legible, then approve (sets commuters.discount_*) or reject
+-- with a reason. id_image is a base64 data: URL like payment receipts.
+-- expires_at: one year after approval for students, NULL for PWD / senior.
+-- pending_commuter_id allows at most one Pending application per passenger.
+CREATE TABLE IF NOT EXISTS discount_applications (
+  application_id INT AUTO_INCREMENT PRIMARY KEY,
+  commuter_id INT NOT NULL,
+  category ENUM('student', 'pwd', 'senior') NOT NULL,
+  id_number VARCHAR(50) NULL,
+  id_image LONGTEXT NOT NULL,
+  status ENUM('Pending', 'Approved', 'Rejected') NOT NULL DEFAULT 'Pending',
+  rejection_reason VARCHAR(255) NULL,
+  submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  reviewed_at DATETIME NULL,
+  reviewed_by INT NULL,
+  expires_at DATETIME NULL,
+  pending_commuter_id INT GENERATED ALWAYS AS (
+    CASE WHEN status = 'Pending' THEN commuter_id ELSE NULL END
+  ) STORED,
+  FOREIGN KEY (commuter_id) REFERENCES commuters(commuter_id),
+  FOREIGN KEY (reviewed_by) REFERENCES staff_accounts(staff_id),
+  UNIQUE KEY one_pending_discount_per_commuter (pending_commuter_id),
+  KEY idx_discount_status (status, submitted_at)
 );

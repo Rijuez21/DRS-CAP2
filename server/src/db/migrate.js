@@ -169,6 +169,75 @@ const STATEMENTS = [
   // generated 2 · aisle · 2 layout numbered 1..capacity, so every existing
   // bus is untouched — nothing is backfilled. Re-running is a no-op.
   `ALTER TABLE buses ADD COLUMN seat_layout JSON NULL`,
+
+  // ---- Student / PWD / senior fare discount (routes/discounts.js) -------
+  // addition: the passenger's currently verified discount (NULL = regular
+  // fare). discount_expires_at is one year after approval for students and
+  // NULL (no expiry) for PWD / senior citizens. Re-running is a no-op.
+  `ALTER TABLE commuters ADD COLUMN discount_category ENUM('student', 'pwd', 'senior') NULL`,
+  `ALTER TABLE commuters ADD COLUMN discount_verified_at DATETIME NULL`,
+  `ALTER TABLE commuters ADD COLUMN discount_expires_at DATETIME NULL`,
+  // addition: the discount a seat was booked with, fixed at booking time so
+  // the fare due can't change while the passenger is paying. NULL = full fare.
+  `ALTER TABLE bookings ADD COLUMN discount_category ENUM('student', 'pwd', 'senior') NULL`,
+  // addition: each ID a passenger submits for staff to check. See the
+  // matching comment in schema.sql.
+  `CREATE TABLE IF NOT EXISTS discount_applications (
+    application_id INT AUTO_INCREMENT PRIMARY KEY,
+    commuter_id INT NOT NULL,
+    category ENUM('student', 'pwd', 'senior') NOT NULL,
+    id_number VARCHAR(50) NULL,
+    id_image LONGTEXT NOT NULL,
+    status ENUM('Pending', 'Approved', 'Rejected') NOT NULL DEFAULT 'Pending',
+    rejection_reason VARCHAR(255) NULL,
+    submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    reviewed_at DATETIME NULL,
+    reviewed_by INT NULL,
+    expires_at DATETIME NULL,
+    pending_commuter_id INT GENERATED ALWAYS AS (
+      CASE WHEN status = 'Pending' THEN commuter_id ELSE NULL END
+    ) STORED,
+    FOREIGN KEY (commuter_id) REFERENCES commuters(commuter_id),
+    FOREIGN KEY (reviewed_by) REFERENCES staff_accounts(staff_id),
+    UNIQUE KEY one_pending_discount_per_commuter (pending_commuter_id),
+    KEY idx_discount_status (status, submitted_at)
+  )`,
+
+  // ---- Employee profiles (services/employeeProfile.js) ------------------
+  // addition: the HR details the admin records when creating staff, admin
+  // and driver accounts in UserManagement.jsx. All nullable, nothing is
+  // backfilled. Re-running is a no-op.
+  `ALTER TABLE staff_accounts ADD COLUMN employee_no VARCHAR(30) NULL UNIQUE`,
+  `ALTER TABLE staff_accounts ADD COLUMN phoneno VARCHAR(20) NULL`,
+  `ALTER TABLE staff_accounts ADD COLUMN birth_date DATE NULL`,
+  `ALTER TABLE staff_accounts ADD COLUMN sex ENUM('Male', 'Female') NULL`,
+  `ALTER TABLE staff_accounts ADD COLUMN address VARCHAR(255) NULL`,
+  `ALTER TABLE staff_accounts ADD COLUMN hire_date DATE NULL`,
+  `ALTER TABLE staff_accounts ADD COLUMN emergency_contact_name VARCHAR(150) NULL`,
+  `ALTER TABLE staff_accounts ADD COLUMN emergency_contact_phone VARCHAR(20) NULL`,
+  `ALTER TABLE drivers ADD COLUMN license_expiry DATE NULL`,
+  `ALTER TABLE drivers ADD COLUMN employee_no VARCHAR(30) NULL UNIQUE`,
+  `ALTER TABLE drivers ADD COLUMN birth_date DATE NULL`,
+  `ALTER TABLE drivers ADD COLUMN sex ENUM('Male', 'Female') NULL`,
+  `ALTER TABLE drivers ADD COLUMN address VARCHAR(255) NULL`,
+  `ALTER TABLE drivers ADD COLUMN emergency_contact_name VARCHAR(150) NULL`,
+  `ALTER TABLE drivers ADD COLUMN emergency_contact_phone VARCHAR(20) NULL`,
+
+  // ---- Bus owners (routes/owners.js, Owner portal) ----------------------
+  // addition: owner accounts and which buses are theirs. The foreign key is
+  // named so a re-run fails with ER_FK_DUP_NAME (ignored) instead of adding
+  // another copy. Nothing is backfilled. Re-running is a no-op.
+  `CREATE TABLE IF NOT EXISTS bus_owners (
+    owner_id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(150) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    phoneno VARCHAR(20) NULL,
+    address VARCHAR(255) NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `ALTER TABLE buses ADD COLUMN owner_id INT NULL`,
+  `ALTER TABLE buses ADD CONSTRAINT fk_buses_owner FOREIGN KEY (owner_id) REFERENCES bus_owners(owner_id) ON DELETE SET NULL`,
 ];
 
 const IGNORABLE = new Set(["ER_DUP_FIELDNAME", "ER_TABLE_EXISTS_ERROR", "ER_DUP_KEYNAME", "ER_FK_DUP_NAME", "ER_DUP_KEY"]);

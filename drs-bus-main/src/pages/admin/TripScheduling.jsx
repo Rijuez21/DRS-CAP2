@@ -143,6 +143,13 @@ export default function AdminTripScheduling() {
   // New trips can only use buses and drivers that are actually available.
   const selectableBuses = buses.filter((b) => b.status === "Active" || String(b.bus_id) === form.busId);
   const selectableDrivers = drivers.filter((d) => (d.duty_status ?? "Active") === "Active" || String(d.driver_id) === form.driverId);
+  // Past dates/times are greyed out in the pickers. When editing, the trip's
+  // own (unchanged) departure stays allowed even if it has already passed,
+  // so its other details can still be fixed.
+  const nowInput = toLocalInput(new Date());
+  const originalDeparture = editingId ? toLocalInput(trips.find((t) => t.trip_id === editingId)?.departure_time) : "";
+  const minDeparture = originalDeparture && originalDeparture < nowInput ? originalDeparture : nowInput;
+  const minArrival = form.departureTime && form.departureTime > minDeparture ? form.departureTime : minDeparture;
 
   async function handleSchedule(e) {
     e.preventDefault();
@@ -152,6 +159,10 @@ export default function AdminTripScheduling() {
     }
     if (new Date(form.arrivalTime) <= new Date(form.departureTime)) {
       setFormError("Arrival must be after departure.");
+      return;
+    }
+    if (form.departureTime !== originalDeparture && form.departureTime < toLocalInput(new Date())) {
+      setFormError("Departure can't be in the past.");
       return;
     }
     setIsSaving(true);
@@ -332,8 +343,8 @@ export default function AdminTripScheduling() {
                 {selectableDrivers.map((d) => <option key={d.driver_id} value={d.driver_id}>{d.name}</option>)}
               </select>
             </Field>
-            <Field label="Departure Time"><input required type="datetime-local" value={form.departureTime} onChange={(e) => setForm({ ...form, departureTime: e.target.value })} className="input" /></Field>
-            <Field label="Arrival Time"><input required type="datetime-local" value={form.arrivalTime} onChange={(e) => setForm({ ...form, arrivalTime: e.target.value })} className="input" /></Field>
+            <Field label="Departure Time"><input required type="datetime-local" min={minDeparture} value={form.departureTime} onChange={(e) => setForm({ ...form, departureTime: e.target.value })} className="input" /></Field>
+            <Field label="Arrival Time"><input required type="datetime-local" min={minArrival} value={form.arrivalTime} onChange={(e) => setForm({ ...form, arrivalTime: e.target.value })} className="input" /></Field>
           </form>
         </Modal>
       )}

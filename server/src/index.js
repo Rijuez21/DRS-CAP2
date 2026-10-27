@@ -16,10 +16,12 @@ import { busesRouter } from "./routes/fleet.js";
 import { buildTrackingRouter } from "./routes/tracking.js";
 import { driversRouter } from "./routes/drivers.js";
 import { staffRouter } from "./routes/staff.js";
+import { ownersRouter } from "./routes/owners.js";
 import { notificationsRouter } from "./routes/notifications.js";
 import { dashboardRouter } from "./routes/dashboard.js";
 import { reportsRouter } from "./routes/reports.js";
 import { buildPaymentsRouter } from "./routes/payments.js";
+import { buildDiscountsRouter } from "./routes/discounts.js";
 import { startPaymentSweeper } from "./services/paymentSweeper.js";
 import { gpsRouter } from "./routes/gps.js";
 import { startGpsGateway } from "./services/gpsGateway.js";
@@ -160,6 +162,14 @@ app.use("/api/payments", (req, res, next) => {
     .then((r) => (r.user && ["passenger", "admin"].includes(r.user.role) ? bigJson : smallJson)(req, res, next))
     .catch(next);
 });
+// Same idea for a passenger's discount ID photo (routes/discounts.js):
+// only a signed-in passenger's POST gets the larger limit.
+app.use("/api/discounts", (req, res, next) => {
+  if (req.method !== "POST" || !(req.headers.authorization || "").startsWith("Bearer ")) return smallJson(req, res, next);
+  verifyToken(req.headers.authorization.slice(7))
+    .then((r) => (r.user?.role === "passenger" ? bigJson : smallJson)(req, res, next))
+    .catch(next);
+});
 app.use(smallJson);
 
 // Health check — hit this first to confirm the Railway DB/Redis connections work.
@@ -197,10 +207,12 @@ app.use("/api/buses", busesRouter);
 app.use("/api/tracking", buildTrackingRouter(io));
 app.use("/api/drivers", driversRouter);
 app.use("/api/staff", staffRouter);
+app.use("/api/owners", ownersRouter);
 app.use("/api/notifications", notificationsRouter);
 app.use("/api/dashboard", dashboardRouter);
 app.use("/api/reports", reportsRouter);
 app.use("/api/payments", buildPaymentsRouter(io));
+app.use("/api/discounts", buildDiscountsRouter(io));
 app.use("/api/gps", gpsRouter);
 
 // An oversized body (e.g. a screenshot over the payments limit) reaches

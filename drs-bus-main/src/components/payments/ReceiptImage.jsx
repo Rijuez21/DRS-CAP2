@@ -4,16 +4,16 @@ import * as api from "../../lib/api";
 
 // A private payment receipt. The image is fetched with the login header and
 // shown through a temporary object URL (revoked on unmount) — receipts never
-// have a public link. onClick lets a parent open it full size.
-export default function ReceiptImage({ submissionId, className = "", alt = "Payment receipt", onClick }) {
+// have a public link. onClick lets a parent open it full size. load: another
+// private image source with the same contract (e.g. a discount ID photo).
+export default function ReceiptImage({ submissionId, className = "", alt = "Payment receipt", onClick, load = api.fetchReceiptObjectUrl }) {
   const [state, setState] = useState({ url: null, error: "" });
 
   useEffect(() => {
     if (!submissionId) return undefined;
     let url = null;
     let cancelled = false;
-    api
-      .fetchReceiptObjectUrl(submissionId)
+    load(submissionId)
       .then((u) => {
         url = u;
         if (cancelled) URL.revokeObjectURL(u);
@@ -26,7 +26,7 @@ export default function ReceiptImage({ submissionId, className = "", alt = "Paym
       cancelled = true;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [submissionId]);
+  }, [submissionId, load]);
 
   if (state.error) {
     return (

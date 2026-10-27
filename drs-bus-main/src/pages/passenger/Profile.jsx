@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { LogOut, Mail, Ticket, TicketCheck, CircleX, CalendarClock, Hand, ChevronRight } from "lucide-react";
+import { LogOut, Mail, Ticket, TicketCheck, CircleX, CalendarClock, Hand, ChevronRight, BadgePercent } from "lucide-react";
 import StatsRow from "../../components/passenger/StatsRow";
 import { useAuth } from "../../context/AuthContext";
 import * as api from "../../lib/api";
-import { initials } from "../../lib/format";
+import { initials, formatDate } from "../../lib/format";
+import { CATEGORY_LABELS, DISCOUNT_PERCENT } from "../../lib/discounts";
 
 const SHORTCUTS = [
   { to: "/passenger/my-bookings", icon: Ticket, label: "My Bookings", hint: "Reserved seats and flagged rides" },
@@ -12,11 +13,27 @@ const SHORTCUTS = [
   { to: "/passenger/flag", icon: Hand, label: "Flag a Bus", hint: "Hail a bus that's on its way to you" },
 ];
 
+// One-line status for the Fare Discount menu row (GET /api/discounts/mine).
+function discountHint(info) {
+  const invite = `Student, PWD or senior? Get ${DISCOUNT_PERCENT}% off`;
+  if (!info) return invite;
+  const { active, expired, latest } = info;
+  if (active) {
+    const label = `${CATEGORY_LABELS[active.category]} · ${DISCOUNT_PERCENT}% off`;
+    return active.expires_at ? `${label} until ${formatDate(active.expires_at)}` : `${label} · Verified`;
+  }
+  if (latest?.status === "Pending") return `${CATEGORY_LABELS[latest.category]} ID under review`;
+  if (latest?.status === "Rejected") return "ID not verified — send a new one";
+  if (expired) return "Expired — renew with your current ID";
+  return invite;
+}
+
 export default function Profile() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [bookings, setBookings] = useState([]);
   const [loaded, setLoaded] = useState(false); // show real zeros once loaded, "—" only while loading
+  const [discount, setDiscount] = useState(null);
 
   useEffect(() => {
     if (!user) return;
@@ -27,7 +44,10 @@ export default function Profile() {
         setLoaded(true);
       })
       .catch(() => setLoaded(true));
+    api.getMyDiscount().then(setDiscount).catch(() => {});
   }, [user]);
+
+  const menu = [...SHORTCUTS, { to: "/passenger/discount", icon: BadgePercent, label: "Fare Discount", hint: discountHint(discount) }];
 
   const stats = [
     { label: "Trips booked", value: loaded ? bookings.length : null, icon: Ticket },
@@ -62,7 +82,7 @@ export default function Profile() {
       <StatsRow stats={stats} />
 
       <nav className="card divide-y divide-slate-100 overflow-hidden" aria-label="Shortcuts">
-        {SHORTCUTS.map(({ to, icon: Icon, label, hint }) => (
+        {menu.map(({ to, icon: Icon, label, hint }) => (
           <Link key={to} to={to} className="group flex items-center gap-3 px-4 py-3.5 hover:bg-slate-50 transition-colors">
             <span className="w-9 h-9 shrink-0 rounded-xl bg-brand-forest-900 text-brand-sunrise-400 flex items-center justify-center">
               <Icon className="w-4 h-4" />

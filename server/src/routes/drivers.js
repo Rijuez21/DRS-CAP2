@@ -2,18 +2,21 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { pool } from "../db/pool.js";
 import { requireRole, invalidateAccount } from "../middleware/auth.js";
-import { whyPasswordWeak, cleanEmail, cleanName, cleanPhone } from "../services/passwordPolicy.js";
+import { whyPasswordWeak, cleanEmail, cleanName } from "../services/passwordPolicy.js";
+import { cleanProfile, cleanDate, PROFILE_SELECT } from "../services/employeeProfile.js";
 import { logAudit } from "../services/audit.js";
 
 export const driversRouter = Router();
 
-// GET /api/drivers — powers admin/DriverManagement.jsx. Never returns
-// password_hash.
+// Never includes password_hash.
+const DRIVER_SELECT = `SELECT driver_id, name, license_number, DATE_FORMAT(license_expiry, '%Y-%m-%d') AS license_expiry,
+  email, duty_status, ${PROFILE_SELECT} FROM drivers`;
+
+// GET /api/drivers — powers admin/DriverManagement.jsx and the driver rows
+// of admin/UserManagement.jsx.
 driversRouter.get("/", requireRole("admin", "staff"), async (req, res) => {
   try {
-    const [rows] = await pool.query(
-      `SELECT driver_id, name, license_number, phoneno, hire_date, email, duty_status FROM drivers ORDER BY name`
-    );
+    const [rows] = await pool.query(`${DRIVER_SELECT} ORDER BY name`);
     res.json(rows);
   } catch (err) {
     console.error(err);
@@ -33,10 +36,7 @@ driversRouter.get("/:id", requireRole("admin", "driver"), async (req, res) => {
     return res.status(403).json({ error: "You can only view your own profile" });
   }
   try {
-    const [[row]] = await pool.query(
-      `SELECT driver_id, name, license_number, phoneno, hire_date, email, duty_status FROM drivers WHERE driver_id = ?`,
-      [req.params.id]
-    );
+    const [[row]] = await pool.query(`${DRIVER_SELECT} WHERE driver_id = ?`, [req.params.id]);
     if (!row) return res.status(404).json({ error: "Driver not found" });
     res.json(row);
   } catch (err) {
@@ -46,7 +46,7 @@ driversRouter.get("/:id", requireRole("admin", "driver"), async (req, res) => {
 });
 
 driversRouter.post("/", requireRole("admin"), async (req, res) => {
-  const { licenseNumber, hireDate, password } = req.body ?? {};
+  const { licenseNumber, password } = req.body ?? {};
   const nameR = cleanName(req.body?.name);
   if (nameR.error) return res.status(400).json({ error: "name is required" });
   const name = nameR.value;
@@ -62,40 +62,38 @@ driversRouter.post("/", requireRole("admin"), async (req, res) => {
     const weak = whyPasswordWeak(password, { email, name });
     if (weak) return res.status(400).json({ error: weak });
   }
-  const phone = cleanPhone(req.body?.phoneno);
-  if (phone.error) return res.status(400).json({ error: phone.error });
-  const phoneno = phone.value;
+  const profile = cleanProfile(req.body);
+  if (profile.error) return res.status(400).json({ error: profile.error });
   if (licenseNumber != null && (typeof licenseNumber !== "string" || licenseNumber.length > 50)) {
     return res.status(400).json({ error: "License number must be text up to 50 characters" });
   }
-  if (hireDate != null && hireDate !== "" && !/^\d{4}-\d{2}-\d{2}$/.test(String(hireDate))) {
-    return res.status(400).json({ error: "hireDate must be YYYY-MM-DD" });
-  }
+  const expiry = cleanDate(req.body?.licenseExpiry, "License expiry");
+  if (expiry.error) return res.status(400).json({ error: expiry.error });
 
   try {
     const passwordHash = password ? await bcrypt.hash(password, 10) : null;
+    const cols = { name, license_number: licenseNumber?.trim() || null, license_expiry: expiry.value, email, password_hash: passwordHash, ...profile.columns };
     const [result] = await pool.query(
-      `INSERT INTO drivers (name, license_number, phoneno, hire_date, email, password_hash)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [name, licenseNumber || null, phoneno, hireDate || null, email, passwordHash]
+      `INSERT INTO drivers (${Object.keys(cols).join(", ")}) VALUES (${Object.keys(cols).map(() => "?").join(", ")})`,
+      Object.values(cols)
     );
-    await logAudit({ staffId: req.user.id, action: "create", entityType: "driver", entityId: result.insertId, details: { name, licenseNumber, email } });
-    res.status(201).json({ driver_id: result.insertId, name, licenseNumber, phoneno, hireDate, email });
+    await logAudit({ staffId: req.user.id, action: "create", entityType: "driver", entityId: result.insertId, details: { name, licenseNumber, email, ...profile.columns } });
+    res.status(201).json({ driver_id: result.insertId, name, licenseNumber, licenseExpiry: expiry.value, email, ...profile.columns });
   } catch (err) {
     if (err.code === "ER_DUP_ENTRY") {
-      return res.status(409).json({ error: "A driver with that license number or email already exists" });
+      return res.status(409).json({ error: "A driver with that license number, email or employee number already exists" });
     }
     console.error(err);
     res.status(500).json({ error: "Failed to add driver" });
   }
 });
 
-// PATCH /api/drivers/:id — admin edits basic fields + duty status
-// (Active/On Leave/Suspended toggle in DriverManagement.jsx), and can
-// now also complete licenseNumber/email/password once they're known —
+// PATCH /api/drivers/:id — admin edits basic fields, the employee profile
+// and duty status (Active/On Leave/Suspended toggle in DriverManagement.jsx),
+// and can also complete licenseNumber/email/password once they're known —
 // this is the "finish the profile" path instead of seeding fake values.
 driversRouter.patch("/:id", requireRole("admin"), async (req, res) => {
-  const { name, phoneno, email, licenseNumber, password, dutyStatus } = req.body;
+  const { name, email, licenseNumber, licenseExpiry, password, dutyStatus } = req.body;
   const allowedDutyStatus = ["Active", "On Leave", "Suspended"];
   if (dutyStatus !== undefined && !allowedDutyStatus.includes(dutyStatus)) {
     return res.status(400).json({ error: `dutyStatus must be one of: ${allowedDutyStatus.join(", ")}` });
@@ -108,10 +106,10 @@ driversRouter.patch("/:id", requireRole("admin"), async (req, res) => {
     if (n.error) return res.status(400).json({ error: n.error });
     fields.push("name = ?"); params.push(n.value);
   }
-  if (phoneno !== undefined) {
-    const p = cleanPhone(phoneno);
-    if (p.error) return res.status(400).json({ error: p.error });
-    fields.push("phoneno = ?"); params.push(p.value);
+  const profile = cleanProfile(req.body);
+  if (profile.error) return res.status(400).json({ error: profile.error });
+  for (const [column, value] of Object.entries(profile.columns)) {
+    fields.push(`${column} = ?`); params.push(value);
   }
   if (email !== undefined) {
     if (email === null || email === "") { fields.push("email = ?"); params.push(null); }
@@ -125,7 +123,12 @@ driversRouter.patch("/:id", requireRole("admin"), async (req, res) => {
     if (licenseNumber !== null && (typeof licenseNumber !== "string" || licenseNumber.length > 50)) {
       return res.status(400).json({ error: "License number must be text up to 50 characters" });
     }
-    fields.push("license_number = ?"); params.push(licenseNumber || null);
+    fields.push("license_number = ?"); params.push(licenseNumber?.trim() || null);
+  }
+  if (licenseExpiry !== undefined) {
+    const expiry = cleanDate(licenseExpiry, "License expiry");
+    if (expiry.error) return res.status(400).json({ error: expiry.error });
+    fields.push("license_expiry = ?"); params.push(expiry.value);
   }
   if (dutyStatus !== undefined) { fields.push("duty_status = ?"); params.push(dutyStatus); }
   if (password) {
@@ -146,10 +149,10 @@ driversRouter.patch("/:id", requireRole("admin"), async (req, res) => {
     // Suspension or a new password ends the driver's existing sessions now.
     invalidateAccount("driver", Number(req.params.id));
     await logAudit({ staffId: req.user.id, action: "update", entityType: "driver", entityId: req.params.id, details: { ...req.body, password: password ? "(changed)" : undefined } });
-    res.json({ driver_id: Number(req.params.id), name, phoneno, email, licenseNumber, dutyStatus });
+    res.json({ driver_id: Number(req.params.id), name, email, licenseNumber, licenseExpiry, dutyStatus, ...profile.columns });
   } catch (err) {
     if (err.code === "ER_DUP_ENTRY") {
-      return res.status(409).json({ error: "That email or license number is already in use" });
+      return res.status(409).json({ error: "That email, license number or employee number is already in use" });
     }
     console.error(err);
     res.status(500).json({ error: "Failed to update driver" });

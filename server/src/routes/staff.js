@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { pool } from "../db/pool.js";
 import { requireRole, invalidateAccount } from "../middleware/auth.js";
 import { whyPasswordWeak, cleanEmail, cleanName } from "../services/passwordPolicy.js";
+import { cleanProfile, PROFILE_SELECT } from "../services/employeeProfile.js";
 
 // Refuses changes that would leave the system without any administrator
 // (deleting or demoting the last one). Returns an error string or null.
@@ -29,7 +30,7 @@ staffRouter.get("/", requireRole("admin"), async (req, res) => {
 
   try {
     const [rows] = await pool.query(
-      `SELECT staff_id, name, email, role FROM staff_accounts ${role ? "WHERE role = ?" : ""} ORDER BY name`,
+      `SELECT staff_id, name, email, role, ${PROFILE_SELECT} FROM staff_accounts ${role ? "WHERE role = ?" : ""} ORDER BY name`,
       role ? [role] : []
     );
     res.json(rows);
@@ -52,25 +53,28 @@ staffRouter.post("/", requireRole("admin"), async (req, res) => {
   if (email.error) return res.status(400).json({ error: email.error });
   const weak = whyPasswordWeak(password, { email: email.value, name: name.value });
   if (weak) return res.status(400).json({ error: weak });
+  const profile = cleanProfile(req.body);
+  if (profile.error) return res.status(400).json({ error: profile.error });
 
   try {
     const passwordHash = await bcrypt.hash(password, 10);
+    const cols = { name: name.value, email: email.value, password_hash: passwordHash, role, ...profile.columns };
     const [result] = await pool.query(
-      `INSERT INTO staff_accounts (name, email, password_hash, role) VALUES (?, ?, ?, ?)`,
-      [name.value, email.value, passwordHash, role]
+      `INSERT INTO staff_accounts (${Object.keys(cols).join(", ")}) VALUES (${Object.keys(cols).map(() => "?").join(", ")})`,
+      Object.values(cols)
     );
-    await logAudit({ staffId: req.user.id, action: "create", entityType: "staff", entityId: result.insertId, details: { name: name.value, email: email.value, role } });
-    res.status(201).json({ staff_id: result.insertId, name: name.value, email: email.value, role });
+    await logAudit({ staffId: req.user.id, action: "create", entityType: "staff", entityId: result.insertId, details: { name: name.value, email: email.value, role, ...profile.columns } });
+    res.status(201).json({ staff_id: result.insertId, name: name.value, email: email.value, role, ...profile.columns });
   } catch (err) {
     if (err.code === "ER_DUP_ENTRY") {
-      return res.status(409).json({ error: "An account with that email already exists" });
+      return res.status(409).json({ error: err.message.includes("employee_no") ? "That employee number is already in use" : "An account with that email already exists" });
     }
     console.error(err);
     res.status(500).json({ error: "Failed to add staff account" });
   }
 });
 
-// PATCH /api/staff/:id — admin edits basic fields (name/email/role).
+// PATCH /api/staff/:id — admin edits name/email/role and the employee profile.
 staffRouter.patch("/:id", requireRole("admin"), async (req, res) => {
   const { role, password } = req.body ?? {};
   const allowed = ["terminal_staff", "admin"];
@@ -92,6 +96,11 @@ staffRouter.patch("/:id", requireRole("admin"), async (req, res) => {
     fields.push("email = ?"); params.push(email.value); changes.email = email.value;
   }
   if (role !== undefined) { fields.push("role = ?"); params.push(role); changes.role = role; }
+  const profile = cleanProfile(req.body);
+  if (profile.error) return res.status(400).json({ error: profile.error });
+  for (const [column, value] of Object.entries(profile.columns)) {
+    fields.push(`${column} = ?`); params.push(value); changes[column] = value;
+  }
   if (password !== undefined && password !== "") {
     const weak = whyPasswordWeak(password, { email: changes.email });
     if (weak) return res.status(400).json({ error: weak });
@@ -122,7 +131,7 @@ staffRouter.patch("/:id", requireRole("admin"), async (req, res) => {
     res.json({ staff_id: Number(req.params.id), ...changes });
   } catch (err) {
     if (err.code === "ER_DUP_ENTRY") {
-      return res.status(409).json({ error: "That email is already in use" });
+      return res.status(409).json({ error: err.message.includes("employee_no") ? "That employee number is already in use" : "That email is already in use" });
     }
     console.error(err);
     res.status(500).json({ error: "Failed to update staff account" });

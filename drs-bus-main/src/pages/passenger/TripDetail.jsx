@@ -69,6 +69,23 @@ export default function TripDetail() {
     };
   }, [tripId, refreshSeats]);
 
+  // Verified student / PWD / senior: one seat on this trip (theirs) is 20% off,
+  // unless they already have a discounted seat on it. Display only — the
+  // server applies it. A failure just means the full fare is shown.
+  const [discount, setDiscount] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getMyDiscount(tripId)
+      .then((d) => {
+        if (!cancelled) setDiscount(d.active && !d.used_on_trip ? d.active.category : null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [tripId]);
+
   function toggleSeat(id) {
     setSubmitError("");
     setSelectedSeatIds((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]));
@@ -175,6 +192,7 @@ export default function TripDetail() {
           <BookingSummaryCard
             selectedSeatIds={selectedSeatIds}
             pricePerSeat={trip.fare}
+            discount={discount}
             passengerName={passengerName}
             onPassengerNameChange={setPassengerName}
             onConfirm={handleConfirm}

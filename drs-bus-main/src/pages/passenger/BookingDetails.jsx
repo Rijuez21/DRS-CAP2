@@ -7,6 +7,7 @@ import PaymentPanel from "../../components/passenger/PaymentPanel";
 import PaymentStatusCard from "../../components/passenger/PaymentStatusCard";
 import * as api from "../../lib/api";
 import { formatDate, formatTime, receiptNumber, bookingReference } from "../../lib/format";
+import { CATEGORY_LABELS, DISCOUNT_PERCENT } from "../../lib/discounts";
 
 export default function BookingDetails() {
   const { bookingId } = useParams();
@@ -165,7 +166,10 @@ export default function BookingDetails() {
           <Field label="Date" value={formatDate(booking.departure_time)} />
           <Field label="Departs" value={formatTime(booking.departure_time)} />
           <Field label="Bus" value={booking.plate_num} />
-          <Field label="Fare" value={booking.base_fare != null ? `₱${Number(booking.base_fare).toLocaleString("en-PH")}` : null} />
+          <Field
+            label={booking.discount_category ? `Fare · ${CATEGORY_LABELS[booking.discount_category]} ${DISCOUNT_PERCENT}% off` : "Fare · Regular"}
+            value={booking.fare_due != null ? `₱${Number(booking.fare_due).toLocaleString("en-PH")}` : null}
+          />
           <Field label="Trip status" value={booking.trip_status} />
           <Field label="Booked" value={`${formatDate(booking.booked_at)?.replace(/^\w+, /, "")} ${formatTime(booking.booked_at) ?? ""}`} />
         </div>

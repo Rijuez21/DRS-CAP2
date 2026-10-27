@@ -15,6 +15,7 @@ export function whyPasswordWeak(password, { email, name } = {}) {
   if (password.length > PASSWORD_MAX) return `Use at most ${PASSWORD_MAX} characters for the password`;
   if (Buffer.byteLength(password, "utf8") > 72) return "That password is too long (max 72 bytes)";
   if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) return "Use both letters and numbers in the password";
+  if (!/[A-Z]/.test(password)) return "Use at least one capital letter in the password";
   const lower = password.toLowerCase();
   if (COMMON.has(lower)) return "That password is too common — choose another";
   const local = String(email ?? "").split("@")[0].toLowerCase();

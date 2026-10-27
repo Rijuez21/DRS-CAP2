@@ -11,6 +11,7 @@ import CashPaymentModal from "../../components/staff/CashPaymentModal";
 import { useListState } from "../../hooks/useListState";
 import * as api from "../../lib/api";
 import { formatDate, formatPeso, formatTime } from "../../lib/format";
+import { CATEGORY_LABELS, DISCOUNT_PERCENT } from "../../lib/discounts";
 
 const CHANNEL_LABEL = { online: "Online", walk_in: "Walk-in", flagged: "Flagged on the road" };
 const tripLabel = (r) => `${r.origin} → ${r.destination}`;
@@ -164,7 +165,8 @@ export default function ReservationValidation() {
 
   const tripOver = selected && ["Completed", "Cancelled"].includes(selected.trip_status);
   const qrPending = paymentInfo?.payment?.status === "Pending";
-  const fare = selected?.base_fare != null ? Number(selected.base_fare) : null;
+  // fare_due = the route fare less any student / PWD / senior discount on this seat.
+  const fare = selected?.fare_due != null ? Number(selected.fare_due) : null;
   // Hide "Collect fare" while a QR payment waits for review (verify that
   // instead), while that status is still loading, or when the route has no
   // fare to collect.
@@ -299,7 +301,14 @@ export default function ReservationValidation() {
             <div><dt className="text-xs text-gray-500">Bus</dt><dd className="font-medium">{selected.plate_num ?? "—"}</dd></div>
             <div><dt className="text-xs text-gray-500">Channel</dt><dd className="font-medium">{CHANNEL_LABEL[selected.channel] ?? selected.channel}</dd></div>
             <div><dt className="text-xs text-gray-500">Trip status</dt><dd className="font-medium">{selected.trip_status}</dd></div>
+            {fare != null && <div><dt className="text-xs text-gray-500">Fare</dt><dd className="font-medium">{formatPeso(fare)}</dd></div>}
+            <div><dt className="text-xs text-gray-500">Fare type</dt><dd className="font-medium">{selected.discount_category ? `${CATEGORY_LABELS[selected.discount_category]} (${DISCOUNT_PERCENT}% off)` : "Regular"}</dd></div>
           </dl>
+          {selected.discount_category && (
+            <p className="text-sm rounded-xl px-3 py-2 bg-amber-50 text-amber-800">
+              {CATEGORY_LABELS[selected.discount_category]} fare ({DISCOUNT_PERCENT}% off) — ask to see their {CATEGORY_LABELS[selected.discount_category]} ID at boarding.
+            </p>
+          )}
           {selected.channel === "online" && <OnlinePaymentStatus info={paymentInfo} />}
           {selected.status === "Reserved" && !tripOver && fare == null && (
             <p className="text-sm text-gray-600">This route has no fare on file, so the payment can't be recorded here.</p>

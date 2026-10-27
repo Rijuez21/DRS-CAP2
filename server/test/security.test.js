@@ -87,6 +87,17 @@ describe("login brute-force and enumeration", () => {
     assert.ok(Math.abs(unknownMs - wrongMs) < 150, `${unknownMs} vs ${wrongMs} ms`);
   });
 
+  test("passwords are case-sensitive and a wrong one gets a clear message", async () => {
+    const p = await createPassenger();
+    const [[row]] = await db.query(`SELECT email FROM commuters WHERE commuter_id = ?`, [p.id]);
+    for (const guess of [PASSWORD.toUpperCase(), PASSWORD.toLowerCase()]) {
+      const r = await login(row.email, guess, "passenger");
+      assert.equal(r.status, 401, guess);
+      assert.equal(r.data.error, "Invalid password. Please try again.");
+    }
+    assert.equal((await login(row.email, PASSWORD, "passenger")).status, 200);
+  });
+
   test("malformed login bodies get 400, never a server error", async () => {
     for (const body of [
       { email: { $ne: "" }, password: "x", role: "passenger" },
@@ -108,6 +119,7 @@ describe("registration and password policy", () => {
       { name: "A", email: "ok1@test.local", password: "short1" },
       { name: "A", email: "ok2@test.local", password: "allletters" },
       { name: "A", email: "ok3@test.local", password: "password123" },
+      { name: "A", email: "ok7@test.local", password: "no-capitals-123" },
       { name: "A", email: "not-an-email", password: "Good-pass-123" },
       { name: "x".repeat(200), email: "ok4@test.local", password: "Good-pass-123" },
       { name: "<script>", email: "ok5@test.local", password: "Good-pass-123" },
@@ -128,6 +140,7 @@ describe("registration and password policy", () => {
     const d = await api("POST", "/api/drivers", { token: admin.token, body: { name: "D", email: "d1@test.local", password: "driver123" } });
     assert.equal(d.status, 400);
     assert.ok(whyPasswordWeak("Strong-enough-42") === null);
+    assert.equal(whyPasswordWeak("strong-enough-42"), "Use at least one capital letter in the password");
   });
 });
 

@@ -1,9 +1,12 @@
 import { Armchair, Info } from "lucide-react";
 import { compareSeats } from "../../lib/format";
+import { CATEGORY_LABELS, DISCOUNT_PERCENT, discountedFare, totalWithDiscount } from "../../lib/discounts";
 
 // Book Ahead summary + confirm. The old "Contact Number (optional)" field
 // was removed: nothing ever saved it (bookings have no phone column), so it
 // quietly promised something the system didn't do.
+// discount: the passenger's verified category ("student" | "pwd" | "senior")
+// when one seat on this trip gets 20% off, else null. The server decides.
 export default function BookingSummaryCard({
   selectedSeatIds,
   pricePerSeat,
@@ -12,10 +15,14 @@ export default function BookingSummaryCard({
   onConfirm,
   isSubmitting = false,
   error = "",
+  discount = null,
 }) {
   const count = selectedSeatIds.length;
-  const total = pricePerSeat != null ? pricePerSeat * count : null;
+  const total = totalWithDiscount(pricePerSeat, count, Boolean(discount));
   const sortedSeats = [...selectedSeatIds].sort(compareSeats);
+  // The server discounts the FIRST seat picked (their own); the rest are regular fare.
+  const discountSeat = discount && count > 0 ? selectedSeatIds[0] : null;
+  const regularSeats = sortedSeats.filter((s) => s !== discountSeat);
 
   return (
     <div className="card overflow-hidden lg:sticky lg:top-6">
@@ -59,12 +66,37 @@ export default function BookingSummaryCard({
             <p className="text-xs text-ink-600">Total fare</p>
             <p className="font-display text-2xl font-bold text-brand-green-600 leading-tight">{total != null ? `₱${total}` : "—"}</p>
           </div>
-          {pricePerSeat != null && count > 0 && (
+          {pricePerSeat != null && count > 0 && !discountSeat && (
             <p className="text-xs font-medium text-ink-600 pb-1">
               {count} × ₱{pricePerSeat}
             </p>
           )}
         </div>
+        {discountSeat && pricePerSeat != null && (
+          <div className="space-y-1.5">
+            <ul className="text-xs space-y-1 rounded-xl border border-slate-200 bg-white px-3 py-2">
+              <li className="flex justify-between gap-2">
+                <span>
+                  Seat {discountSeat} · <span className="font-semibold text-brand-green-600">{CATEGORY_LABELS[discount]} {DISCOUNT_PERCENT}% off</span>
+                </span>
+                <span className="font-medium">₱{discountedFare(pricePerSeat)}</span>
+              </li>
+              {regularSeats.length > 0 && (
+                <li className="flex justify-between gap-2">
+                  <span>
+                    Seat{regularSeats.length === 1 ? "" : "s"} {regularSeats.join(", ")} · Regular
+                  </span>
+                  <span className="font-medium">
+                    {regularSeats.length} × ₱{pricePerSeat}
+                  </span>
+                </li>
+              )}
+            </ul>
+            <p className="text-xs text-ink-600">
+              Your {CATEGORY_LABELS[discount]} discount covers one seat per trip — yours (the first seat you picked). Other seats are regular fare. Bring your ID when you board.
+            </p>
+          </div>
+        )}
         <p className="flex gap-2 text-xs text-ink-600">
           <Info className="w-3.5 h-3.5 mt-px shrink-0 text-brand-green-600" />
           No payment yet — after reserving, pay online with QR Ph (GCash, Maya or your bank app) or at the terminal.

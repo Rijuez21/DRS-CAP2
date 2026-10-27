@@ -29,6 +29,12 @@ function parseTripBody(body, { partial }) {
   return { fields: out };
 }
 
+// A departure earlier than now (with a minute's grace for the time spent
+// filling in the form) can't be scheduled.
+function isPast(departure) {
+  return new Date(departure).getTime() < Date.now() - 60_000;
+}
+
 const TRIPS_CACHE_KEY = "cache:trips:active";
 // The passenger / walk-in list (?scope=bookable) is cached on its own. It used
 // to be filtered in JavaScript AFTER loading and caching every trip ever
@@ -191,6 +197,9 @@ export function buildTripsRouter(io) {
     if (new Date(arrivalTime) <= new Date(departureTime)) {
       return res.status(400).json({ error: "arrivalTime must be after departureTime" });
     }
+    if (isPast(departureTime)) {
+      return res.status(400).json({ error: "Departure can't be in the past" });
+    }
 
     try {
       // Overlap: existing.departure < new.arrival AND existing.arrival > new.departure
@@ -339,6 +348,12 @@ export function buildTripsRouter(io) {
       if (!existing) return res.status(404).json({ error: "Trip not found" });
       if (existing.status !== "Scheduled") {
         return res.status(409).json({ error: `Only a Scheduled trip can be edited (this one is ${existing.status})` });
+      }
+      // Only a departure that's actually being changed has to be in the
+      // future (the form resends it unchanged), so other edits to a trip
+      // that's about to leave still go through.
+      if (departureTime && new Date(departureTime).getTime() !== new Date(existing.departure_time).getTime() && isPast(departureTime)) {
+        return res.status(400).json({ error: "Departure can't be in the past" });
       }
       if (busId !== undefined && Number(busId) !== existing.bus_id) {
         // Swapping to another bus must not strand passengers whose seat

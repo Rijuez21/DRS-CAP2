@@ -18,6 +18,7 @@ const ACCOUNT_TABLES = {
   driver: { table: "drivers", idCol: "driver_id", nameCol: "name", extra: ", duty_status" },
   staff: { table: "staff_accounts", idCol: "staff_id", nameCol: "name", roleFilter: "terminal_staff" },
   admin: { table: "staff_accounts", idCol: "staff_id", nameCol: "name", roleFilter: "admin" },
+  owner: { table: "bus_owners", idCol: "owner_id", nameCol: "name" },
 };
 
 // Compared against when the email doesn't exist (or has no password yet),
@@ -38,6 +39,9 @@ const emailKey = (req) => {
 const failedPerAccount = failureLimiter({ name: "login-fail-account", max: 10, windowSeconds: 15 * 60 });
 const failedPerIp = failureLimiter({ name: "login-fail-ip", max: Number(process.env.LOGIN_IP_RATE_LIMIT) || 50, windowSeconds: 15 * 60 });
 const loginRequestsPerIp = rateLimit({ name: "login-ip", max: (Number(process.env.LOGIN_IP_RATE_LIMIT) || 50) * 4, windowSeconds: 15 * 60, message: "Too many login attempts. Wait 15 minutes and try again." });
+// Same message whether the email or the password is wrong, so it doesn't
+// reveal which emails have accounts.
+const INVALID_LOGIN = "Invalid password. Please try again.";
 const LOCKED = "Too many failed login attempts. Wait 15 minutes and try again.";
 const registerPerIp = rateLimit({ name: "register-ip", max: 10, windowSeconds: 60 * 60, message: "Too many sign-ups from this network. Try again later." });
 
@@ -51,7 +55,7 @@ authRouter.post("/login", loginRequestsPerIp, async (req, res) => {
     return res.status(400).json({ error: "email, password, and a valid role are required" });
   }
   if (email.length > 254 || password.length > PASSWORD_MAX) {
-    return res.status(401).json({ error: "Invalid credentials" });
+    return res.status(401).json({ error: INVALID_LOGIN });
   }
 
   const accountKey = emailKey(req);
@@ -74,7 +78,7 @@ authRouter.post("/login", loginRequestsPerIp, async (req, res) => {
     const matches = await bcrypt.compare(password, usable ? account.password_hash : DUMMY_HASH);
     if (!usable || !matches) {
       await Promise.all([failedPerAccount.fail(accountKey), failedPerIp.fail(ipKey)]);
-      return res.status(401).json({ error: "Invalid credentials" });
+      return res.status(401).json({ error: INVALID_LOGIN });
     }
     await failedPerAccount.reset(accountKey);
     if (role === "driver" && account.duty_status === "Suspended") {

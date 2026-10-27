@@ -7,6 +7,7 @@ import { logPaymentEvent } from "../services/paymentAudit.js";
 import { rateLimit } from "../services/rateLimit.js";
 import { BOOKABLE_TRIP_STATUSES } from "../services/bookingRules.js";
 import { likeEscape } from "../services/validate.js";
+import { FARE_DUE_SQL } from "../services/discounts.js";
 import {
   OPEN_STATUSES,
   FUNDS_RECEIVED_STATUSES,
@@ -503,7 +504,7 @@ export function buildPaymentsRouter(io) {
       // decision on these seats all queue behind this transaction.
       const [bookings] = await conn.query(
         `SELECT bk.booking_id, bk.passenger_id, bk.status, bk.seat_number, bk.channel, bk.booked_at,
-                bk.payment_deadline, bk.cancellation_reason, tr.status AS trip_status, rt.base_fare
+                bk.payment_deadline, bk.cancellation_reason, tr.status AS trip_status, rt.base_fare, ${FARE_DUE_SQL} AS fare_due
          FROM bookings bk
          JOIN trips tr ON tr.trip_id = bk.trip_id
          JOIN routes rt ON rt.route_id = tr.route_id
@@ -572,7 +573,7 @@ export function buildPaymentsRouter(io) {
       }
 
       for (const id of bookingIds) {
-        const fare = toCentavos(byId.get(id).base_fare);
+        const fare = toCentavos(byId.get(id).fare_due);
         if (fare == null) {
           await conn.rollback();
           return res.status(409).json({ error: "A fare on this booking isn't valid — please pay at the terminal." });
@@ -604,7 +605,7 @@ export function buildPaymentsRouter(io) {
 
       for (const id of bookingIds) {
         const booking = byId.get(id);
-        const fare = toCentavos(booking.base_fare);
+        const fare = toCentavos(booking.fare_due);
         const [result] = await conn.query(
           `INSERT INTO payments (booking_id, submission_id, amount, reference_number, status) VALUES (?, ?, ?, ?, 'Pending')`,
           [id, submissionId, centavosToDecimal(fare), reference.display]
@@ -693,7 +694,7 @@ export function buildPaymentsRouter(io) {
     try {
       const [[booking]] = await pool.query(
         `SELECT bk.booking_id, bk.passenger_id, bk.status, bk.channel, bk.booked_at, bk.payment_deadline, bk.cancellation_reason,
-                tr.status AS trip_status, tr.departure_time, rt.base_fare
+                tr.status AS trip_status, tr.departure_time, rt.base_fare, ${FARE_DUE_SQL} AS fare_due, bk.discount_category
          FROM bookings bk
          JOIN trips tr ON tr.trip_id = bk.trip_id
          JOIN routes rt ON rt.route_id = tr.route_id
@@ -722,7 +723,8 @@ export function buildPaymentsRouter(io) {
         channel: booking.channel,
         trip_status: booking.trip_status,
         departure_time: booking.departure_time,
-        amount_due: centavosToNumber(centavosOf(booking.base_fare)),
+        amount_due: centavosToNumber(centavosOf(booking.fare_due)),
+        discount_category: booking.discount_category,
         payment_deadline: booking.payment_deadline,
         payment_status: latest ? latest.status : "Awaiting Payment",
         can_pay: canPay,

@@ -8,6 +8,7 @@ import PrivacyPolicy from "../pages/DataPolicy";
 import PassengerLogin from "../pages/auth/PassengerLogin";
 import StaffLogin from "../pages/auth/StaffLogin";
 import AdminLogin from "../pages/auth/AdminLogin";
+import OwnerLogin from "../pages/auth/OwnerLogin";
 import RequireRole from "../components/auth/RequireRole";
 
 // Layouts
@@ -15,6 +16,7 @@ import PassengerLayout from '../components/layout/PassengerLayout'
 import DriverLayout from '../components/layout/DriverLayout'
 import StaffLayout from '../components/layout/StaffLayout'
 import AdminLayout from '../components/layout/AdminLayout'
+import OwnerLayout from '../components/layout/OwnerLayout'
 
 // Passenger pages
 import PassengerHome from '../pages/passenger/PassengerHome'
@@ -53,12 +55,14 @@ import ReservationsManagement from '../pages/admin/ReservationsManagement'
 import ReportsAnalytics from '../pages/admin/ReportsAnalytics'
 import UserManagement from '../pages/admin/UserManagement'
 import PaymentSettings from '../pages/admin/PaymentSettings'
+import DiscountReview from '../pages/staff/DiscountReview'
+import FareDiscount from '../pages/passenger/FareDiscount'
 
 export default function AppRoutes() {
   return (
     <Routes>
       {/* Entry point: LandingPage links straight to the passenger login.
-          Driver/Terminal Staff and Admin have their own direct URLs below
+          Driver/Terminal Staff, Admin and Bus Owner have their own direct URLs below
           — no public role-picker page. /select-role redirects in case
           anything still links to the old URL. */}
       <Route path="/" element={<LandingPage />} />
@@ -68,6 +72,7 @@ export default function AppRoutes() {
       <Route path="/login/driver" element={<Navigate to="/login/staff" replace />} />
       <Route path="/login/staff" element={<StaffLogin />} />
       <Route path="/login/admin" element={<AdminLogin />} />
+      <Route path="/login/owner" element={<OwnerLogin />} />
 
       {/* Passenger */}
       <Route
@@ -93,6 +98,7 @@ export default function AppRoutes() {
               Flag a Bus  = flag — already on the roadside, hail an In Transit bus on a live map, no seat picker */}
         <Route path="flag" element={<FlagBus />} />                   {/* NEW */}
         <Route path="profile" element={<Profile />} />
+        <Route path="discount" element={<FareDiscount />} />          {/* apply for / renew the student, PWD or senior fare discount */}
       </Route>
 
       {/* Driver */}
@@ -126,6 +132,7 @@ export default function AppRoutes() {
         <Route path="validate" element={<ReservationValidation />} />
         <Route path="payments" element={<PaymentReview />} />
         <Route path="trips" element={<TripScheduling />} />            {/* staff can add/edit schedules; cancelling stays admin-only */}
+        <Route path="discounts" element={<DiscountReview />} />       {/* student / PWD / senior IDs for the 20% fare discount */}
         <Route path="tracking" element={<FleetTracking />} />          {/* same live fleet map as admin — where every bus is, so staff can tell waiting passengers */}
       </Route>
 
@@ -151,6 +158,21 @@ export default function AppRoutes() {
         <Route path="users" element={<UserManagement />} />
         <Route path="payments" element={<PaymentReview />} />
         <Route path="payment-settings" element={<PaymentSettings />} />
+        <Route path="discounts" element={<DiscountReview />} />
+      </Route>
+
+      {/* Bus Owner — the same live map as admin/staff, limited to the
+          owner's own buses (FleetTracking reads the /owner path). */}
+      <Route
+        path="/owner"
+        element={
+          <RequireRole role="owner">
+            <OwnerLayout />
+          </RequireRole>
+        }
+      >
+        <Route index element={<Navigate to="tracking" replace />} />
+        <Route path="tracking" element={<FleetTracking />} />
       </Route>
 
       {/* Catch-all */}

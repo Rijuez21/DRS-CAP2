@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth, AUTH_NOTICE_KEY } from "../../context/AuthContext";
 import * as api from "../../lib/api";
+import { readIdImage } from "../../lib/discounts";
+import DiscountIdFields from "../passenger/DiscountIdFields";
 
 export default function LoginForm({
   role,
@@ -25,6 +27,8 @@ export default function LoginForm({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  // Sign-up only: student / PWD / senior passengers send an ID for the fare discount.
+  const [discount, setDiscount] = useState({ type: "regular", idNumber: "", file: null });
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -45,14 +49,32 @@ export default function LoginForm({
       setError("Use at least 8 characters for the password, with both letters and numbers.");
       return;
     }
+    if (mode === "signup" && !/[A-Z]/.test(password)) {
+      setError("Use at least one capital letter in the password.");
+      return;
+    }
+    const wantsDiscount = mode === "signup" && discount.type !== "regular";
 
     setIsSubmitting(true);
     try {
+      // Read the ID photo first, so a bad file is caught before the account exists.
+      const idImage = wantsDiscount ? await readIdImage(discount.file) : null;
       if (mode === "signup") {
         await api.register({ name, email, password });
       }
       const result = await api.login({ email, password, role });
       signIn(result);
+      // The ID upload needs the login token (it's too big for the anonymous
+      // sign-up request). The account already exists, so if this fails the
+      // passenger lands on their profile to try again from there.
+      if (wantsDiscount) {
+        try {
+          await api.submitDiscountId({ category: discount.type, idNumber: discount.idNumber, idImage });
+        } catch (err) {
+          navigate("/passenger/discount", { replace: true, state: { discountNotice: `Your account was created, but your ID didn't upload: ${err.message} Send it again below.` } });
+          return;
+        }
+      }
       // Back to the page that asked for login, if it belongs to this role.
       const rolePrefix = redirectPath.split("/")[1];
       navigate(returnTo && returnTo.startsWith(`/${rolePrefix}/`) ? returnTo : redirectPath, { replace: true });
@@ -104,8 +126,16 @@ export default function LoginForm({
           maxLength={128}
           className="w-full bg-brand-sunrise-400/40 border border-brand-sunrise-500/30 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-brand-green-600/50 placeholder:text-ink-600/50"
         />
-        {mode === "signup" && <p className="text-xs text-ink-600 mt-1">At least 8 characters, with letters and numbers.</p>}
+        {mode === "signup" && <p className="text-xs text-ink-600 mt-1">At least 8 characters, with letters, numbers, and one capital letter.</p>}
       </Field>
+
+      {mode === "signup" && (
+        <DiscountIdFields
+          value={discount}
+          onChange={setDiscount}
+          inputClass="w-full bg-brand-sunrise-400/40 border border-brand-sunrise-500/30 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-brand-green-600/50 placeholder:text-ink-600/50"
+        />
+      )}
 
       {error && (
         <p role="alert" className="text-sm text-rose-600 font-medium">
