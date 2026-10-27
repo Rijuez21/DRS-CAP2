@@ -21,7 +21,12 @@ export default function StaffLogin() {
   const active = SUB_ROLES.find((r) => r.role === subRole);
 
   return (
-    <AuthShell roleLabel="Driver / Terminal Staff Login">
+    <AuthShell
+      roleLabel="Driver / Terminal Staff Login"
+      headline="Ready for today's trips."
+      tagline="Manifests, walk-in sales and boarding checks for drivers and terminal staff."
+      audience="team"
+    >
       <div className="grid grid-cols-2 gap-2 mb-5 bg-brand-forest-900/5 rounded-xl p-1">
         {SUB_ROLES.map(({ role, label, icon: Icon }) => (
           <button

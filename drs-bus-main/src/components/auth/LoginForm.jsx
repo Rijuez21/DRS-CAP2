@@ -5,6 +5,10 @@ import * as api from "../../lib/api";
 import { readIdImage } from "../../lib/discounts";
 import DiscountIdFields from "../passenger/DiscountIdFields";
 
+// One style for every field on the login / sign-up form. Change it here.
+const INPUT_CLASS =
+  "w-full bg-white border border-slate-300 rounded-xl px-4 py-3 outline-none transition-colors hover:border-slate-400 focus:border-brand-green-600 focus:ring-2 focus:ring-brand-green-600/25 placeholder:text-ink-600/50";
+
 export default function LoginForm({
   role,
   redirectPath,
@@ -87,6 +91,12 @@ export default function LoginForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4" aria-label={`${role} ${mode} form`}>
+      <div>
+        <h2 className="font-display text-2xl font-bold text-ink-900">{mode === "signup" ? "Create your account" : "Sign in"}</h2>
+        <p className="text-sm text-ink-600 mt-1">
+          {mode === "signup" ? "It only takes a minute. You can add a discount ID now or later." : "Welcome back. Enter your email and password to continue."}
+        </p>
+      </div>
       {notice && !error && (
         <p role="status" className="text-sm font-medium text-brand-forest-900 bg-brand-sunrise-400/30 rounded-xl px-4 py-2.5">
           {notice}
@@ -100,7 +110,7 @@ export default function LoginForm({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Juan Dela Cruz"
-            className="w-full bg-brand-sunrise-400/40 border border-brand-sunrise-500/30 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-brand-green-600/50 placeholder:text-ink-600/50"
+            className={INPUT_CLASS}
           />
         </Field>
       )}
@@ -112,7 +122,7 @@ export default function LoginForm({
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="you@email.com"
-          className="w-full bg-brand-sunrise-400/40 border border-brand-sunrise-500/30 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-brand-green-600/50 placeholder:text-ink-600/50"
+          className={INPUT_CLASS}
         />
       </Field>
 
@@ -124,7 +134,7 @@ export default function LoginForm({
           onChange={(e) => setPassword(e.target.value)}
           placeholder="••••••••"
           maxLength={128}
-          className="w-full bg-brand-sunrise-400/40 border border-brand-sunrise-500/30 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-brand-green-600/50 placeholder:text-ink-600/50"
+          className={INPUT_CLASS}
         />
         {mode === "signup" && <p className="text-xs text-ink-600 mt-1">At least 8 characters, with letters, numbers, and one capital letter.</p>}
       </Field>
@@ -133,7 +143,7 @@ export default function LoginForm({
         <DiscountIdFields
           value={discount}
           onChange={setDiscount}
-          inputClass="w-full bg-brand-sunrise-400/40 border border-brand-sunrise-500/30 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-brand-green-600/50 placeholder:text-ink-600/50"
+          inputClass={INPUT_CLASS}
         />
       )}
 
@@ -146,7 +156,7 @@ export default function LoginForm({
       <button
         type="submit"
         disabled={isSubmitting}
-        className="w-full bg-brand-green-600 hover:bg-brand-green-500 disabled:opacity-60 transition-colors text-white font-display font-semibold rounded-xl py-3"
+        className="w-full bg-brand-forest-900 hover:bg-brand-forest-800 disabled:opacity-60 transition-colors text-white font-display font-semibold rounded-xl py-3 shadow-sm"
       >
         {isSubmitting ? (mode === "signup" ? "Creating account…" : "Signing in…") : mode === "signup" ? "Create Account" : "Sign In"}
       </button>
