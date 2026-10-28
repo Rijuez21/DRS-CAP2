@@ -1,0 +1,61 @@
+# Save as .github/workflows/api-tests.yml in your repo.
+# On every push / pull request: starts MySQL 8 + Redis, creates and seeds the
+# database, boots the API, then runs the full Postman collection with Newman.
+name: API tests (Postman)
+
+on: [push, pull_request]
+
+jobs:
+  postman:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: drs
+        ports: ["3306:3306"]
+        options: --health-cmd="mysqladmin ping -proot" --health-interval=5s --health-retries=20
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+    env:
+      MYSQL_URL: mysql://root:root@127.0.0.1:3306/drs
+      REDIS_URL: redis://127.0.0.1:6379
+      PORT: 4000
+      GPS_TCP_PORT: "off"
+      RATE_LIMIT_DISABLED: "1"   # test database only; ignored on a deployed server
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run db:init && npm run db:migrate && npm run db:seed
+      - name: Start API in the background
+        run: |
+          node src/index.js > server.log 2>&1 &
+          npx --yes wait-on http://localhost:4000/api/health --timeout 60000
+      - name: Run full Postman collection
+        run: |
+          npx --yes -p newman@6 -p newman-reporter-htmlextra newman run \
+            ../postman/DRS-Bus-API-Full.postman_collection.json \
+            -e ../postman/DRS-Bus-Local.postman_environment.json \
+            --reporters cli,htmlextra,junit \
+            --reporter-htmlextra-export newman-report.html \
+            --reporter-htmlextra-omitRequestBodies \
+            --reporter-junit-export newman-report.xml
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: newman-report
+          path: |
+            server/newman-report.html
+            server/newman-report.xml
+      - name: Show server log on failure
+        if: failure()
+        run: cat server.log
