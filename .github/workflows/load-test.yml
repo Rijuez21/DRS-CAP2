@@ -80,6 +80,7 @@ jobs:
 
       - name: Load test
         run: |
+          mkdir -p results report
           apache-jmeter-${JMETER_VERSION}/bin/jmeter -n -t jmeter/DRS-Bus-Load-Test.jmx \
             -l results/load.jtl -e -o report/load \
             -Jusers=${USERS} -Jbookers=4 -Jrampup=20 -Jduration=${DURATION}
