@@ -1,0 +1,101 @@
+# Save as .github/workflows/load-test.yml in your repo.
+# Runs the JMeter load test against a fresh copy of the API (MySQL 8 + Redis)
+# and fails the run if the error rate or the 95th percentile breaks the limits.
+# It does NOT touch your Railway app or database.
+name: Load test (JMeter)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:          # adds a "Run workflow" button on the Actions tab
+    inputs:
+      users:
+        description: "Browsing virtual users"
+        default: "20"
+      duration:
+        description: "Seconds to run"
+        default: "60"
+
+jobs:
+  jmeter:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: drs
+        ports: ["3306:3306"]
+        options: --health-cmd="mysqladmin ping -proot" --health-interval=5s --health-retries=20
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+    env:
+      MYSQL_URL: mysql://root:root@127.0.0.1:3306/drs
+      REDIS_URL: redis://127.0.0.1:6379
+      PORT: 4000
+      GPS_TCP_PORT: "off"
+      RATE_LIMIT_DISABLED: "1"   # test database only; ignored on a deployed server
+      JMETER_VERSION: "5.6.3"
+      USERS: ${{ github.event.inputs.users || '20' }}
+      DURATION: ${{ github.event.inputs.duration || '60' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install and start the API
+        working-directory: server
+        run: |
+          npm ci
+          npm run db:init && npm run db:migrate && npm run db:seed
+          node src/index.js > server.log 2>&1 &
+          npx --yes wait-on http://localhost:4000/api/health --timeout 60000
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Cache JMeter
+        id: cache-jmeter
+        uses: actions/cache@v4
+        with:
+          path: apache-jmeter-${{ env.JMETER_VERSION }}
+          key: jmeter-${{ env.JMETER_VERSION }}
+
+      - name: Download JMeter
+        if: steps.cache-jmeter.outputs.cache-hit != 'true'
+        run: |
+          curl -sSfL -o jmeter.tgz https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-${JMETER_VERSION}.tgz
+          tar -xzf jmeter.tgz
+
+      - name: Smoke test (1 user, 10 s)
+        run: |
+          apache-jmeter-${JMETER_VERSION}/bin/jmeter -n -t jmeter/DRS-Bus-Load-Test.jmx \
+            -l results/smoke.jtl -Jusers=1 -Jbookers=1 -Jduration=10
+          node jmeter/check-results.js results/smoke.jtl --maxErrorPct 0 --maxP95 2000
+
+      - name: Load test
+        run: |
+          apache-jmeter-${JMETER_VERSION}/bin/jmeter -n -t jmeter/DRS-Bus-Load-Test.jmx \
+            -l results/load.jtl -e -o report/load \
+            -Jusers=${USERS} -Jbookers=4 -Jrampup=20 -Jduration=${DURATION}
+
+      - name: Check performance targets
+        run: node jmeter/check-results.js results/load.jtl --maxErrorPct 1 --maxP95 1000
+
+      - name: Upload HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmeter-report
+          path: |
+            report/
+            results/
+
+      - name: Show server log on failure
+        if: failure()
+        run: cat server/server.log
