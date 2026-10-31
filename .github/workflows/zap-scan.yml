@@ -1,0 +1,74 @@
+# Save as .github/workflows/zap-scan.yml in your repo.
+# Starts a throwaway copy of the DRS Bus app on GitHub's machine (own MySQL 8,
+# Redis, API and the production build of the frontend), then runs the ZAP
+# baseline scan against it: spider + AJAX spider + passive scan, no attacks.
+# It never contacts your Railway app.
+name: Security scan (ZAP)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:          # "Run workflow" button on the Actions tab
+
+jobs:
+  zap:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: drs
+        ports: ["3306:3306"]
+        options: --health-cmd="mysqladmin ping -proot" --health-interval=5s --health-retries=20
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+    env:
+      MYSQL_URL: mysql://root:root@127.0.0.1:3306/drs
+      REDIS_URL: redis://127.0.0.1:6379
+      PORT: 4000
+      GPS_TCP_PORT: "off"
+      RATE_LIMIT_DISABLED: "1"   # test copy only; ignored on a deployed server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Start the API (test copy)
+        working-directory: server
+        run: |
+          npm ci
+          npm run db:init && npm run db:migrate && npm run db:seed
+          node src/index.js > server.log 2>&1 &
+          npx --yes wait-on http://localhost:4000/api/health --timeout 60000
+
+      - name: Build and serve the frontend (production build)
+        working-directory: drs-bus-main
+        run: |
+          npm ci
+          npm run build
+          npx vite preview --port 4173 > preview.log 2>&1 &
+          npx --yes wait-on http://localhost:4173 --timeout 60000
+
+      - name: ZAP baseline scan
+        run: |
+          mkdir -p zap && chmod 777 zap
+          docker run --rm --network host \
+            -v "${{ github.workspace }}/zap:/zap/wrk/:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py -t http://localhost:4173 -j \
+              -r zap-report.html -J zap-report.json -I
+
+      - name: Upload ZAP report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-report
+          path: zap/
+
+      - name: Show server log on failure
+        if: failure()
+        run: cat server/server.log
