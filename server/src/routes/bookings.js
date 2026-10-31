@@ -10,6 +10,7 @@ import {
   firstFreeSeat,
 } from "../services/bookingRules.js";
 import { notifyRecipient } from "../services/notify.js";
+import { emailCounterPaymentReceipt } from "../services/receiptEmail.js";
 import { likeEscape } from "../services/validate.js";
 import { initialPaymentDeadline, bookingReference } from "../services/paymentRules.js";
 import { logAudit } from "../services/audit.js";
@@ -398,6 +399,7 @@ bookingsRouter.post("/:id/counter-payment", requireRole("staff", "admin"), async
       `Payment of ${peso(booking.fare)} received at the terminal — booking #${booking.booking_id} (seat ${booking.seat_number}) is confirmed.`,
       "payment_verified"
     );
+    emailCounterPaymentReceipt(booking.booking_id, booking.fare); // not awaited; never throws
   }
 
   res.json({

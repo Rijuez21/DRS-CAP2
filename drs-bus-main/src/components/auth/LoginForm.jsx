@@ -6,6 +6,7 @@ import * as api from "../../lib/api";
 import { readIdImage } from "../../lib/discounts";
 import { normalizePhMobile } from "../../lib/phone";
 import DiscountIdFields from "../passenger/DiscountIdFields";
+import ForgotPasswordForm from "./ForgotPasswordForm";
 
 // One style for every field on the login / sign-up form. Change it here.
 const INPUT_CLASS =
@@ -61,7 +62,8 @@ export default function LoginForm({
     sessionStorage.removeItem(AUTH_NOTICE_KEY);
   }, []);
 
-  const [mode, setMode] = useState("login"); // "login" | "signup"
+  const [mode, setMode] = useState("login"); // "login" | "signup" | "forgot"
+  const [resetNotice, setResetNotice] = useState(""); // "Your password has been changed…" after ForgotPasswordForm
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -150,6 +152,22 @@ export default function LoginForm({
   const strength = isSignup && password ? STRENGTH[passwordStrength(password)] : null;
   const strengthLevel = strength ? STRENGTH.indexOf(strength) : 0;
 
+  if (mode === "forgot") {
+    return (
+      <ForgotPasswordForm
+        role={role}
+        initialEmail={email}
+        inputClass={INPUT_CLASS}
+        onCancel={() => switchMode("login")}
+        onDone={(message) => {
+          setPassword("");
+          setResetNotice(message);
+          switchMode("login");
+        }}
+      />
+    );
+  }
+
   return (
     <form onSubmit={handleSubmit} noValidate={isSignup} className="space-y-4" aria-label={`${role} ${mode} form`}>
       <div>
@@ -158,9 +176,9 @@ export default function LoginForm({
           {isSignup ? "It only takes a minute. You can add a discount ID now or later." : "Welcome back. Enter your email and password to continue."}
         </p>
       </div>
-      {notice && !error && (
+      {(resetNotice || notice) && !error && (
         <p role="status" className="text-sm font-medium text-brand-forest-900 bg-brand-sunrise-400/30 rounded-xl px-4 py-2.5">
-          {notice}
+          {resetNotice || notice}
         </p>
       )}
       {isSignup && (
@@ -298,12 +316,13 @@ export default function LoginForm({
 
       {mode === "login" && (
         <div className="text-center text-sm">
-          <a
-            href="#"
+          <button
+            type="button"
+            onClick={() => switchMode("forgot")}
             className="text-ink-900 underline underline-offset-2 hover:text-brand-green-600"
           >
             Forgot password?
-          </a>
+          </button>
         </div>
       )}
 

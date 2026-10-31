@@ -75,6 +75,14 @@ export const login = ({ email, password, role }) =>
 export const register = ({ name, email, phoneno, password, acceptedTerms }) =>
   request("/api/auth/register", { method: "POST", body: { name, email, phoneno, password, acceptedTerms } });
 
+// Forgot password: email a 6-digit code -> trade it for a reset token -> set the new password.
+export const requestPasswordReset = ({ email, role }) =>
+  request("/api/auth/forgot-password", { method: "POST", body: { email, role } });
+export const verifyResetCode = ({ email, role, code }) =>
+  request("/api/auth/verify-reset-code", { method: "POST", body: { email, role, code } });
+export const resetPassword = ({ resetToken, password }) =>
+  request("/api/auth/reset-password", { method: "POST", body: { resetToken, password } });
+
 // ---- Routes -------------------------------------------------------------
 export const getRoutes = () => request("/api/routes");
 

@@ -73,6 +73,28 @@ Feed that position into Leaflet/Mapbox exactly as the paper specifies
    copying needed.
 4. Set `CORS_ORIGIN` to your deployed frontend URL.
 5. Update `VITE_API_URL` in the frontend to the backend's Railway public URL.
+6. For email, set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` (and
+   `APP_URL` = the frontend URL). See "Email" below.
+
+## Email
+
+`src/services/mailer.js` sends two kinds of automated email over SMTP:
+
+- **Payment successful + receipt** — when staff verify an online payment
+  (Payment Verification) or collect cash for an online booking at the
+  terminal. Sent alongside the bell notification, with the OR number, trip,
+  seat, amount and a link to the printable receipt page.
+- **Password reset code** — the "Forgot password?" link on every login page
+  emails a 6-digit code (valid 10 minutes, 5 tries). After the reset, a
+  "your password was changed" notice is sent and old sessions are signed out.
+
+Email is best-effort: if SMTP is down, payments and notifications still go
+through and the failure is only logged. With `SMTP_HOST` empty (local
+development) nothing is sent — each email is printed to the server console,
+so you can read reset codes there. Gmail works with an
+[App Password](https://myaccount.google.com/apppasswords) (`smtp.gmail.com`,
+port 465). Existing databases need `npm run db:migrate` for the new
+`password_resets` table.
 
 ## Schema source
 
@@ -105,6 +127,9 @@ vs. implementation glue:
 | GET    | `/api/health`                 | connection check                   |
 | POST   | `/api/auth/login`             | Passenger/Driver/Staff/Admin login |
 | POST   | `/api/auth/register`          | passenger self sign-up             |
+| POST   | `/api/auth/forgot-password`   | "Forgot password?" → emails a 6-digit code |
+| POST   | `/api/auth/verify-reset-code` | code → one-time reset token        |
+| POST   | `/api/auth/reset-password`    | reset token + new password         |
 | GET    | `/api/trips`                  | TripListings                       |
 | GET    | `/api/trips/:id`              | TripDetail                         |
 | GET    | `/api/trips/:id/seats`        | SeatMap                            |

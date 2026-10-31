@@ -245,6 +245,23 @@ const STATEMENTS = [
   // Policy. NULL for accounts made before the checkbox existed. Re-running
   // is a no-op.
   `ALTER TABLE commuters ADD COLUMN terms_accepted_at DATETIME NULL`,
+
+  // ---- Forgot password by emailed code (routes/auth.js) -----------------
+  // addition: see schema.sql. Re-running is a no-op.
+  `CREATE TABLE IF NOT EXISTS password_resets (
+    reset_id INT AUTO_INCREMENT PRIMARY KEY,
+    account_role ENUM('passenger', 'driver', 'staff', 'admin', 'owner') NOT NULL,
+    account_id INT NOT NULL,
+    code_hash VARCHAR(255) NOT NULL,
+    attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    expires_at DATETIME NOT NULL,
+    reset_token_hash CHAR(64) NULL,
+    verified_at DATETIME NULL,
+    used_at DATETIME NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_password_resets_account (account_role, account_id, created_at),
+    UNIQUE KEY uq_password_resets_token (reset_token_hash)
+  )`,
 ];
 
 // ---- One passenger account per mobile number (routes/auth.js) -----------

@@ -419,3 +419,25 @@ CREATE TABLE IF NOT EXISTS discount_applications (
   UNIQUE KEY one_pending_discount_per_commuter (pending_commuter_id),
   KEY idx_discount_status (status, submitted_at)
 );
+
+-- addition: "Forgot password?" on every login page (routes/auth.js). One row
+-- per emailed 6-digit code. account_role says which table account_id is in
+-- (same roles as POST /api/auth/login). code_hash is bcrypt of the code —
+-- the code itself is never stored. A code dies after 5 wrong guesses
+-- (attempts), at expires_at, or when a newer code is requested (used_at).
+-- Entering the right code issues a one-time reset token (only its SHA-256
+-- is kept in reset_token_hash) that POST /reset-password spends.
+CREATE TABLE IF NOT EXISTS password_resets (
+  reset_id INT AUTO_INCREMENT PRIMARY KEY,
+  account_role ENUM('passenger', 'driver', 'staff', 'admin', 'owner') NOT NULL,
+  account_id INT NOT NULL,
+  code_hash VARCHAR(255) NOT NULL,
+  attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  expires_at DATETIME NOT NULL,
+  reset_token_hash CHAR(64) NULL,
+  verified_at DATETIME NULL,
+  used_at DATETIME NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_password_resets_account (account_role, account_id, created_at),
+  UNIQUE KEY uq_password_resets_token (reset_token_hash)
+);

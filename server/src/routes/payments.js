@@ -2,6 +2,7 @@ import { Router } from "express";
 import { pool } from "../db/pool.js";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { notifyRecipient, notifyStaff } from "../services/notify.js";
+import { emailPaymentReceipt } from "../services/receiptEmail.js";
 import { logAudit } from "../services/audit.js";
 import { logPaymentEvent } from "../services/paymentAudit.js";
 import { rateLimit } from "../services/rateLimit.js";
@@ -1305,6 +1306,9 @@ export function buildPaymentsRouter(io) {
                   : `Your payment for booking #${r.booking_id} (${ref}) has been verified. Your official receipt is ready.`;
             await notifyRecipient(io, { type: "passenger", id: submission.passenger_id }, message, r.refund ? "payment_refund" : "payment_verified");
           }
+          // Not awaited: an SMTP round-trip shouldn't hold up the reviewer's
+          // response, and it never throws.
+          emailPaymentReceipt(results.filter((r) => !r.refund).map((r) => r.payment_id));
           await logAudit({
             staffId: req.user.id,
             action: "verify",
