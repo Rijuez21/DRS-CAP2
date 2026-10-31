@@ -73,8 +73,8 @@ Feed that position into Leaflet/Mapbox exactly as the paper specifies
    copying needed.
 4. Set `CORS_ORIGIN` to your deployed frontend URL.
 5. Update `VITE_API_URL` in the frontend to the backend's Railway public URL.
-6. For email, set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` (and
-   `APP_URL` = the frontend URL). See "Email" below.
+6. For email, set `BREVO_API_KEY` and `MAIL_FROM_EMAIL` (and `APP_URL` =
+   the frontend URL). See "Email" below.
 
 ## Email
 
@@ -88,13 +88,20 @@ Feed that position into Leaflet/Mapbox exactly as the paper specifies
   emails a 6-digit code (valid 10 minutes, 5 tries). After the reset, a
   "your password was changed" notice is sent and old sessions are signed out.
 
-Email is best-effort: if SMTP is down, payments and notifications still go
-through and the failure is only logged. With `SMTP_HOST` empty (local
-development) nothing is sent — each email is printed to the server console,
-so you can read reset codes there. Gmail works with an
-[App Password](https://myaccount.google.com/apppasswords) (`smtp.gmail.com`,
-port 465). Existing databases need `npm run db:migrate` for the new
-`password_resets` table.
+Email is best-effort: if sending fails, payments and notifications still go
+through and the failure is only logged. Two ways to send:
+
+- **Brevo API** (`BREVO_API_KEY`) — use this on Railway. Railway blocks
+  outbound SMTP on non-Pro plans, so SMTP there fails with
+  `Connection timeout`. Brevo is free for 300 emails/day; verify
+  `MAIL_FROM_EMAIL` as a sender in the Brevo dashboard first.
+- **SMTP** (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`) — e.g. Gmail
+  with an [App Password](https://myaccount.google.com/apppasswords)
+  (`smtp.gmail.com`, port 465). Works from a PC.
+
+With neither set (local development) nothing is sent — each email is
+printed to the server console, so you can read reset codes there. Existing
+databases need `npm run db:migrate` for the new `password_resets` table.
 
 ## Schema source
 
