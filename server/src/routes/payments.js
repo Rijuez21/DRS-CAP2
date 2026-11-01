@@ -1306,6 +1306,16 @@ export function buildPaymentsRouter(io) {
                   : `Your payment for booking #${r.booking_id} (${ref}) has been verified. Your official receipt is ready.`;
             await notifyRecipient(io, { type: "passenger", id: submission.passenger_id }, message, r.refund ? "payment_refund" : "payment_verified");
           }
+          // The difference is owed back but has no refund row of its own; the
+          // reviewer's success message alone was easy to lose.
+          if (overpaid > 0) {
+            await notifyStaff(
+              io,
+              `Submission #${submission.submission_id} was overpaid: ${formatPesoCentavos(received)} received for ${formatPesoCentavos(due)} due. Send ${formatPesoCentavos(overpaid)} back to the passenger.`,
+              "payment_review_refund",
+              { adminsOnly: true }
+            );
+          }
           // Not awaited: an SMTP round-trip shouldn't hold up the reviewer's
           // response, and it never throws.
           emailPaymentReceipt(results.filter((r) => !r.refund).map((r) => r.payment_id));
@@ -1353,6 +1363,8 @@ export function buildPaymentsRouter(io) {
         return {
           response: { submission_id: submission.submission_id, status: target, reason, payment_deadlines: deadlines },
           after: async () => {
+            // The messages add their own full stop ("…: Blurry photo." not "..").
+            const said = reason.replace(/[.\s]+$/, "");
             for (const p of actionable) {
               const booking = bookings.get(p.booking_id);
               const deadline = deadlines[p.booking_id];
@@ -1362,8 +1374,8 @@ export function buildPaymentsRouter(io) {
                 io,
                 { type: "passenger", id: submission.passenger_id },
                 action === "reject"
-                  ? `Payment for booking #${p.booking_id} (${ref}) couldn't be verified: ${reason}.${booking.status === "Reserved" ? ` You can submit a corrected payment proof.${window}` : ""}`
-                  : `We need a clearer receipt or more details for booking #${p.booking_id} (${ref}): ${reason}.${booking.status === "Reserved" ? window : ""}`,
+                  ? `Payment for booking #${p.booking_id} (${ref}) couldn't be verified: ${said}.${booking.status === "Reserved" ? ` You can submit a corrected payment proof.${window}` : ""}`
+                  : `We need a clearer receipt or more details for booking #${p.booking_id} (${ref}): ${said}.${booking.status === "Reserved" ? window : ""}`,
                 action === "reject" ? "payment_rejected" : "payment_resubmission"
               );
             }

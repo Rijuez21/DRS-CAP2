@@ -331,7 +331,7 @@ export default function WalkInSales() {
               </p>
             </>
           }
-          amountDue={trip.fare * count}
+          amountDue={(Math.round(trip.fare * 100) * count) / 100}
           confirmLabel={`Confirm payment & sell`}
           isSaving={isSubmitting}
           error={payError}

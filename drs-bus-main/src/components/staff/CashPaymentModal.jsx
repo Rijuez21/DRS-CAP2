@@ -25,8 +25,12 @@ export default function CashPaymentModal({ title, summary, amountDue, note, conf
 
   const cashNumber = cash === "" ? null : Number(cash);
   const valid = cashNumber != null && Number.isFinite(cashNumber) && cashNumber >= 0;
-  const short = valid && cashNumber < amountDue;
-  const change = valid && !short ? Math.round((cashNumber - amountDue) * 100) / 100 : null;
+  // In centavos, like the server: as floats ₱1.05 × 3 seats is
+  // 3.1500000000000004, so handing over exactly ₱3.15 looked short.
+  const cashCentavos = valid ? Math.round(cashNumber * 100) : null;
+  const dueCentavos = Math.round(amountDue * 100);
+  const short = valid && cashCentavos < dueCentavos;
+  const change = valid && !short ? (cashCentavos - dueCentavos) / 100 : null;
 
   // One-tap amounts for the usual bills: exact, then the next round
   // amounts above the fare.
@@ -46,7 +50,7 @@ export default function CashPaymentModal({ title, summary, amountDue, note, conf
     onConfirm(cashNumber);
   }
 
-  const inputError = touched && !valid ? "Enter the cash received." : short ? `That's ${formatPeso(amountDue - cashNumber)} short of the fare.` : "";
+  const inputError = touched && !valid ? "Enter the cash received." : short ? `That's ${formatPeso((dueCentavos - cashCentavos) / 100)} short of the fare.` : "";
 
   return (
     <Modal

@@ -12,7 +12,8 @@ import {
 import { notifyRecipient } from "../services/notify.js";
 import { emailCounterPaymentReceipt } from "../services/receiptEmail.js";
 import { likeEscape } from "../services/validate.js";
-import { initialPaymentDeadline, bookingReference } from "../services/paymentRules.js";
+import { initialPaymentDeadline, bookingReference, toCentavos } from "../services/paymentRules.js";
+import { openRefundsForCancelledBooking } from "../services/paymentSweeper.js";
 import { logAudit } from "../services/audit.js";
 import { activeDiscount, FARE_DUE_SQL } from "../services/discounts.js";
 
@@ -254,9 +255,13 @@ bookingsRouter.post("/walk-in", requireRole("staff", "admin"), async (req, res) 
       `SELECT rt.base_fare FROM trips tr JOIN routes rt ON rt.route_id = tr.route_id WHERE tr.trip_id = ?`,
       [tripId]
     );
-    const fare = fareRow?.base_fare != null ? Number(fareRow.base_fare) : null;
-    const total = fare != null ? fare * parsed.seats.length : null;
-    if (payment.cash != null && total != null && payment.cash < total) {
+    // Summed in centavos: as floats, ₱1.05 × 3 seats is 3.1500000000000004,
+    // which refused a customer handing over exactly ₱3.15.
+    const fareCentavos = fareRow?.base_fare != null ? toCentavos(fareRow.base_fare) : null;
+    const totalCentavos = fareCentavos != null ? fareCentavos * parsed.seats.length : null;
+    const total = totalCentavos != null ? totalCentavos / 100 : null;
+    const cashCentavos = payment.cash != null ? Math.round(payment.cash * 100) : null;
+    if (cashCentavos != null && totalCentavos != null && cashCentavos < totalCentavos) {
       return res.status(400).json({ error: `Cash received (${peso(payment.cash)}) is less than the total fare (${peso(total)}). Nothing was sold.` });
     }
 
@@ -270,7 +275,7 @@ bookingsRouter.post("/walk-in", requireRole("staff", "admin"), async (req, res) 
         conflictSeat: result.conflictSeat,
       });
     }
-    const change = payment.cash != null && total != null ? Math.round((payment.cash - total) * 100) / 100 : null;
+    const change = cashCentavos != null && totalCentavos != null ? (cashCentavos - totalCentavos) / 100 : null;
     await logAudit({
       staffId: req.user.id,
       action: "walk_in_sale",
@@ -448,6 +453,13 @@ bookingsRouter.patch("/:id/status", authenticate, async (req, res) => {
         return res.status(409).json({ error: `Seat ${booking.seat_number} has been given to someone else since. Seat this passenger elsewhere.` });
       }
       throw err;
+    }
+
+    // A seat that was already paid online: the money is owed back, so open
+    // the refund (before, the payment stayed Verified on a cancelled booking
+    // and nobody was told). The cancel itself has committed either way.
+    if (next === "Cancelled") {
+      await openRefundsForCancelledBooking(bookingsIo, booking.booking_id, req.user).catch(() => {});
     }
 
     // A flagged ride cancelled from BookingDetails: close its flag too and

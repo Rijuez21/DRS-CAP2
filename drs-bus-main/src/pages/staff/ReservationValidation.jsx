@@ -164,7 +164,8 @@ export default function ReservationValidation() {
   }
 
   const tripOver = selected && ["Completed", "Cancelled"].includes(selected.trip_status);
-  const qrPending = paymentInfo?.payment?.status === "Pending";
+  // Escalated is undecided too: the server refuses cash for both.
+  const qrPending = ["Pending", "Escalated"].includes(paymentInfo?.payment?.status);
   // fare_due = the route fare less any student / PWD / senior discount on this seat.
   const fare = selected?.fare_due != null ? Number(selected.fare_due) : null;
   // Hide "Collect fare" while a QR payment waits for review (verify that
@@ -182,7 +183,13 @@ export default function ReservationValidation() {
       setCollecting(true);
       return;
     }
-    if (a.to === "Cancelled" && !window.confirm(`Cancel booking #${selected.booking_id}? The seat will be released.`)) return;
+    const paidOnline = paymentInfo?.payment?.status === "Verified";
+    if (
+      a.to === "Cancelled" &&
+      !window.confirm(`Cancel booking #${selected.booking_id}? The seat will be released.${paidOnline ? " It was paid online, so a refund is opened for an administrator to send." : ""}`)
+    ) {
+      return;
+    }
     setStatus(a.to);
   }
 
@@ -399,6 +406,20 @@ function OnlinePaymentStatus({ info }) {
     </>
   );
   if (p.status === "Verified") return <p className={`${box} bg-emerald-50 text-emerald-800`}>Paid online ({ref}) — verified. No fare to collect.</p>;
+  if (p.status === "Escalated") {
+    return (
+      <p className={`${box} bg-violet-50 text-violet-800`}>
+        Online payment escalated to an administrator ({ref}). Don&apos;t collect cash until they decide — verifying it confirms the seat.
+      </p>
+    );
+  }
+  if (p.status === "Refund Pending" || p.status === "Refunded") {
+    return (
+      <p className={`${box} bg-sky-50 text-sky-800`}>
+        Online payment {p.status === "Refunded" ? "refunded" : "being refunded"} ({ref}){p.refund_reason ? `: ${p.refund_reason}` : ""}.
+      </p>
+    );
+  }
   if (p.status === "Pending") {
     return (
       <p className={`${box} bg-amber-50 text-amber-800`}>
@@ -412,7 +433,8 @@ function OnlinePaymentStatus({ info }) {
   }
   return (
     <p className={`${box} bg-rose-50 text-rose-700`}>
-      Online payment rejected ({ref}): {p.rejection_reason}. Collect the fare at the counter, or the passenger can resubmit.
+      {p.status === "Needs Resubmission" ? "Online payment sent back for a clearer receipt" : "Online payment rejected"} ({ref})
+      {p.rejection_reason ? `: ${p.rejection_reason.replace(/[.\s]+$/, "")}` : ""}. Collect the fare at the counter, or the passenger can resubmit.
     </p>
   );
 }

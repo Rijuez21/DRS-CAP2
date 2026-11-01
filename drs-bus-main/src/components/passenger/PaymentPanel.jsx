@@ -49,6 +49,7 @@ const toCentavos = (n) => Math.round(Number(n) * 100);
 function minutesLeft(deadline, now) {
   return deadline ? Math.floor((new Date(deadline).getTime() - now) / 60000) : null;
 }
+const pastDeadline = (item, now) => Boolean(item.payment_deadline) && new Date(item.payment_deadline).getTime() <= now;
 
 // Manual online payment for one or more Reserved online bookings — used
 // right after checkout (BookingConfirmed: every seat of the order) and on a
@@ -123,20 +124,30 @@ export default function PaymentPanel({ bookingIds, onStatus }) {
   }, []);
 
   const underReview = items?.filter((i) => OPEN.includes(i.payment?.status)) ?? [];
-  const payable = useMemo(() => items?.filter((i) => i.can_pay) ?? [], [items]);
+  // Still Reserved but past the deadline with nothing under review: the
+  // server refuses proof now and releases the seat within a minute. The
+  // form used to stay up after the countdown ran out, still saying "Send
+  // ₱…", so a passenger could pay for a seat that was being released.
+  const lapsed = items?.filter((i) => i.booking_status === "Reserved" && !OPEN.includes(i.payment?.status) && pastDeadline(i, now)) ?? [];
+  const payable = useMemo(() => items?.filter((i) => i.can_pay && !pastDeadline(i, now)) ?? [], [items, now]);
   const paid = items?.filter((i) => PAID.includes(i.payment?.status)) ?? [];
   const closed = items?.filter((i) => !i.can_pay && !i.payment && i.not_payable_reason && i.booking_status === "Cancelled") ?? [];
 
   // While staff haven't decided yet, re-check quietly so the page flips to
-  // "verified" (or shows a rejection) without a manual refresh.
+  // "verified" (or shows a rejection) without a manual refresh. Same while
+  // a lapsed seat waits to be released, so the page shows it when it is.
   const hasOpen = underReview.length > 0;
+  const hasLapsed = lapsed.length > 0;
   useEffect(() => {
-    if (!hasOpen) return undefined;
+    if (!hasOpen && !hasLapsed) return undefined;
     const id = setInterval(() => {
       if (document.visibilityState === "visible") refresh().catch(() => {});
     }, PENDING_POLL_MS);
     return () => clearInterval(id);
-  }, [hasOpen, refresh]);
+  }, [hasOpen, hasLapsed, refresh]);
+  useEffect(() => {
+    if (hasLapsed) refresh().catch(() => {});
+  }, [hasLapsed, refresh]);
 
   const amountDue = payable.reduce((sum, i) => sum + toCentavos(i.amount_due ?? 0), 0) / 100;
   // Pre-fill the amount with what's due once (the passenger can change it
@@ -237,6 +248,15 @@ export default function PaymentPanel({ bookingIds, onStatus }) {
 
   const codes = (list) => list.map((i) => i.booking_reference).join(", ");
   const needsAction = payable.filter((i) => ["Rejected", "Needs Resubmission"].includes(i.payment?.status));
+  const lapsedNotice = lapsed.length > 0 && (
+    <p className="flex gap-2 text-sm rounded-2xl bg-rose-50 text-rose-700 p-4" role="alert">
+      <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+      <span>
+        The payment window for {codes(lapsed)} closed at {formatDateTime(lapsed[0].payment_deadline)}, so the seat is being released. Don&apos;t send a payment
+        now. Already sent one? Contact the terminal with your booking reference.
+      </span>
+    </p>
+  );
 
   // Nothing to pay and nothing waiting.
   if (payable.length === 0 && underReview.length === 0) {
@@ -268,6 +288,7 @@ export default function PaymentPanel({ bookingIds, onStatus }) {
         </div>
       );
     }
+    if (lapsedNotice) return lapsedNotice;
     if (closed.length > 0) {
       return (
         <p className="flex gap-2 text-sm rounded-2xl bg-rose-50 text-rose-700 p-4" role="alert">
@@ -299,6 +320,8 @@ export default function PaymentPanel({ bookingIds, onStatus }) {
           <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0 text-brand-green-600" /> {confirmation}
         </p>
       )}
+
+      {lapsedNotice}
 
       {underReview.length > 0 && (
         <div className="rounded-2xl border border-brand-sunrise-400/50 bg-brand-sunrise-400/15 p-4 text-sm space-y-1.5" role="status">

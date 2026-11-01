@@ -19,6 +19,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import EmptyState from "../../components/common/EmptyState";
 import InlineAlert from "../../components/common/InlineAlert";
+import ConfirmDialog from "../../components/common/ConfirmDialog";
 import PageHeader from "../../components/passenger/PageHeader";
 import { useAuth } from "../../context/AuthContext";
 import * as api from "../../lib/api";
@@ -132,6 +133,8 @@ export default function FlagBus() {
   const [landmark, setLandmark] = useState("");
   const [flag, setFlag] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [confirmingFlagCancel, setConfirmingFlagCancel] = useState(false);
+  const [isCancellingFlag, setIsCancellingFlag] = useState(false);
   // A clock held in state (ticked below) rather than Date.now() read during
   // render, so "last seen 2m ago" / "expires in N min" stay pure renders
   // that still refresh on their own.
@@ -570,13 +573,17 @@ export default function FlagBus() {
     }
   }
 
+  // Asked in an in-app dialog (rendered below), not window.confirm().
   async function handleCancelFlag() {
     if (!flag) return;
-    if (!window.confirm("Cancel your flag request? The driver will be told not to stop.")) return;
+    setIsCancellingFlag(true);
     try {
       setFlag(await api.cancelFlagRequest(flag.flag_id));
     } catch (err) {
       setError(err.message);
+    } finally {
+      setIsCancellingFlag(false);
+      setConfirmingFlagCancel(false);
     }
   }
 
@@ -723,7 +730,7 @@ export default function FlagBus() {
 
         <aside className="lg:sticky lg:top-6">
           {flag ? (
-            <FlagStatusCard flag={flag} now={now} onCancel={handleCancelFlag} onDismiss={handleDismissFlag} />
+            <FlagStatusCard flag={flag} now={now} onCancel={() => setConfirmingFlagCancel(true)} onDismiss={handleDismissFlag} />
           ) : (
             <FlagForm
               bus={selectedBus}
@@ -737,6 +744,22 @@ export default function FlagBus() {
           )}
         </aside>
       </div>
+
+      {confirmingFlagCancel && flag && (
+        <ConfirmDialog
+          title="Cancel your flag request?"
+          confirmLabel="Cancel request"
+          cancelLabel="Keep waiting"
+          busyLabel="Cancelling…"
+          busy={isCancellingFlag}
+          onConfirm={handleCancelFlag}
+          onCancel={() => setConfirmingFlagCancel(false)}
+        >
+          <p>
+            {flag.bus_number ? `Bus ${flag.bus_number}` : flag.plate_num} ({flag.origin} → {flag.destination}) will be told not to stop for you.
+          </p>
+        </ConfirmDialog>
+      )}
     </div>
   );
 }

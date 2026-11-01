@@ -1,7 +1,7 @@
 import { pool } from "../db/pool.js";
 import { notifyRecipient, notifyStaff } from "./notify.js";
 import { logPaymentEvent } from "./paymentAudit.js";
-import { OPEN_STATUSES, FUNDS_RECEIVED_STATUSES, bookingReference, paymentConfig } from "./paymentRules.js";
+import { OPEN_STATUSES, FUNDS_RECEIVED_STATUSES, bookingReference, paymentConfig, toCentavos, formatPesoCentavos } from "./paymentRules.js";
 
 // ============================================================================
 // Seat-hold enforcement for online bookings (runs on a timer, index.js).
@@ -160,27 +160,30 @@ export function startPaymentSweeper(io) {
   return timer;
 }
 
-// Trip cancelled by the operator: every seat already paid for is owed back.
-// Called by routes/trips.js after the bookings were cancelled. Proofs still
-// under review stay open — if staff later verify them, the verify route sees
-// the cancelled booking and opens the refund itself.
-export async function openRefundsForCancelledTrip(io, tripId, actor) {
+// Verified -> Refund Pending (audited) for every seat on the cancelled
+// bookings matching `where` (a condition on bookings `bk`). Bookings are
+// locked first, the same order as the payment routes. Returns the rows moved.
+async function openRefunds({ where, params, reason, actor, details }) {
+  // refund_requested_by holds a staff_accounts id; a passenger's own cancel
+  // is recorded through the reason and the audit details instead.
+  const staffId = actor && ["staff", "admin"].includes(actor.role) ? actor.id : null;
   const conn = await pool.getConnection();
-  let refunds = [];
   try {
     await conn.beginTransaction();
+    await conn.query(`SELECT bk.booking_id FROM bookings bk WHERE ${where} ORDER BY bk.booking_id FOR UPDATE`, params);
     const [rows] = await conn.query(
       `SELECT p.payment_id, p.submission_id, p.booking_id, p.amount, bk.passenger_id, bk.booked_at
        FROM payments p JOIN bookings bk ON bk.booking_id = p.booking_id
-       WHERE bk.trip_id = ? AND p.status = 'Verified'
+       WHERE ${where} AND p.status = 'Verified'
+       ORDER BY p.payment_id
        FOR UPDATE`,
-      [tripId]
+      params
     );
     for (const r of rows) {
       await conn.query(
-        `UPDATE payments SET status = 'Refund Pending', refund_reason = 'Trip cancelled by the operator', refund_requested_at = NOW(), refund_requested_by = ?
+        `UPDATE payments SET status = 'Refund Pending', refund_reason = ?, refund_requested_at = NOW(), refund_requested_by = ?
          WHERE payment_id = ? AND status = 'Verified'`,
-        [actor?.id ?? null, r.payment_id]
+        [reason, staffId, r.payment_id]
       );
       await logPaymentEvent(conn, {
         actor: null,
@@ -190,18 +193,59 @@ export async function openRefundsForCancelledTrip(io, tripId, actor) {
         bookingId: r.booking_id,
         previousStatus: "Verified",
         newStatus: "Refund Pending",
-        reason: "Trip cancelled by the operator",
-        details: { tripId, cancelledBy: actor?.id ?? null },
+        reason,
+        details: { ...details, cancelledBy: actor?.id ?? null },
       });
     }
     await conn.commit();
-    refunds = rows;
+    return rows;
   } catch (err) {
     await conn.rollback().catch(() => {});
-    console.error("Opening refunds for a cancelled trip failed:", err.message);
     throw err;
   } finally {
     conn.release();
+  }
+}
+
+// One booking cancelled after it was paid online (passenger, staff or admin
+// via PATCH /api/bookings/:id/status). Same rule as the verify route uses
+// for money that arrives after a cancellation: it's owed back. An admin can
+// still cancel the refund if the operator decides not to give one.
+export async function openRefundsForCancelledBooking(io, bookingId, actor) {
+  const reason = actor?.role === "passenger" ? "Passenger cancelled the booking" : "Booking cancelled by the terminal";
+  let refunds;
+  try {
+    refunds = await openRefunds({ where: "bk.booking_id = ?", params: [bookingId], reason, actor, details: { cancelledByRole: actor?.role ?? null } });
+  } catch (err) {
+    console.error(`Opening a refund for cancelled booking ${bookingId} failed:`, err.message);
+    throw err;
+  }
+  for (const r of refunds) {
+    const amount = formatPesoCentavos(toCentavos(r.amount));
+    const ref = bookingReference(r.booking_id, r.booked_at);
+    await notifyRecipient(
+      io,
+      { type: "passenger", id: r.passenger_id },
+      `Booking #${r.booking_id} (${ref}) was cancelled after it was paid. A refund of ${amount} has been requested — you'll be notified when it's sent.`,
+      "payment_refund"
+    );
+    // (notifyStaff also refreshes any open Payment Verification page.)
+    await notifyStaff(io, `Booking #${r.booking_id} (${ref}) was cancelled after it was paid online: ${amount} needs to be refunded.`, "payment_review_refund", { adminsOnly: true });
+  }
+  return refunds.length;
+}
+
+// Trip cancelled by the operator: every seat already paid for is owed back.
+// Called by routes/trips.js after the bookings were cancelled. Proofs still
+// under review stay open — if staff later verify them, the verify route sees
+// the cancelled booking and opens the refund itself.
+export async function openRefundsForCancelledTrip(io, tripId, actor) {
+  let refunds;
+  try {
+    refunds = await openRefunds({ where: "bk.trip_id = ?", params: [tripId], reason: "Trip cancelled by the operator", actor, details: { tripId } });
+  } catch (err) {
+    console.error("Opening refunds for a cancelled trip failed:", err.message);
+    throw err;
   }
   for (const r of refunds) {
     await notifyRecipient(

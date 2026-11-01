@@ -3,11 +3,11 @@ import { Link, useParams } from "react-router-dom";
 import { ChevronLeft, ChevronRight, MapPin, Info, Bus, ReceiptText } from "lucide-react";
 import StatusBadge from "../../components/common/StatusBadge";
 import InlineAlert from "../../components/common/InlineAlert";
+import ConfirmDialog from "../../components/common/ConfirmDialog";
 import PaymentPanel from "../../components/passenger/PaymentPanel";
 import PaymentStatusCard from "../../components/passenger/PaymentStatusCard";
-import TicketQr from "../../components/passenger/TicketQr";
 import * as api from "../../lib/api";
-import { formatDate, formatTime, receiptNumber, bookingReference } from "../../lib/format";
+import { formatDate, formatTime, formatPeso, receiptNumber, bookingReference } from "../../lib/format";
 import { CATEGORY_LABELS, DISCOUNT_PERCENT } from "../../lib/discounts";
 
 export default function BookingDetails() {
@@ -17,6 +17,7 @@ export default function BookingDetails() {
   const [actionError, setActionError] = useState("");
   const [success, setSuccess] = useState("");
   const [isCancelling, setIsCancelling] = useState(false);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
   // Latest payment state from PaymentPanel (null until it loads).
   const [paymentInfo, setPaymentInfo] = useState(null);
 
@@ -52,24 +53,23 @@ export default function BookingDetails() {
     };
   }, [bookingId]);
 
+  // Asked in an in-app dialog (rendered below), not window.confirm().
   async function handleCancel() {
     const flagged = booking.channel === "flagged";
-    // A payment staff haven't verified yet isn't refunded automatically —
-    // say so before the passenger gives the seat up.
-    const paymentStatus = paymentInfo?.payment?.status;
-    const question = flagged
-      ? "Cancel this ride? The driver will be told not to stop for you."
-      : ["Pending", "Escalated", "Verified"].includes(paymentStatus)
-        ? "Cancel this booking? You've already sent an online payment for it — cancelling releases your seat but does NOT refund that payment automatically. Contact the terminal about a refund. This can't be undone."
-        : "Cancel this booking? Your seat will be released and this can't be undone.";
-    if (!window.confirm(question)) return;
+    const paidOnline = paymentInfo?.payment?.status === "Verified";
     setActionError("");
     setIsCancelling(true);
     try {
       await api.updateBookingStatus(bookingId, "Cancelled");
       setBooking((prev) => ({ ...prev, status: "Cancelled" }));
       api.getBookingPayment(bookingId).then(setPaymentInfo).catch(() => {});
-      setSuccess(flagged ? "Ride cancelled. The driver has been told." : "Booking cancelled. Your seat has been released.");
+      setSuccess(
+        flagged
+          ? "Ride cancelled. The driver has been told."
+          : paidOnline
+            ? "Booking cancelled and a refund requested. You'll be notified when it's sent."
+            : "Booking cancelled. Your seat has been released."
+      );
     } catch (err) {
       setActionError(err.message);
       // 409 = it changed underneath us (e.g. staff just verified the payment
@@ -77,6 +77,7 @@ export default function BookingDetails() {
       if (err.status === 409) api.getBooking(bookingId).then(setBooking).catch(() => {});
     } finally {
       setIsCancelling(false);
+      setConfirmingCancel(false);
     }
   }
 
@@ -174,16 +175,6 @@ export default function BookingDetails() {
           <Field label="Trip status" value={booking.trip_status} />
           <Field label="Booked" value={`${formatDate(booking.booked_at)?.replace(/^\w+, /, "")} ${formatTime(booking.booked_at) ?? ""}`} />
         </div>
-
-        {/* e-ticket QR while the seat is still to be used */}
-        {holdsSeat && booking.status !== "Boarded" && !["Completed", "Cancelled"].includes(booking.trip_status) && (
-          <>
-            <div className="ticket-perforation" aria-hidden="true" />
-            <div className="p-5">
-              <TicketQr value={reference} />
-            </div>
-          </>
-        )}
       </div>
 
       <InlineAlert type="success" message={success} onDismiss={() => setSuccess("")} />
@@ -235,14 +226,53 @@ export default function BookingDetails() {
       {canCancel && (
         <button
           type="button"
-          onClick={handleCancel}
+          onClick={() => setConfirmingCancel(true)}
           disabled={isCancelling}
           className="w-full border border-rose-200 text-rose-600 bg-white hover:bg-rose-50 hover:border-rose-300 disabled:opacity-60 font-display font-semibold rounded-xl py-3 transition-colors"
         >
           {isCancelling ? "Cancelling…" : booking.channel === "flagged" ? "Cancel this ride" : "Cancel booking"}
         </button>
       )}
+
+      {confirmingCancel && (
+        <CancelDialog booking={booking} payment={paymentInfo?.payment} busy={isCancelling} onConfirm={handleCancel} onCancel={() => setConfirmingCancel(false)} />
+      )}
     </div>
+  );
+}
+
+// Says exactly what is being given up, and what happens to money already
+// sent: a verified payment gets a refund request straight away (server),
+// one still being checked gets one if staff then find the money arrived.
+function CancelDialog({ booking, payment, busy, onConfirm, onCancel }) {
+  const flagged = booking.channel === "flagged";
+  const when = `${formatDate(booking.departure_time)?.replace(/, \d{4}$/, "")}, ${formatTime(booking.departure_time)}`;
+  return (
+    <ConfirmDialog
+      title={flagged ? "Cancel this ride?" : "Cancel this booking?"}
+      confirmLabel={flagged ? "Cancel ride" : "Cancel booking"}
+      cancelLabel={flagged ? "Keep my ride" : "Keep my booking"}
+      busyLabel="Cancelling…"
+      busy={busy}
+      onConfirm={onConfirm}
+      onCancel={onCancel}
+    >
+      <p className="text-ink-900">
+        Seat <span className="font-semibold">{booking.seat_number}</span> · {booking.origin} → {booking.destination} · {when}
+      </p>
+      {flagged ? (
+        <p>The driver will be told not to stop for you.</p>
+      ) : payment?.status === "Verified" ? (
+        <p className="rounded-lg bg-sky-50 text-sky-800 px-3 py-2">
+          You&apos;ve paid {formatPeso(payment.amount)} for this seat, so a refund will be requested for you. You&apos;ll be notified when it&apos;s sent.
+        </p>
+      ) : ["Pending", "Escalated"].includes(payment?.status) ? (
+        <p className="rounded-lg bg-amber-50 text-amber-900 px-3 py-2">
+          Staff are still checking the payment you sent. If it arrived, a refund is requested for you automatically.
+        </p>
+      ) : null}
+      <p>{flagged ? "This can't be undone." : "Your seat will be released and this can't be undone."}</p>
+    </ConfirmDialog>
   );
 }
 

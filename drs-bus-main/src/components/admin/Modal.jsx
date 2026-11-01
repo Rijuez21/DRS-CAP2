@@ -34,7 +34,7 @@ export default function Modal({ title, onClose, children, footer, size = "md" })
         className={`bg-white rounded-2xl shadow-xl w-full ${size === "lg" ? "max-w-3xl" : "max-w-md"} max-h-[90vh] overflow-y-auto`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
           <h2 id={titleId} className="font-display font-bold text-lg">
             {title}
           </h2>
@@ -43,7 +43,7 @@ export default function Modal({ title, onClose, children, footer, size = "md" })
           </button>
         </div>
         <div ref={bodyRef} className="px-5 py-4 space-y-4">{children}</div>
-        {footer && <div className="flex justify-end gap-2 px-5 py-4 border-t bg-slate-50 rounded-b-2xl">{footer}</div>}
+        {footer && <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-200 bg-slate-50 rounded-b-2xl">{footer}</div>}
       </div>
     </div>
   );

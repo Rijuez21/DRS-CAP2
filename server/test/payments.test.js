@@ -599,6 +599,39 @@ describe("15. refunds", () => {
     assert.equal(logs[3].actor_role, "admin");
   });
 
+  test("cancelling a booking that was already paid online opens a refund, by passenger or staff", async () => {
+    const p = await createPassenger();
+    const { tripId } = await createTrip();
+    const [mine, byStaff] = await book(p, tripId, ["36", "37"]);
+    const r = await submit(p, proof({ bookingIds: [mine, byStaff], methodId: gcash, amount: "700" }));
+    const v = await verify(staff.token, r.data.submission_id, { amountReceived: "700.00" });
+    assert.equal(v.status, 200, JSON.stringify(v.data));
+
+    const c1 = await api("PATCH", `/api/bookings/${mine}/status`, { token: p.token, body: { status: "Cancelled" } });
+    assert.equal(c1.status, 200);
+    const pay = (await paymentsFor(mine))[0];
+    assert.equal(pay.status, "Refund Pending", "money for a cancelled seat is never left as a plain Verified payment");
+    assert.equal(pay.refund_reason, "Passenger cancelled the booking");
+    const [logs] = await db.query(`SELECT action, actor_role FROM payment_audit_logs WHERE payment_id = ? ORDER BY audit_log_id`, [pay.payment_id]);
+    assert.deepEqual(logs.map((l) => l.action), ["submitted", "verified", "refund_requested"]);
+    assert.equal(logs[2].actor_role, "system");
+    const [[told]] = await db.query(
+      `SELECT COUNT(*) AS n FROM notifications WHERE recipient_type = 'staff' AND recipient_id = ? AND type = 'payment_review_refund' AND message LIKE ?`,
+      [admin.id, `Booking #${mine} %`]
+    );
+    assert.equal(Number(told.n), 1, "admins are told a refund needs sending");
+
+    const c2 = await api("PATCH", `/api/bookings/${byStaff}/status`, { token: staff.token, body: { status: "Cancelled" } });
+    assert.equal(c2.status, 200);
+    assert.equal((await paymentsFor(byStaff))[0].refund_reason, "Booking cancelled by the terminal");
+
+    // an unpaid booking cancels as before, with nothing to refund
+    const [unpaid] = await book(p, tripId, ["38"]);
+    const c3 = await api("PATCH", `/api/bookings/${unpaid}/status`, { token: p.token, body: { status: "Cancelled" } });
+    assert.equal(c3.status, 200);
+    assert.equal((await paymentsFor(unpaid)).length, 0);
+  });
+
   test("operator cancelling a trip opens refunds for verified payments", async () => {
     const p = await createPassenger();
     const { tripId } = await createTrip();
@@ -646,6 +679,39 @@ describe("17. existing features still work", () => {
     assert.ok(search.data.some((b) => b.booking_id === bookingId));
     const old = await api("PATCH", `/api/payments/1/verify`, { token: staff.token });
     assert.equal(old.status, 410, "retired endpoint can't bypass the checks");
+  });
+});
+
+describe("cash and overpayments", () => {
+  test("walk-in cash is compared in centavos: ₱1.05 × 3 seats takes exactly ₱3.15", async () => {
+    const { tripId } = await createTrip({ fare: "1.05" });
+    const exact = await api("POST", "/api/bookings/walk-in", {
+      token: staff.token,
+      body: { tripId, passengerName: "Exact Change", seatNumbers: ["1", "2", "3"], cashReceived: 3.15 },
+    });
+    assert.equal(exact.status, 201, JSON.stringify(exact.data));
+    assert.equal(exact.data.payment.total, 3.15);
+    assert.equal(exact.data.payment.change, 0);
+    const short = await api("POST", "/api/bookings/walk-in", {
+      token: staff.token,
+      body: { tripId, passengerName: "Short Change", seatNumbers: ["4", "5", "6"], cashReceived: 3.14 },
+    });
+    assert.equal(short.status, 400);
+  });
+
+  test("an overpaid transfer tells admins how much to send back", async () => {
+    const p = await createPassenger();
+    const { tripId } = await createTrip();
+    const [bookingId] = await book(p, tripId);
+    const r = await submit(p, proof({ bookingIds: [bookingId], methodId: gcash, amount: "400" }));
+    const v = await verify(staff.token, r.data.submission_id, { amountReceived: "400.00" });
+    assert.equal(v.status, 200, JSON.stringify(v.data));
+    assert.equal(v.data.overpaid, 50);
+    const [[told]] = await db.query(
+      `SELECT message FROM notifications WHERE recipient_type = 'staff' AND recipient_id = ? AND message LIKE ? ORDER BY notification_id DESC LIMIT 1`,
+      [admin.id, `Submission #${r.data.submission_id} was overpaid%`]
+    );
+    assert.match(told?.message ?? "", /Send ₱50\.00 back/);
   });
 });
 

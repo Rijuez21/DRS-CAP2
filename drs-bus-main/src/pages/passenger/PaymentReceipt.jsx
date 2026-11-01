@@ -71,7 +71,7 @@ export default function PaymentReceipt() {
           </span>
           <p className="font-display font-semibold">No receipt yet</p>
           <p className="text-sm text-ink-600">
-            {payment?.status === "Pending"
+            {["Pending", "Escalated"].includes(payment?.status)
               ? "Your payment is under review. Your receipt is issued once staff confirm the money arrived."
               : payment?.status === "Refund Pending" || payment?.status === "Refunded"
               ? "This payment is being refunded, so no receipt is shown."
