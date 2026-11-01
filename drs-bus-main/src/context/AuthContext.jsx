@@ -75,8 +75,18 @@ export function AuthProvider({ children }) {
     setAuth(null);
   }
 
+  // After the Account page changes something: new profile details and/or a
+  // fresh token (a password change signs every other token out).
+  function updateAccount({ user, token }) {
+    if (token) {
+      setAuthToken(token);
+      setSocketToken(token);
+    }
+    setAuth((prev) => (prev ? { user: { ...prev.user, ...user }, token: token ?? prev.token } : prev));
+  }
+
   return (
-    <AuthContext.Provider value={{ user: auth?.user ?? null, token: auth?.token ?? null, signIn, signOut, signOutReason }}>
+    <AuthContext.Provider value={{ user: auth?.user ?? null, token: auth?.token ?? null, signIn, signOut, updateAccount, signOutReason }}>
       {children}
     </AuthContext.Provider>
   );

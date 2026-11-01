@@ -4,7 +4,7 @@
 // from 127.0.0.1, so this file stays under 10 (setup() flushes the counter).
 import { test, before, after, describe } from "node:test";
 import assert from "node:assert/strict";
-import { setup, teardown, api, db } from "./helpers.js";
+import { setup, teardown, api, db, useKnownVerificationCode } from "./helpers.js";
 import { cleanPhMobile, cleanPhone } from "../src/services/passwordPolicy.js";
 
 before(() => setup());
@@ -74,6 +74,17 @@ describe("POST /api/auth/register", () => {
       assert.equal(dup.status, 409, phoneno);
       assert.equal(dup.data.error, "An account with that mobile number already exists");
     }
+
+    // Email confirmation first (routes/auth.js): the code is only stored
+    // hashed, so swap in the hash of one this test knows.
+    assert.equal(ok.data.verification_required, true);
+    const early = await api("POST", "/api/auth/login", { body: { email: ok.data.email, password: PASSWORD, role: "passenger" } });
+    assert.equal(early.status, 403);
+    assert.equal(early.data.code, "EMAIL_NOT_VERIFIED");
+    await useKnownVerificationCode(ok.data.commuter_id, "654321");
+    const verified = await api("POST", "/api/auth/verify-email", { body: { email: ok.data.email, code: "654321" } });
+    assert.equal(verified.status, 200);
+    assert.ok(verified.data.token);
 
     const login = await api("POST", "/api/auth/login", { body: { email: ok.data.email, password: PASSWORD, role: "passenger" } });
     assert.equal(login.status, 200);

@@ -36,7 +36,7 @@ export const TOKEN_TTL = "12h";
 
 // Which table/row a token's role points at, and what makes it still valid.
 const ACCOUNTS = {
-  passenger: { sql: `SELECT commuter_id AS id, password_hash FROM commuters WHERE commuter_id = ?` },
+  passenger: { sql: `SELECT commuter_id AS id, password_hash, suspended_at FROM commuters WHERE commuter_id = ?` },
   driver: { sql: `SELECT driver_id AS id, password_hash, duty_status FROM drivers WHERE driver_id = ?` },
   staff: { sql: `SELECT staff_id AS id, password_hash, role FROM staff_accounts WHERE staff_id = ?`, staffRole: "terminal_staff" },
   admin: { sql: `SELECT staff_id AS id, password_hash, role FROM staff_accounts WHERE staff_id = ?`, staffRole: "admin" },
@@ -76,6 +76,7 @@ async function checkAccount(payload) {
   if (!row) reason = "This account no longer exists";
   else if (config.staffRole && row.role !== config.staffRole) reason = "Your account's role has changed. Please log in again.";
   else if (payload.role === "driver" && row.duty_status === "Suspended") reason = "This driver account is suspended";
+  else if (payload.role === "passenger" && row.suspended_at) reason = "This account is suspended. Contact the terminal office.";
   else if (!row.password_hash || payload.ver !== tokenVersion(row.password_hash)) reason = "Your password was changed. Please log in again.";
   if (accountCache.size > 5000) accountCache.clear();
   accountCache.set(key, { at: Date.now(), reason });

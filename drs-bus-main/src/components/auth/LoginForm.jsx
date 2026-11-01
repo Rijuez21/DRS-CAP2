@@ -7,6 +7,7 @@ import { readIdImage } from "../../lib/discounts";
 import { normalizePhMobile } from "../../lib/phone";
 import DiscountIdFields from "../passenger/DiscountIdFields";
 import ForgotPasswordForm from "./ForgotPasswordForm";
+import EmailCodeForm from "./EmailCodeForm";
 
 // One style for every field on the login / sign-up form. Change it here.
 const INPUT_CLASS =
@@ -62,7 +63,9 @@ export default function LoginForm({
     sessionStorage.removeItem(AUTH_NOTICE_KEY);
   }, []);
 
-  const [mode, setMode] = useState("login"); // "login" | "signup" | "forgot"
+  const [mode, setMode] = useState("login"); // "login" | "signup" | "forgot" | "verify" (email code after sign-up)
+  const [verifyNotice, setVerifyNotice] = useState("");
+  const [pendingDiscount, setPendingDiscount] = useState(null); // sign-up ID photo, uploaded once the email is confirmed
   const [resetNotice, setResetNotice] = useState(""); // "Your password has been changed…" after ForgotPasswordForm
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -124,33 +127,65 @@ export default function LoginForm({
       // Read the ID photo first, so a bad file is caught before the account exists.
       const idImage = wantsDiscount ? await readIdImage(discount.file) : null;
       if (isSignup) {
-        await api.register({ name: fullName, email: loginEmail, phoneno: normalizePhMobile(phone), password, acceptedTerms: true });
-      }
-      const result = await api.login({ email: loginEmail, password, role });
-      signIn(result);
-      // The ID upload needs the login token (it's too big for the anonymous
-      // sign-up request). The account already exists, so if this fails the
-      // passenger lands on their profile to try again from there.
-      if (wantsDiscount) {
-        try {
-          await api.submitDiscountId({ category: discount.type, idNumber: discount.idNumber, idImage });
-        } catch (err) {
-          navigate("/passenger/discount", { replace: true, state: { discountNotice: `Your account was created, but your ID didn't upload: ${err.message} Send it again below.` } });
+        const created = await api.register({ name: fullName, email: loginEmail, phoneno: normalizePhMobile(phone), password, acceptedTerms: true });
+        // The account can't sign in until the emailed code is entered;
+        // the ID photo waits in state until then.
+        if (created.verification_required) {
+          setPendingDiscount(wantsDiscount ? { category: discount.type, idNumber: discount.idNumber, idImage } : null);
+          setVerifyNotice("");
+          setMode("verify");
           return;
         }
       }
-      // Back to the page that asked for login, if it belongs to this role.
-      const rolePrefix = redirectPath.split("/")[1];
-      navigate(returnTo && returnTo.startsWith(`/${rolePrefix}/`) ? returnTo : redirectPath, { replace: true });
+      const result = await api.login({ email: loginEmail, password, role });
+      await finishSignIn(result, wantsDiscount ? { category: discount.type, idNumber: discount.idNumber, idImage } : null);
     } catch (err) {
+      if (err.data?.code === "EMAIL_NOT_VERIFIED") {
+        setVerifyNotice(err.message);
+        setMode("verify");
+        return;
+      }
       setError(err.message);
     } finally {
       setIsSubmitting(false);
     }
   }
 
+  async function finishSignIn(result, discountUpload) {
+    signIn(result);
+    // The ID upload needs the login token (it's too big for the anonymous
+    // sign-up request). The account already exists, so if this fails the
+    // passenger lands on their profile to try again from there.
+    if (discountUpload) {
+      try {
+        await api.submitDiscountId(discountUpload);
+      } catch (err) {
+        navigate("/passenger/discount", { replace: true, state: { discountNotice: `Your account was created, but your ID didn't upload: ${err.message} Send it again below.` } });
+        return;
+      }
+    }
+    // Back to the page that asked for login, if it belongs to this role.
+    const rolePrefix = redirectPath.split("/")[1];
+    navigate(returnTo && returnTo.startsWith(`/${rolePrefix}/`) ? returnTo : redirectPath, { replace: true });
+  }
+
   const strength = isSignup && password ? STRENGTH[passwordStrength(password)] : null;
   const strengthLevel = strength ? STRENGTH.indexOf(strength) : 0;
+
+  if (mode === "verify") {
+    return (
+      <EmailCodeForm
+        email={email.trim().toLowerCase()}
+        notice={verifyNotice}
+        inputClass={INPUT_CLASS}
+        onVerified={(result) => finishSignIn(result, pendingDiscount)}
+        onBack={() => {
+          setPendingDiscount(null);
+          switchMode("login");
+        }}
+      />
+    );
+  }
 
   if (mode === "forgot") {
     return (

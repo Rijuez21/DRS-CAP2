@@ -131,6 +131,8 @@ export function buildDiscountsRouter(io) {
     try {
       const [[row]] = await pool.query(`SELECT id_image FROM discount_applications WHERE application_id = ?`, [applicationId]);
       if (!row) return res.status(404).json({ error: "Submission not found" });
+      // Cleared by services/retentionSweeper.js once the retention period ends.
+      if (!row.id_image) return res.status(410).json({ error: "This ID photo was deleted under the data retention policy" });
       const match = /^data:(image\/(?:png|jpeg|webp));base64,(.*)$/s.exec(row.id_image);
       if (!match) return res.status(500).json({ error: "Stored ID image is unreadable" });
       res.set({ "Content-Type": match[1], "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });

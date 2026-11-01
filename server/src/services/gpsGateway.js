@@ -344,6 +344,7 @@ export function startGpsGateway(socketIo) {
     listener.startedAt = new Date().toISOString();
     console.log(`GPS tracker listener (SinoTrack h02) on TCP port ${port}`);
   });
+  return server;
 }
 
 // ---- Read side for routes/gps.js ------------------------------------

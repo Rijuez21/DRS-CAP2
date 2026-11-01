@@ -102,7 +102,7 @@ export async function createPassenger(name = "Passenger") {
   const email = `${name.toLowerCase().replace(/\W/g, "")}-${randomBytes(3).toString("hex")}@test.local`;
   const [r] = await db.query(`INSERT INTO commuters (name, email, password_hash) VALUES (?, ?, ?)`, [name, email, hash]);
   const login = await api("POST", "/api/auth/login", { body: { email, password: PASSWORD, role: "passenger" } });
-  return { id: r.insertId, token: login.data.token, name };
+  return { id: r.insertId, token: login.data.token, name, email };
 }
 
 export async function createDriver() {
@@ -157,3 +157,21 @@ export function proof({ bookingIds, methodId, reference = gcashRef(), amount = "
 }
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Email confirmation codes are issued after the sign-up response is sent
+// and stored only as a bcrypt hash: wait for the newest live code for this
+// passenger, then replace its hash with one for `code`.
+export async function useKnownVerificationCode(commuterId, code) {
+  for (let i = 0; i < 50; i += 1) {
+    const [[row]] = await db.query(
+      `SELECT verification_id FROM email_verifications WHERE commuter_id = ? AND used_at IS NULL ORDER BY verification_id DESC LIMIT 1`,
+      [commuterId]
+    );
+    if (row) {
+      await db.query(`UPDATE email_verifications SET code_hash = ? WHERE verification_id = ?`, [bcrypt.hashSync(code, 4), row.verification_id]);
+      return row.verification_id;
+    }
+    await sleep(50);
+  }
+  throw new Error("No confirmation code was issued");
+}

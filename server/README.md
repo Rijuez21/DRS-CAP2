@@ -16,52 +16,34 @@ and **Redis** caching active trips and bus locations.
 cd server
 npm install
 cp .env.example .env
-# paste MYSQL_URL and REDIS_URL into .env
-npm run db:init   # creates the tables from src/db/schema.sql
-npm run dev        # starts the API + Socket.io server on http://localhost:4000
+# paste MYSQL_URL and REDIS_URL into .env, and set JWT_SECRET
+npm run db:init      # new, empty database only: creates the tables from src/db/schema.sql
+npm run db:migrate   # existing database: adds any new tables/columns (safe to re-run)
+npm run db:seed      # optional demo data — never against the live database
+npm run dev          # starts the API + Socket.io server on http://localhost:4000
 ```
 
 Visit `http://localhost:4000/api/health` — you should see
 `{"status":"ok","database":"connected","redis":"connected"}`.
 
-## 3. Point the frontend at it
+The website (`drs-bus-main`, `npm run dev`) forwards `/api` and `/socket.io`
+to this server on port 4000, so locally it needs no settings at all.
 
-In `drs-bus-main/.env`:
+## 3. Settings
 
-```
-VITE_API_URL=http://localhost:4000
-```
+Every setting is explained in [.env.example](.env.example). The ones that matter most:
 
-REST calls work as before:
-
-```js
-const res = await fetch(`${import.meta.env.VITE_API_URL}/api/trips`);
-const trips = await res.json();
-```
-
-For live GPS on `LiveTracking.jsx`, use Socket.io instead of polling — this
-is the "real-time, bidirectional communication" the paper assigns to
-Socket.io (Table 9):
-
-```bash
-npm install socket.io-client
-```
-
-```js
-import { io } from "socket.io-client";
-
-const socket = io(import.meta.env.VITE_API_URL);
-socket.emit("subscribe:bus", busId);
-socket.on("location:update", (point) => setBusPosition(point));
-
-// on unmount:
-socket.emit("unsubscribe:bus", busId);
-socket.disconnect();
-```
-
-Feed that position into Leaflet/Mapbox exactly as the paper specifies
-(Table 11) — this backend doesn't touch map rendering, it just supplies
-`{ latitude, longitude, timestamp }` over the socket.
+| Variable | Required | What it does |
+|---|---|---|
+| `MYSQL_URL`, `REDIS_URL` | yes | Database and cache. On Railway these come from the MySQL and Redis services. |
+| `JWT_SECRET` | yes | Signs logins. The server refuses to start in production without a random value of 32+ characters. |
+| `CORS_ORIGIN` | yes | The website's address(es), comma-separated. Requests from anywhere else are refused. |
+| `APP_URL` | recommended | The website's address, for links in emails. Defaults to the first `CORS_ORIGIN`. |
+| `BREVO_API_KEY` | for email on Railway | Sends email through Brevo's API. See "Email" below. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` | email elsewhere | Plain SMTP (e.g. Gmail + App Password). Ignored when `BREVO_API_KEY` is set. |
+| `MAIL_FROM_EMAIL`, `MAIL_FROM_NAME` | optional | The From line. The email defaults to `SMTP_USER`. With Brevo it must be a verified sender. |
+| `REQUIRE_EMAIL_VERIFICATION` | optional | `1` (default): new passengers confirm their email with a code. `0` turns it off. |
+| `GPS_TCP_PORT`, `GPS_PUBLIC_HOST`, `GPS_PUBLIC_PORT`, `GPS_DEVICE_KEY` | GPS trackers | See `.env.example`. |
 
 ## 4. Deploy to Railway
 
@@ -71,22 +53,35 @@ Feed that position into Leaflet/Mapbox exactly as the paper specifies
 3. Because this service lives in the same Railway project as MySQL and
    Redis, Railway auto-injects `MYSQL_URL` and `REDIS_URL` — no manual
    copying needed.
-4. Set `CORS_ORIGIN` to your deployed frontend URL.
+4. Set `JWT_SECRET`, `CORS_ORIGIN` (your deployed frontend URL) and `APP_URL`.
 5. Update `VITE_API_URL` in the frontend to the backend's Railway public URL.
-6. For email, set `BREVO_API_KEY` and `MAIL_FROM_EMAIL` (and `APP_URL` =
-   the frontend URL). See "Email" below.
+6. For email, set `BREVO_API_KEY` (and `MAIL_FROM_EMAIL` if it isn't the
+   same as `SMTP_USER`). See "Email" below.
+7. After a release that changes the database, run `npm run db:migrate` once
+   against the Railway database.
+
+On every redeploy Railway sends the old server SIGTERM; it stops taking new
+requests, lets running ones finish and closes its connections before exiting.
 
 ## Email
 
-`src/services/mailer.js` sends two kinds of automated email over SMTP:
+`src/services/mailer.js` sends these automated emails:
 
 - **Payment successful + receipt** — when staff verify an online payment
   (Payment Verification) or collect cash for an online booking at the
-  terminal. Sent alongside the bell notification, with the OR number, trip,
-  seat, amount and a link to the printable receipt page.
+  terminal, with the OR number, trip, seat, amount and a link to the
+  printable receipt page (`services/receiptEmail.js`).
+- **Sign-up confirmation code** — new passengers enter a 6-digit code
+  (valid 30 minutes, 5 tries) before they can sign in. An admin can confirm
+  an email by hand on the Passengers page.
 - **Password reset code** — the "Forgot password?" link on every login page
-  emails a 6-digit code (valid 10 minutes, 5 tries). After the reset, a
-  "your password was changed" notice is sent and old sessions are signed out.
+  emails a 6-digit code (valid 10 minutes, 5 tries). After any password
+  change, a "your password was changed" notice is sent and other sessions
+  are signed out.
+- **Copies of important notifications** — payment rejected or needs more
+  details, payment window closing, seat released, refunds, trip cancelled or
+  rescheduled, departure reminder, discount approved or rejected
+  (`services/notify.js` decides which).
 
 Email is best-effort: if sending fails, payments and notifications still go
 through and the failure is only logged. Two ways to send:
@@ -94,14 +89,26 @@ through and the failure is only logged. Two ways to send:
 - **Brevo API** (`BREVO_API_KEY`) — use this on Railway. Railway blocks
   outbound SMTP on non-Pro plans, so SMTP there fails with
   `Connection timeout`. Brevo is free for 300 emails/day; verify
-  `MAIL_FROM_EMAIL` as a sender in the Brevo dashboard first.
+  `MAIL_FROM_EMAIL` as a sender in the Brevo dashboard first, and turn off
+  Brevo's IP blocking for API keys (Railway's address changes).
 - **SMTP** (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`) — e.g. Gmail
   with an [App Password](https://myaccount.google.com/apppasswords)
   (`smtp.gmail.com`, port 465). Works from a PC.
 
 With neither set (local development) nothing is sent — each email is
-printed to the server console, so you can read reset codes there. Existing
-databases need `npm run db:migrate` for the new `password_resets` table.
+printed to the server console, so you can read codes there. Reset and
+confirmation codes are never written to the logs on a deployed server.
+
+## Background jobs
+
+Started by `src/index.js`, all safe to run on more than one server:
+
+| Job | Every | What it does |
+|---|---|---|
+| `services/paymentSweeper.js` | 1 min (`PAYMENT_SWEEP_INTERVAL_MS`) | Warns passengers before an unpaid seat hold lapses, releases expired holds, alerts staff about proofs on trips leaving soon. |
+| `services/departureReminders.js` | 5 min | Reminds passengers with a confirmed seat about an hour before departure (once per trip). |
+| `services/retentionSweeper.js` | 6 h | Deletes data past the privacy policy's retention periods: GPS points after 1 year, ID photos 1 year after expiry/rejection, read notifications after 6 months, codes after 7 days, never-confirmed sign-ups after 7 days. Keep it in step with `drs-bus-main/src/pages/DataPolicy.jsx`. |
+| Flag a Bus expiry (`routes/bookings.js`) | 1 min | Expires roadside hails nobody answered. |
 
 ## Schema source
 
@@ -129,49 +136,49 @@ vs. implementation glue:
 
 ## API routes
 
-| Method | Path                          | Powers                            |
-|--------|-------------------------------|------------------------------------|
-| GET    | `/api/health`                 | connection check                   |
-| POST   | `/api/auth/login`             | Passenger/Driver/Staff/Admin login |
-| POST   | `/api/auth/register`          | passenger self sign-up             |
-| POST   | `/api/auth/forgot-password`   | "Forgot password?" → emails a 6-digit code |
-| POST   | `/api/auth/verify-reset-code` | code → one-time reset token        |
-| POST   | `/api/auth/reset-password`    | reset token + new password         |
-| GET    | `/api/trips`                  | TripListings                       |
-| GET    | `/api/trips/:id`              | TripDetail                         |
-| GET    | `/api/trips/:id/seats`        | SeatMap                            |
-| GET    | `/api/routes`                 | TripSearchPanel, RouteManagement   |
-| POST   | `/api/routes`                 | admin: create route                |
-| GET    | `/api/bookings?passengerId=`  | MyBookings                         |
-| GET    | `/api/bookings/:id`           | BookingDetails/BookingConfirmed    |
-| POST   | `/api/bookings`               | seat selection → reserve a seat    |
-| PATCH  | `/api/bookings/:id/status`    | ReservationValidation, Manifest    |
-| GET    | `/api/buses`                  | FleetManagement                    |
-| POST   | `/api/buses`                  | admin: add a bus                   |
-| PATCH  | `/api/buses/:id/status`       | admin: flip Active/Idle/Maintenance|
-| POST   | `/api/tracking`               | driver device: post one GPS point  |
-| POST   | `/api/tracking/batch`         | driver device: flush buffered points after reconnecting |
-| GET    | `/api/tracking/:busId/latest` | LiveTracking (passenger map)       |
+Every route is under `/api`. "Who" is the role required (`requireRole` in
+`middleware/auth.js`); the route files have the details of each endpoint.
 
-This still doesn't cover every page (e.g. `DriverManagement`, `UserManagement`
-admin screens are simple CRUD over `drivers`/`staff_accounts` you can add the
-same way).
+| Area | Routes | Who | Used by |
+|---|---|---|---|
+| Health | `GET /health` | anyone | uptime checks |
+| Sign-in | `POST /auth/login`, `POST /auth/register` | anyone | LoginForm |
+| Email confirmation | `POST /auth/verify-email`, `POST /auth/resend-verification` | anyone | LoginForm (code step) |
+| Forgot password | `POST /auth/forgot-password`, `/auth/verify-reset-code`, `/auth/reset-password` | anyone | ForgotPasswordForm |
+| Own account | `POST /auth/change-password` (any role), `PATCH /auth/me`, `DELETE /auth/me` (passenger) | signed in | AccountSettings |
+| Trips | `GET /trips`, `GET /trips/:id`, `/:id/seats`, `/:id/manifest`; `POST`, `PATCH /trips/:id`, `/:id/status` | public reads; staff, admin, driver writes | trip pages, TripScheduling, Manifest |
+| Routes & fares | `GET /routes`; `POST`, `PATCH /routes/:id`, `/:id/deactivate`, `/:id/pin` | public reads; admin writes | RouteManagement |
+| Bookings | `GET /bookings`, `/bookings/search`, `/bookings/:id`; `POST /bookings`, `/walk-in`, `/:id/counter-payment`; `PATCH /:id/status` | passenger, staff, admin, driver | booking pages, WalkInSales, ReservationValidation |
+| Flag a Bus | `/bookings/flags` (create, list, location, acknowledge, decline, cancel) | passenger, driver | FlagBus, FlagRequestsPanel |
+| Payments | `/payments` (methods, QR, submit, booking status, queue, verify, reject, escalate, refunds, audit) | passenger, staff, admin | PaymentPanel, PaymentReview, PaymentSettings |
+| Discounts | `/discounts` (mine, submit, queue, ID image, approve, reject) | passenger, staff, admin | FareDiscount, DiscountReview |
+| Fleet | `/buses` (list, add, edit, delete, status) | staff reads; admin writes | FleetManagement |
+| Tracking | `POST /tracking`, `/tracking/batch` (driver phone), `/tracking/device` (Traccar); `GET /tracking/:busId/latest`, `/fleet/latest`, `/in-transit` | driver; signed in | LiveTracking, FleetTracking |
+| GPS trackers | `/gps` (status, device, verify, assign, history) | admin | GpsTracker |
+| People | `/drivers`, `/staff`, `/owners`, `/passengers` | admin (drivers: staff can read) | UserManagement, DriverManagement, Passengers |
+| Notifications | `GET /notifications`, `PATCH /:id/read`, `/read-all` | signed in | NotificationBell |
+| Dashboard | `GET /dashboard/summary`, `GET /dashboard/audit-log` | admin, staff / admin | Dashboard, ActivityLog |
+| Reports | `/reports` (on-time performance, fleet utilization, reservation trends, CSV export) | admin | ReportsAnalytics |
 
-## Notes / next steps
+Live updates go over Socket.io: `location:update` (bus positions),
+`notification:new` (the bell), `flag:*` (Flag a Bus) and `payments:changed`
+(Payment Verification). A client only joins the rooms its login allows (see
+`io.use` / `io.on("connection")` in `src/index.js`).
 
-- Auth here is intentionally minimal (no sessions/JWT yet) — enough to prove
-  the DB connection works end-to-end. Add `jsonwebtoken` or a session store
-  before this handles real users.
-- `npm run db:init` is safe to re-run — it uses `CREATE TABLE IF NOT EXISTS`.
-- **Redis** is wired up for the two cases the paper names (Table 10): the
-  active trips list (`/api/trips`, 15s TTL) and latest bus location
-  (`/api/tracking/:busId/latest`, 30s TTL). Both fail open — if Redis is
-  unreachable, routes fall back to querying MySQL directly instead of
-  erroring.
-- **Socket.io** is live: posting to `/api/tracking` (or flushing a buffered
-  batch to `/api/tracking/batch`) immediately emits `location:update` to any
-  client subscribed to that bus's room. This is what makes `LiveTracking.jsx`
-  "real-time" rather than a page that needs manual refreshing.
-- GPS arrives from the driver's phone posting to `/api/tracking` directly
-  (2.5.2), with an offline buffer that flushes in a batch once the phone
-  reconnects. There is no separate telemetry/MQTT path.
+## Security notes
+
+- Logins are JWTs (`middleware/auth.js`) that stop working the moment the
+  account's password changes, the account is suspended or deleted, or a
+  staff member's role changes.
+- Rate limits on login, sign-up, codes, payments and staff actions
+  (`services/rateLimit.js`, in Redis when it's up).
+- Strict security headers on every response; uploads are checked by their
+  real file type; errors never reveal internals.
+- `npm audit` should report 0 vulnerabilities: keep it that way before a release.
+
+## Tests
+
+`npm test` runs `test/*.test.js` against a throwaway MySQL 8 + Redis (see
+`test/helpers.js` for the connection settings; never point it at Railway —
+the test database is dropped and recreated). GitHub Actions runs it on every
+push (`.github/workflows/tests.yml`).

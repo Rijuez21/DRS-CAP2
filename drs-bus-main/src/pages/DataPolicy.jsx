@@ -5,8 +5,8 @@ import { ChevronLeft } from "lucide-react";
 // these two before going live, and update LAST_UPDATED whenever the text
 // changes. Retention periods below are promises: if the app's behaviour
 // changes, change this page too.
-const PRIVACY_EMAIL = "privacy@example.com"; // TODO: the Data Protection Officer's real address
-const LAST_UPDATED = "October 27, 2026";
+const PRIVACY_EMAIL = "drisingsuntranspo@gmail.com"; // the Data Protection Officer's address — the business inbox until a dedicated one exists
+const LAST_UPDATED = "November 1, 2026";
 
 // Each section: a heading, an opening paragraph, and optional bullet points.
 const SECTIONS = [
@@ -35,7 +35,8 @@ const SECTIONS = [
       "To reserve seats, issue tickets, and run the passenger manifest that drivers and terminal staff use at boarding.",
       "To verify payments and discount IDs, and apply the correct fare.",
       "To show live bus locations and estimated arrivals, and to let a driver find you when you flag a bus.",
-      "To contact you about your trips, such as schedule changes, cancellations or problems with a payment.",
+      "To confirm your email address when you sign up, and to send password reset codes.",
+      "To contact you about your trips, such as payment receipts, schedule changes, cancellations, departure reminders or problems with a payment. These come in the app and by email.",
       "To prepare reports for managing routes, schedules and the fleet. These reports use totals, not individual passenger details, wherever possible.",
       "To comply with legal obligations and respond to lawful requests from authorities.",
     ],
@@ -51,6 +52,7 @@ const SECTIONS = [
       "Within D' Rising Sun: drivers see the names and seats on their trip and any flag-down pickup points; terminal staff see bookings, payment submissions and discount applications; administrators manage accounts. Bus owners see information about their own buses and trips.",
       "Service providers that host the platform (cloud servers and database). Some of these may store data outside the Philippines; we use providers with appropriate security safeguards, as the Data Privacy Act requires.",
       "Maps: the live map loads map images from OpenStreetMap, and \"Directions\" links open Google Maps. These services receive your IP address and the map area you view, under their own privacy policies.",
+      "Emails: delivered through an email service (Brevo), which receives only your email address and the message itself.",
       "Authorities, when required by law, court order, or to protect the safety of passengers and crew.",
     ],
   },
@@ -58,15 +60,18 @@ const SECTIONS = [
     heading: "Data Retention",
     body: "We keep personal information only as long as it is needed for the purposes above:",
     items: [
-      "Account details: while your account is open. After you ask us to close it, we delete or anonymise your account within 30 days, except records we must keep by law.",
+      "Account details: while your account is open. You can close it yourself under Account & Password; your name, email, mobile number and ID photos are removed straight away, and your past bookings and payments are kept without your name. If you ask us by email instead, we do the same within 30 days.",
+      "Sign-ups that were never confirmed: deleted after 7 days.",
       "Bookings and payment records: kept for as long as the law requires for accounting and tax purposes, then deleted or anonymised.",
       "Discount ID photos: kept while your discount is active and for up to one year after it expires or is rejected, so a review can be checked if questioned.",
-      "Bus location history: kept for up to one year for trip records and service planning, then deleted or reduced to totals that do not identify anyone.",
+      "Bus location history: kept for up to one year for trip records and service planning, then deleted.",
+      "In-app notifications: deleted six months after you read them.",
+      "Email confirmation and password reset codes: deleted after 7 days.",
     ],
   },
   {
     heading: "Data Security",
-    body: "We use organisational, physical and technical measures to protect your information, including: encrypted (HTTPS) connections; passwords stored as salted hashes; role-based access, so each user sees only what their job needs; limits on repeated failed logins and sign-ups; checks on uploaded images; and an audit log of administrator actions. No system is completely secure. If a breach puts your information at real risk, we will notify you and the National Privacy Commission as the law requires.",
+    body: "We use organisational, physical and technical measures to protect your information, including: encrypted (HTTPS) connections; passwords stored as salted hashes; email confirmation at sign-up; one-time codes for password resets; role-based access, so each user sees only what their job needs; limits on repeated failed logins and sign-ups; checks on uploaded images; and an audit log of administrator actions. No system is completely secure. If a breach puts your information at real risk, we will notify you and the National Privacy Commission as the law requires.",
   },
   {
     heading: "Your Rights",
@@ -74,7 +79,7 @@ const SECTIONS = [
     items: [
       "Be informed about how your personal information is processed (this policy).",
       "Access the personal information we hold about you and get a copy of it.",
-      "Correct information that is inaccurate or incomplete.",
+      "Correct information that is inaccurate or incomplete. You can change your name and mobile number yourself under Account & Password.",
       "Have your information deleted or blocked when it is no longer needed, was collected unlawfully, or you withdraw consent, subject to records we must keep by law.",
       "Object to processing and withdraw your consent. Some features, such as booking, cannot work without the information they need.",
       "Data portability: receive your information in a commonly used electronic format.",

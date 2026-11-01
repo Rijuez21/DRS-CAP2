@@ -262,6 +262,31 @@ const STATEMENTS = [
     KEY idx_password_resets_account (account_role, account_id, created_at),
     UNIQUE KEY uq_password_resets_token (reset_token_hash)
   )`,
+
+  // ---- Passenger accounts: email confirmation, suspension, closing -------
+  // addition: see schema.sql. email_verified defaults to TRUE so every
+  // existing account stays usable; only new sign-ups start unverified.
+  // created_at is filled with the migration time for existing rows.
+  // Re-running is a no-op.
+  `ALTER TABLE commuters ADD COLUMN email_verified BOOLEAN NOT NULL DEFAULT TRUE`,
+  `ALTER TABLE commuters ADD COLUMN suspended_at DATETIME NULL`,
+  `ALTER TABLE commuters ADD COLUMN suspension_reason VARCHAR(255) NULL`,
+  `ALTER TABLE commuters ADD COLUMN closed_at DATETIME NULL`,
+  `ALTER TABLE commuters ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`,
+  `CREATE TABLE IF NOT EXISTS email_verifications (
+    verification_id INT AUTO_INCREMENT PRIMARY KEY,
+    commuter_id INT NOT NULL,
+    code_hash VARCHAR(255) NOT NULL,
+    attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    expires_at DATETIME NOT NULL,
+    used_at DATETIME NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_email_verifications_commuter (commuter_id, created_at),
+    FOREIGN KEY (commuter_id) REFERENCES commuters(commuter_id) ON DELETE CASCADE
+  )`,
+
+  // ---- Departure reminders (services/departureReminders.js) -------------
+  `ALTER TABLE bookings ADD COLUMN reminder_sent_at DATETIME NULL`,
 ];
 
 // ---- One passenger account per mobile number (routes/auth.js) -----------

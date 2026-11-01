@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Menu, X, LogOut } from "lucide-react";
+import { Menu, X, LogOut, KeyRound } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import NotificationBell from "../common/NotificationBell";
+import PageLoader from "../common/PageLoader";
 import { initials } from "../../lib/format";
 import { logoutPath } from "../../lib/rolePaths";
 
@@ -76,6 +77,9 @@ export default function RoleLayout({ title, links, theme, bell, logo }) {
         ) : (
           <p className={`text-xs px-3 truncate ${theme.muted}`}>{user.name}</p>
         ))}
+      <NavLink to="account" className={sideLink}>
+        <KeyRound className="w-4 h-4 shrink-0" /> Account & Password
+      </NavLink>
       <button type="button" onClick={handleLogout} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium ${theme.idleLink}`}>
         <LogOut className="w-4 h-4" /> Log Out
       </button>
@@ -125,7 +129,10 @@ export default function RoleLayout({ title, links, theme, bell, logo }) {
         )}
 
         <main className={tabs.length ? "pb-24 lg:pb-0" : ""}>
-          <Outlet />
+          {/* Pages load on demand; the sidebar and tabs stay while one does. */}
+          <Suspense fallback={<PageLoader />}>
+            <Outlet />
+          </Suspense>
         </main>
 
         {/* Phone bottom tabs — the pages this role uses every day */}

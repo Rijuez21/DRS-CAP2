@@ -1,65 +1,72 @@
 # **IMPORTANT!** After working on your part, remember to update the README file!
 
-# DRS Bus Management System — Frontend
+# DRS Bus Management System
 
-Web-based platform for D'Rising Sun Transport: online seat reservation, real-time GPS fleet tracking, and role-based dashboards for passengers, drivers, terminal staff, and administrators. Built as part of the DRS Bus Management System IT project proposal (Saint Louis University).
+Web platform for D' Rising Sun Transport on the Baguio–Bontoc line: online seat
+reservation, manual online payment verification, real-time GPS bus tracking,
+"Flag a Bus" roadside hailing, and role-based tools for passengers, drivers,
+terminal staff, administrators and bus owners. Built as part of the DRS Bus
+Management System IT project (Saint Louis University).
 
-**Project folder:** `drs-bus-main`
+## What's in this repo
 
-**Gantt reference:**
-- Module 1 — Planning & System Design: UI wireframes. Done.
-- Module 2 — System / Foundation Setup: React + Tailwind project structure, shared page layout. Done.
-- Module 3 — Login & User Accounts: Create passenger login page, driver login page, and admin login page. Done.
-- Module 6 — GPS / Live Bus Tracking: Build the live map showing bus location markers. Done.
+| Folder | What it is |
+|---|---|
+| `drs-bus-main/` | The website (React + Vite + Tailwind CSS v4). See [drs-bus-main/README.md](drs-bus-main/README.md). |
+| `server/` | The API (Node.js + Express + Socket.io, MySQL, Redis). See [server/README.md](server/README.md) for setup, every setting and the API routes. |
+| `postman/` | Full API test collection, run by GitHub Actions with Newman. |
+| `jmeter/` | Load test (GitHub Actions, run by hand). |
+| `.github/workflows/` | CI: server tests + website checks, Postman API tests, load test, ZAP security scan. |
 
-## Tech Stack
+## Tech stack
 
 | Layer | Technology |
 |---|---|
-| UI Library | React (via Vite) |
-| Styling | Tailwind CSS v4 (`@tailwindcss/vite`) |
-| Routing | React Router v6 |
-| Icons | lucide-react |
-| Fonts | Sora (display), Inter (body) — via Google Fonts |
-| Backend (planned) | Node.js + Express.js |
-| Real-time | Socket.io |
-| Database (planned) | MySQL + Redis |
-| Maps | Leaflet.js |
+| Website | React 19 (Vite), React Router, Tailwind CSS v4, lucide-react icons |
+| Maps | Leaflet with OpenStreetMap tiles; road routes from the public OSRM server |
+| API | Node.js, Express, Socket.io (live bus positions and notifications) |
+| Database | MySQL 8 (Railway); Redis for caching and rate limits |
+| GPS | SinoTrack ST-906L trackers over TCP (`server/src/services/gpsGateway.js`), plus the driver's phone as a backup |
+| Email | Brevo API (or any SMTP server) |
+| Hosting | Railway: MySQL, Redis, BACKEND and FRONTEND services |
 
-## Prerequisites
+## Features by role
 
-- Node.js v18+ (`node -v` to check)
-- npm v7+
-- VS Code, with recommended extensions:
-  - ES7+ React/Redux/React-Native snippets
-  - Tailwind CSS IntelliSense
-  - Prettier
+**Passengers** (`/login/passenger`, self sign-up with email confirmation)
+- Book Ahead: search trips, pick seats on the bus's real seat layout, 20% student / PWD / senior discount after ID review.
+- Pay online by GCash, bank transfer or QR Ph, then upload the receipt; staff verify it against the company account. Or pay cash at the terminal.
+- Email receipt with an official receipt number once the payment is verified; QR e-ticket on every booking.
+- Live tracking of their bus, departure reminders, and notifications in the app and by email.
+- Flag a Bus: hail a bus that's already on the road from a roadside pickup point.
+- Account & Password: edit name and mobile, change password, close the account. Forgot password by emailed code.
 
-## Getting Started
+**Drivers** (`/login/staff`, Driver tab): today's trips, passenger manifest (Boarded / No-Show), flag-down requests, phone GPS backup.
+
+**Terminal staff** (`/login/staff`, Terminal Staff tab): walk-in ticket sales, validate reservations, payment verification, discount ID review, trip schedules, live fleet map.
+
+**Administrators** (`/login/admin`): dashboard, fleet, routes and fares, drivers, trip scheduling, reservations, payment verification and payment methods, ID verification, GPS trackers, reports, user accounts, passenger accounts (suspend / confirm email), activity log.
+
+**Bus owners** (`/login/owner`): live map of their own buses.
+
+## Running it locally
+
+You need Node.js 22+ and the database settings from Railway (or a local MySQL 8 + Redis).
 
 ```bash
-#before installing the npm
-cd drs-bus-main
-
-#then install
+# Terminal 1: the API
+cd server
+cp .env.example .env      # fill in MYSQL_URL, REDIS_URL, JWT_SECRET (see server/README.md)
 npm install
-npm install lucide-react
-npm run dev
+npm run db:migrate        # adds any new tables/columns to an existing database
+npm run dev               # http://localhost:4000
+
+# Terminal 2: the website
+cd drs-bus-main
+npm install
+npm run dev               # http://localhost:5173
 ```
 
-App runs at `http://localhost:5173`.
-
-To try it on a phone, don't open `http://<your PC's IP>:5173`. Location (GPS) is
-blocked on plain `http://` links, so the terminal map, Flag a Bus and live
-tracking won't work. Use the HTTPS tunnel in
-[Running on a Phone](#running-on-a-phone-https--needed-for-gps) instead.
-
-Also confirm `index.html` includes the Google Fonts link tags in `<head>`:
-
-```html
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-```
+Without email settings, the API prints every email (sign-up and reset codes included) to Terminal 1 instead of sending it.
 
 ## Running on a Phone (HTTPS — needed for GPS)
 
@@ -168,86 +175,20 @@ a blue "You" dot and the road route to the terminal, plus the distance and
 approximate driving time. A **Directions** link opens Google Maps for
 turn-by-turn navigation.
 
-- **Terminal location:** set in code in `src/lib/terminal.js` (`TERMINAL.latitude` /
+- **Terminal location:** set in code in `drs-bus-main/src/lib/terminal.js` (`TERMINAL.latitude` /
   `TERMINAL.longitude`, plus its name and address). To move the pin, open
   Google Maps, right-click the terminal entrance, and click the `lat, lng` line
   at the top of the menu to copy it.
-- **Routing:** uses the public OSRM demo server (`src/hooks/useRoadRoute.js`),
+- **Routing:** uses the public OSRM demo server (`drs-bus-main/src/hooks/useRoadRoute.js`),
   the same one Flag a Bus uses. It's free and needs no API key, but it's
   rate-limited and its times are for a car. If it can't be reached, the map
   draws a dashed straight line instead.
 - **Location:** needs HTTPS on phones (see
   [Running on a Phone](#running-on-a-phone-https--needed-for-gps)).
 
-## Folder Structure
-
-```
-src/
-├── assets/
-│   └── logo-sun.svg            # sunburst logo mark, used on all 3 login pages
-├── components/
-│   ├── auth/
-│   │   ├── AuthShell.jsx       # shared chrome: logo, wordmark, card wrapper
-│   │   └── LoginForm.jsx       # shared email/password form + validation
-│   ├── common/
-│   │   ├── EmptyState.jsx
-│   │   └── StatusBadge.jsx
-│   ├── layout/
-│   │   ├── PassengerLayout.jsx # mobile: bottom tab bar · desktop (lg:): sidebar
-│   │   ├── DriverLayout.jsx
-│   │   ├── StaffLayout.jsx
-│   │   └── AdminLayout.jsx
-│   └── passenger/
-│       ├── TripSearchPanel.jsx
-│       ├── StatsRow.jsx
-│       ├── TripCard.jsx
-│       ├── SeatMap.jsx
-│       ├── BookingSummaryCard.jsx
-│       └── TerminalDirectionsCard.jsx  # Home: map + route from you to the terminal
-├── pages/
-│   ├── auth/
-│   │   ├── RoleSelect.jsx      # built — landing page, pick a role to log in as
-│   │   ├── PassengerLogin.jsx  # built
-│   │   ├── DriverLogin.jsx     # built
-│   │   └── AdminLogin.jsx      # built
-│   ├── passenger/
-│   │   ├── Home.jsx
-│   │   ├── TripListings.jsx
-│   │   ├── TripDetail.jsx
-│   │   ├── BookingConfirmed.jsx
-│   │   ├── MyBookings.jsx
-│   │   ├── BookingDetails.jsx
-│   │   ├── LiveTracking.jsx    # built — live single-bus map (Module 6)
-│   │   └── Profile.jsx
-│   ├── driver/
-│   │   ├── Dashboard.jsx
-│   │   ├── RouteSchedule.jsx
-│   │   └── Manifest.jsx
-│   ├── staff/
-│   │   ├── WalkInSales.jsx
-│   │   └── ReservationValidation.jsx
-│   └── admin/
-│       ├── Dashboard.jsx
-│       ├── FleetManagement.jsx
-│       ├── RouteManagement.jsx
-│       ├── DriverManagement.jsx
-│       ├── TripScheduling.jsx
-│       ├── ReservationsManagement.jsx
-│       └── UserManagement.jsx
-├── lib/
-│   └── terminal.js         # bus terminal name + coordinates (edit to move the pin)
-├── routes/
-│   └── AppRoutes.jsx
-├── index.css       # Tailwind import + brand design tokens (@theme)
-├── App.jsx
-└── main.jsx
-```
-
-> **Note:** page-level files live in `pages/`. Reusable pieces those pages assemble live in `components/`, grouped by the same role/domain name (`auth/`, `passenger/`, etc.). Keep new reusable UI in `components/`, not inside `pages/`.
-
 ## Design Tokens
 
-Defined in `src/index.css` under `@theme`, inspired by the Cordillera setting and the "Rising Sun" name:
+Defined in `drs-bus-main/src/index.css` under `@theme`, inspired by the Cordillera setting and the "Rising Sun" name:
 
 | Token | Use |
 |---|---|
@@ -259,71 +200,45 @@ Defined in `src/index.css` under `@theme`, inspired by the Cordillera setting an
 | `font-display` (Sora) | Headings, stats, prices |
 | `font-body` (Inter) | Body text |
 
-## Routing Map
+## Routing map
 
-All routes are defined centrally in `src/routes/AppRoutes.jsx`.
+All routes are defined in `drs-bus-main/src/routes/AppRoutes.jsx`. Pages load on demand, so a phone only downloads the screens it opens.
 
 | Path | Purpose |
 |---|---|
-| `/` | Role select — choose Passenger, Driver, or Admin |
-| `/login/passenger` | Passenger login (has "Sign up" — passengers self-register) |
-| `/login/driver` | Driver login (accounts created by an admin) |
-| `/login/admin` | Admin login (accounts created by an admin) |
+| `/` | Landing page (links to the passenger login) |
+| `/privacy-policy` | Privacy policy (Data Privacy Act) |
+| `/login/passenger` | Passenger sign-in and sign-up |
+| `/login/staff` | Driver and Terminal Staff sign-in (tab picks which) |
+| `/login/admin`, `/login/owner` | Admin and Bus Owner sign-in |
 
-| Role | Base Path | Routes |
+| Role | Base path | Pages |
 |---|---|---|
-| Passenger | `/passenger` | `home`, `trips`, `trips/:tripId`, `booking-confirmed`, `my-bookings`, `my-bookings/:bookingId`, `tracking/:tripId`, `profile` |
-| Driver | `/driver` | `dashboard`, `route-schedule`, `manifest` |
-| Terminal Staff | `/staff` | `walk-in`, `validate` |
-| Admin | `/admin` | `dashboard`, `fleet`, `routes`, `drivers`, `trips`, `reservations`, `users` |
+| Passenger | `/passenger` | `home`, `trips`, `trips/:tripId`, `booking-confirmed`, `my-bookings`, `my-bookings/:bookingId`, `my-bookings/:bookingId/receipt`, `payments`, `tracking/:tripId`, `flag`, `profile`, `discount`, `account` |
+| Driver | `/driver` | `dashboard`, `manifest`, `assigned-bus`, `route-schedule`, `profile`, `account` |
+| Terminal Staff | `/staff` | `walk-in`, `validate`, `payments`, `discounts`, `trips`, `tracking`, `account` |
+| Admin | `/admin` | `dashboard`, `trips`, `reservations`, `payments`, `payment-settings`, `discounts`, `tracking`, `gps`, `fleet`, `routes`, `drivers`, `reports`, `users`, `passengers`, `activity`, `account` |
+| Bus Owner | `/owner` | `tracking`, `account` |
 
-Each role's base path redirects to that role's default page. Unmatched URLs redirect to `/`. `PassengerLayout` is mobile-first: bottom tab bar below the `lg` breakpoint, fixed left sidebar at `lg` and above.
+Each base path redirects to that role's first page; unknown URLs go to `/`.
 
-## Setup Log
+## Tests
 
-**Foundation Phase (Modules 1–2)**
-- [x] Scaffolded project with Vite (`react` template)
-- [x] Installed and configured Tailwind CSS v4 via the Vite plugin
-- [x] Installed React Router (`react-router-dom`)
-- [x] Built role-based folder structure (`pages/`, `components/layout/`)
-- [x] Wired up `AppRoutes.jsx` with nested routes for all 4 roles
-- [x] Built `DriverLayout`, `StaffLayout`, `AdminLayout` with sidebar nav + `Outlet`
-- [x] Created placeholder components for all 21 pages
+| What | How | Where it runs |
+|---|---|---|
+| Server test suite (payments, security, sign-up, password reset, accounts, …) | `cd server && npm test` (needs a disposable MySQL 8 + Redis, see `server/test/helpers.js`) | GitHub Actions `Tests` workflow |
+| Website lint, unit tests and build | `cd drs-bus-main && npm run lint && npm test && npm run build` | GitHub Actions `Tests` workflow |
+| Full API collection | Newman, `postman/` | GitHub Actions `API tests (Postman)` workflow |
+| Load test | JMeter, `jmeter/` | GitHub Actions `Load test (JMeter)`, run by hand |
+| Security scan | OWASP ZAP | GitHub Actions `Security scan (ZAP)` workflow |
 
-**Passenger Interface UI Phase**
-- [x] Installed `lucide-react`, added Sora/Inter fonts
-- [x] Added brand design tokens (`@theme` in `index.css`)
-- [x] Built `Home.jsx`, `TripListings.jsx`, `TripDetail.jsx`
-- [x] Built `SeatMap.jsx` — visual, clickable seat grid
-- [x] Rebuilt `PassengerLayout.jsx` as mobile-first (bottom tabs → sidebar at `lg`)
+Turn on **Wait for CI** in each Railway service's settings so a failing run never deploys.
 
-**Login & User Accounts Phase (Module 3)**
-- [x] Built `RoleSelect.jsx` — landing page at `/`, replaces the old single `Login.jsx`
-- [x] Built `PassengerLogin.jsx`, `DriverLogin.jsx`, `AdminLogin.jsx`
-- [x] Built shared `AuthShell.jsx` and `LoginForm.jsx` (validation, error state, loading state)
-- [x] Added `logo-sun.svg` asset
-- [x] Updated `AppRoutes.jsx` with the 4 new auth routes
+## Deploying (Railway)
 
-**GPS / Live Bus Tracking Phase (Module 6)**
-- [x] Built `LiveTracking.jsx` — single-bus live map (`/passenger/tracking/:tripId`), using Leaflet
-- [x] Follows the same real-time pattern as the admin's `FleetTracking.jsx`: REST snapshot first (`getLatestLocation`) to seed the initial marker, then a Socket.io subscription for live updates, moving the existing marker instead of recreating the map on every tick
-- [x] Shows the same "buffered/offline" indicator `FleetTracking.jsx` uses, keyed off the `syncStatus` flag set by `useDriverLocation.js`'s offline queue
+The Railway project has four services: **MySQL**, **Redis**, **BACKEND** (`server/`) and **FRONTEND** (`drs-bus-main/`). Both app services deploy from GitHub on every push to `main`.
 
-**Not yet done**
-- [ ] Connect all forms/pages to the real backend API (still placeholder/`TODO`-marked — see comments in each file for the exact endpoint expected)
-- [ ] Build remaining passenger screens: BookingConfirmed, MyBookings, BookingDetails, Profile
-- [ ] Build out Driver, Terminal Staff, and Admin page content (currently placeholders)
-- [ ] Confirm `subscribe:bus`/`unsubscribe:bus` socket event names against the actual backend handler — `LiveTracking.jsx` currently assumes symmetry with `FleetTracking.jsx`'s `subscribe:fleet` pattern, but this hasn't been verified against real backend code yet
-- [ ] Add a "Track this bus" entry point — nothing currently links to `/passenger/tracking/:tripId` yet, since `MyBookings`/`BookingDetails` are still placeholders
+1. BACKEND → Variables: everything in `server/.env.example` (database URLs are linked from the MySQL and Redis services). Email must use `BREVO_API_KEY` on Railway: Railway blocks outgoing SMTP on non-Pro plans.
+2. FRONTEND → Variables: `VITE_API_URL` = the BACKEND's public URL. Then redeploy FRONTEND (it's built in).
+3. After a release that changes the database, run `npm run db:migrate` once against the Railway database (from `server/` with the Railway `MYSQL_URL` in `.env`).
 
-## Next Steps
-
-Per the Gantt chart, Module 7 (Admin Module) is next up. Module 4 (Passenger / Online Reservation) and Module 5 (Driver Module) still need their own status updates here from whoever owns those parts.
-
-## Available Scripts
-
-```bash
-npm run dev       # Start local dev server
-npm run build     # Production build
-npm run preview   # Preview the production build locally
-```

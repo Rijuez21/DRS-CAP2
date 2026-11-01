@@ -74,6 +74,12 @@ export default defineConfig(({ mode }) => {
       // No source maps in production: they'd publish the full source.
       sourcemap: false,
     },
+    // `npm test` (Vitest): *.test.js(x) next to the code they test, run in a
+    // simulated browser.
+    test: {
+      environment: 'jsdom',
+      include: ['src/**/*.test.{js,jsx}'],
+    },
     server: {
       // Reachable from other devices (phone on the same Wi-Fi, or a tunnel).
       host: true,

@@ -1,0 +1,16 @@
+{
+  "name": "D' Rising Sun Transport",
+  "short_name": "D' Rising Sun",
+  "description": "Book a seat, follow your bus live, and travel the Baguio–Bontoc line.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6f8f4",
+  "theme_color": "#123524",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -153,6 +153,52 @@ export function passwordResetEmail({ name, code, minutes }) {
   return { subject, html, text };
 }
 
+// { name, code, minutes } — the code that confirms a new passenger's email.
+export function emailVerificationEmail({ name, code, minutes }) {
+  const subject = `${code} is your ${BRAND} confirmation code`;
+  const html = layout({
+    preheader: `Your confirmation code is ${code}. It expires in ${minutes} minutes.`,
+    title: "Confirm your email",
+    body: `
+      <h1 style="font-size:22px;margin:0 0 6px;">Welcome aboard!</h1>
+      <p style="font-size:14px;line-height:1.5;color:${C.muted};margin:0;">
+        Hi ${esc(name || "there")}, enter this code in the app to finish creating your account. It expires in ${esc(minutes)} minutes.
+      </p>
+      <div style="margin:20px 0;padding:16px;text-align:center;background:${C.surface};border-radius:12px;border:1px solid ${C.line};">
+        <span style="font-family:Consolas,monospace;font-size:32px;font-weight:bold;letter-spacing:8px;color:${C.forest};">${esc(code)}</span>
+      </div>
+      <p style="font-size:13px;line-height:1.5;color:${C.muted};margin:0;">
+        If you didn't sign up for ${BRAND}, ignore this email and no account will be created.
+      </p>`,
+  });
+  const text = [
+    `${BRAND} — Confirm your email`,
+    "",
+    `Hi ${name || "there"}, your confirmation code is: ${code}`,
+    `It expires in ${minutes} minutes.`,
+    "",
+    "If you didn't sign up, ignore this email and no account will be created.",
+  ].join("\n");
+  return { subject, html, text };
+}
+
+// { name, title, message, link } — the email copy of an in-app
+// notification (services/notify.js). `message` is the same text the bell shows.
+export function notificationEmail({ name, title, message, link }) {
+  const subject = `${title} — ${BRAND}`;
+  const html = layout({
+    preheader: message,
+    title,
+    body: `
+      <h1 style="font-size:22px;margin:0 0 10px;">${esc(title)}</h1>
+      <p style="font-size:14px;line-height:1.5;color:${C.muted};margin:0;">Hi ${esc(name || "there")},</p>
+      <p style="font-size:15px;line-height:1.55;margin:10px 0 0;">${esc(message)}</p>
+      ${link ? button(link, "Open D' Rising Sun") : ""}`,
+  });
+  const text = [`${BRAND} — ${title}`, "", `Hi ${name || "there"},`, message, ...(link ? ["", link] : [])].join("\n");
+  return { subject, html, text };
+}
+
 // { name, when } — sent after a successful reset, so the owner notices a
 // reset they didn't make.
 export function passwordChangedEmail({ name, when }) {
@@ -163,18 +209,18 @@ export function passwordChangedEmail({ name, when }) {
     body: `
       <h1 style="font-size:22px;margin:0 0 6px;">Your password was changed</h1>
       <p style="font-size:14px;line-height:1.5;color:${C.muted};margin:0;">
-        Hi ${esc(name || "there")}, the password for your account was reset on ${esc(manilaDateTime(when))}.
-        You've been signed out on all your devices.
+        Hi ${esc(name || "there")}, the password for your account was changed on ${esc(manilaDateTime(when))}.
+        You've been signed out on your other devices.
       </p>
       <p style="font-size:14px;line-height:1.5;color:${C.muted};margin:12px 0 0;">
-        If this wasn't you, reset your password again right away and contact the terminal office.
+        If this wasn't you, use "Forgot password?" on the sign-in page right away and contact the terminal office.
       </p>`,
   });
   const text = [
     `${BRAND} — Your password was changed`,
     "",
-    `Hi ${name || "there"}, the password for your account was reset on ${manilaDateTime(when)}.`,
-    "If this wasn't you, reset your password again right away and contact the terminal office.",
+    `Hi ${name || "there"}, the password for your account was changed on ${manilaDateTime(when)}.`,
+    `If this wasn't you, use "Forgot password?" on the sign-in page right away and contact the terminal office.`,
   ].join("\n");
   return { subject, html, text };
 }

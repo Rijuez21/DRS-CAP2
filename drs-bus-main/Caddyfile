@@ -21,8 +21,20 @@
 
 	respond /health 200
 
+	# The <meta> CSP in index.html covers scripts, styles and connections,
+	# but browsers ignore frame-ancestors in a <meta> tag, so clickjacking
+	# protection (no other site may frame this one) has to be a header.
+	# The _headers file Vite writes is for Netlify / Cloudflare Pages only;
+	# Caddy on Railway doesn't read it.
 	header {
 		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Content-Security-Policy "frame-ancestors 'none'"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		Referrer-Policy strict-origin-when-cross-origin
+		# Location: terminal map, Flag a Bus, driver GPS. Camera: scanning
+		# QR e-tickets at the terminal.
+		Permissions-Policy "geolocation=(self), camera=(), microphone=()"
 		-Server
 	}
 

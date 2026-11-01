@@ -65,6 +65,11 @@ async function request(path, { method = "GET", body, params } = {}) {
     // while err.message stays the human-readable text to show.
     throw Object.assign(new Error(data?.error || `Request failed (${response.status})`), { status: response.status, data });
   }
+  // A web page instead of data means VITE_API_URL points at the website,
+  // not the API: fail with a clear message instead of handing pages null.
+  if (response.headers.get("content-type")?.includes("text/html")) {
+    throw new Error("The website is pointed at the wrong server address (VITE_API_URL). Please contact the administrator.");
+  }
   return data;
 }
 
@@ -82,6 +87,25 @@ export const verifyResetCode = ({ email, role, code }) =>
   request("/api/auth/verify-reset-code", { method: "POST", body: { email, role, code } });
 export const resetPassword = ({ resetToken, password }) =>
   request("/api/auth/reset-password", { method: "POST", body: { resetToken, password } });
+
+// Email confirmation after sign-up: the code signs the passenger in ({ user, token }).
+export const verifyEmail = ({ email, code }) => request("/api/auth/verify-email", { method: "POST", body: { email, code } });
+export const resendVerification = (email) => request("/api/auth/resend-verification", { method: "POST", body: { email } });
+
+// Your own account (AccountSettings.jsx). changePassword returns a fresh token.
+export const changePassword = ({ currentPassword, newPassword }) =>
+  request("/api/auth/change-password", { method: "POST", body: { currentPassword, newPassword } });
+export const updateMyProfile = ({ name, phoneno }) => request("/api/auth/me", { method: "PATCH", body: { name, phoneno } });
+export const closeMyAccount = (password) => request("/api/auth/me", { method: "DELETE", body: { password } });
+
+// ---- Passengers (admin) -------------------------------------------------
+export const getPassengers = ({ q, status, page } = {}) => request("/api/passengers", { params: { q, status, page } });
+export const suspendPassenger = (id, reason) => request(`/api/passengers/${id}/suspend`, { method: "PATCH", body: { reason } });
+export const unsuspendPassenger = (id) => request(`/api/passengers/${id}/unsuspend`, { method: "PATCH" });
+export const verifyPassengerEmail = (id) => request(`/api/passengers/${id}/verify-email`, { method: "PATCH" });
+
+// ---- Activity log (admin) ------------------------------------------------
+export const getAuditLog = (params) => request("/api/dashboard/audit-log", { params });
 
 // ---- Routes -------------------------------------------------------------
 export const getRoutes = () => request("/api/routes");

@@ -82,6 +82,11 @@ CREATE TABLE IF NOT EXISTS commuters (
   discount_verified_at DATETIME NULL,
   discount_expires_at DATETIME NULL, -- addition: one year after approval for students, NULL (no expiry) for PWD / senior citizens
   terms_accepted_at DATETIME NULL, -- addition: when the passenger ticked "I agree to the Terms of Use and Privacy Policy" at sign-up
+  email_verified BOOLEAN NOT NULL DEFAULT TRUE, -- addition: FALSE from sign-up until the passenger enters the code emailed to them (email_verifications); accounts made any other way count as verified
+  suspended_at DATETIME NULL, -- addition: set by an admin (routes/passengers.js); a suspended passenger can't sign in
+  suspension_reason VARCHAR(255) NULL,
+  closed_at DATETIME NULL, -- addition: the passenger closed their account; the row is kept anonymised for booking and payment records
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, -- addition
   UNIQUE KEY uq_commuters_phoneno (phoneno) -- addition: one account per mobile number (NULLs don't collide)
 );
 
@@ -134,6 +139,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   expiry_warned_at TIMESTAMP NULL DEFAULT NULL, -- addition: when the passenger was warned their hold is about to lapse (sent once)
   discount_category ENUM('student', 'pwd', 'senior') NULL, -- addition: the discount this seat was booked with, fixed at booking time so the fare due can't change mid-payment. NULL = full fare
   cancellation_reason VARCHAR(50) NULL, -- addition: why a booking became Cancelled when the system did it ('payment_expired'); NULL for ordinary cancels
+  reminder_sent_at DATETIME NULL, -- addition: when the "your bus leaves soon" reminder went out (services/departureReminders.js), sent once
   -- The document specifies: "UNIQUE constraint on (trip_id, seat_number)
   -- with status NOT IN ('Cancelled', 'No-Show')". MySQL has no native
   -- partial/filtered unique index, so a generated column reproduces the
@@ -440,4 +446,20 @@ CREATE TABLE IF NOT EXISTS password_resets (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   KEY idx_password_resets_account (account_role, account_id, created_at),
   UNIQUE KEY uq_password_resets_token (reset_token_hash)
+);
+
+-- addition: email confirmation at passenger sign-up (routes/auth.js). Same
+-- design as password_resets: one row per emailed 6-digit code, stored only
+-- as a bcrypt hash, dead after 5 wrong guesses, at expires_at, or when a
+-- newer code is sent (used_at).
+CREATE TABLE IF NOT EXISTS email_verifications (
+  verification_id INT AUTO_INCREMENT PRIMARY KEY,
+  commuter_id INT NOT NULL,
+  code_hash VARCHAR(255) NOT NULL,
+  attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  expires_at DATETIME NOT NULL,
+  used_at DATETIME NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_email_verifications_commuter (commuter_id, created_at),
+  FOREIGN KEY (commuter_id) REFERENCES commuters(commuter_id) ON DELETE CASCADE
 );

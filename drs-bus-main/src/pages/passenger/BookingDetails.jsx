@@ -5,6 +5,7 @@ import StatusBadge from "../../components/common/StatusBadge";
 import InlineAlert from "../../components/common/InlineAlert";
 import PaymentPanel from "../../components/passenger/PaymentPanel";
 import PaymentStatusCard from "../../components/passenger/PaymentStatusCard";
+import TicketQr from "../../components/passenger/TicketQr";
 import * as api from "../../lib/api";
 import { formatDate, formatTime, receiptNumber, bookingReference } from "../../lib/format";
 import { CATEGORY_LABELS, DISCOUNT_PERCENT } from "../../lib/discounts";
@@ -173,6 +174,16 @@ export default function BookingDetails() {
           <Field label="Trip status" value={booking.trip_status} />
           <Field label="Booked" value={`${formatDate(booking.booked_at)?.replace(/^\w+, /, "")} ${formatTime(booking.booked_at) ?? ""}`} />
         </div>
+
+        {/* e-ticket QR while the seat is still to be used */}
+        {holdsSeat && booking.status !== "Boarded" && !["Completed", "Cancelled"].includes(booking.trip_status) && (
+          <>
+            <div className="ticket-perforation" aria-hidden="true" />
+            <div className="p-5">
+              <TicketQr value={reference} />
+            </div>
+          </>
+        )}
       </div>
 
       <InlineAlert type="success" message={success} onDismiss={() => setSuccess("")} />

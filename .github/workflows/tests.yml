@@ -1,0 +1,57 @@
+# On every push / pull request:
+#   server   — the backend's own test suite (server/test, `npm test`) against
+#              a throwaway MySQL 8 + Redis, the same setup test/helpers.js
+#              expects locally.
+#   website  — lint, unit tests and a production build of drs-bus-main.
+# Turn on "Wait for CI" in each Railway service's settings so a red run
+# never deploys.
+name: Tests
+
+on: [push, pull_request]
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: root
+        ports: ["3306:3306"]
+        options: --health-cmd="mysqladmin ping -proot" --health-interval=5s --health-retries=20
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+    env:
+      TEST_MYSQL_ADMIN_URL: mysql://root:root@127.0.0.1:3306
+      TEST_REDIS_URL: redis://127.0.0.1:6379/15
+      GPS_TCP_PORT: "off"
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  website:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: drs-bus-main
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: drs-bus-main/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build

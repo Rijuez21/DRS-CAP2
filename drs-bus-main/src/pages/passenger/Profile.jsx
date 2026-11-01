@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { LogOut, Mail, Phone, Ticket, TicketCheck, CircleX, CalendarClock, Hand, ChevronRight, BadgePercent } from "lucide-react";
+import { LogOut, Mail, Phone, Ticket, TicketCheck, CircleX, CalendarClock, Hand, ChevronRight, BadgePercent, KeyRound } from "lucide-react";
 import StatsRow from "../../components/passenger/StatsRow";
 import { useAuth } from "../../context/AuthContext";
 import * as api from "../../lib/api";
@@ -48,7 +48,11 @@ export default function Profile() {
     api.getMyDiscount().then(setDiscount).catch(() => {});
   }, [user]);
 
-  const menu = [...SHORTCUTS, { to: "/passenger/discount", icon: BadgePercent, label: "Fare Discount", hint: discountHint(discount) }];
+  const menu = [
+    ...SHORTCUTS,
+    { to: "/passenger/discount", icon: BadgePercent, label: "Fare Discount", hint: discountHint(discount) },
+    { to: "/passenger/account", icon: KeyRound, label: "Account & Password", hint: "Edit your details, change your password" },
+  ];
 
   const stats = [
     { label: "Trips booked", value: loaded ? bookings.length : null, icon: Ticket },

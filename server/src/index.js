@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import { Server } from "socket.io";
 import "dotenv/config";
 
-import { pingDatabase } from "./db/pool.js";
+import { pool, pingDatabase } from "./db/pool.js";
 import { redis } from "./cache/redis.js";
 import { buildTripsRouter } from "./routes/trips.js";
 import { bookingsRouter, buildFlagRequestsRouter, attachBookingsIo } from "./routes/bookings.js";
@@ -17,6 +17,7 @@ import { buildTrackingRouter } from "./routes/tracking.js";
 import { driversRouter } from "./routes/drivers.js";
 import { staffRouter } from "./routes/staff.js";
 import { ownersRouter } from "./routes/owners.js";
+import { passengersRouter } from "./routes/passengers.js";
 import { notificationsRouter } from "./routes/notifications.js";
 import { dashboardRouter } from "./routes/dashboard.js";
 import { reportsRouter } from "./routes/reports.js";
@@ -25,6 +26,8 @@ import { buildDiscountsRouter } from "./routes/discounts.js";
 import { startPaymentSweeper } from "./services/paymentSweeper.js";
 import { gpsRouter } from "./routes/gps.js";
 import { startGpsGateway } from "./services/gpsGateway.js";
+import { startRetentionSweeper } from "./services/retentionSweeper.js";
+import { startDepartureReminders } from "./services/departureReminders.js";
 
 const app = express();
 const httpServer = createServer(app);
@@ -208,6 +211,7 @@ app.use("/api/tracking", buildTrackingRouter(io));
 app.use("/api/drivers", driversRouter);
 app.use("/api/staff", staffRouter);
 app.use("/api/owners", ownersRouter);
+app.use("/api/passengers", passengersRouter);
 app.use("/api/notifications", notificationsRouter);
 app.use("/api/dashboard", dashboardRouter);
 app.use("/api/reports", reportsRouter);
@@ -237,16 +241,44 @@ app.use("/api", (req, res) => res.status(404).json({ error: "Not found" }));
 
 // Online seat holds: releases unpaid seats past their payment deadline,
 // warns passengers first, alerts staff about proofs on trips leaving soon.
-startPaymentSweeper(io);
+const paymentSweeper = startPaymentSweeper(io);
+
+// Daily: deletes data past the retention periods the privacy policy promises.
+const retentionSweeper = startRetentionSweeper();
+
+// Reminds passengers about an hour before their bus leaves.
+const departureReminders = startDepartureReminders(io);
 
 // SinoTrack GPS tracker(s) connect straight to this TCP port (GPS_TCP_PORT,
 // default 5013) — see services/gpsGateway.js.
-startGpsGateway(io);
+const gpsServer = startGpsGateway(io);
 
 const port = process.env.PORT || 4000;
 httpServer.listen(port, () => {
   console.log(`DRS Bus backend (Express + Socket.io) listening on http://localhost:${port}`);
 });
 
-
-// ayaw mag push ampota
+// Railway sends SIGTERM before replacing the container on every redeploy.
+// Stop taking new work, let requests already running finish (a payment
+// being verified, say), then close the database and Redis. If something
+// hangs, exit anyway before Railway's own kill.
+let shuttingDown = false;
+function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`${signal} received — shutting down`);
+  setTimeout(() => process.exit(0), 10_000).unref();
+  clearInterval(paymentSweeper);
+  clearInterval(retentionSweeper);
+  clearInterval(departureReminders);
+  gpsServer?.close();
+  // httpServer first: its callback waits for running requests. io.close()
+  // then drops the live sockets (it also calls httpServer.close, harmlessly).
+  httpServer.close(async () => {
+    await Promise.allSettled([pool.end(), redis.quit()]);
+    process.exit(0);
+  });
+  io.close();
+}
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
