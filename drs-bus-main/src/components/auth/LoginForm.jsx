@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
 import { useAuth, AUTH_NOTICE_KEY } from "../../context/AuthContext";
 import * as api from "../../lib/api";
@@ -8,6 +8,7 @@ import { normalizePhMobile } from "../../lib/phone";
 import DiscountIdFields from "../passenger/DiscountIdFields";
 import ForgotPasswordForm from "./ForgotPasswordForm";
 import EmailCodeForm from "./EmailCodeForm";
+import PolicyModal from "./PolicyModal";
 
 // One style for every field on the login / sign-up form. Change it here.
 const INPUT_CLASS =
@@ -70,6 +71,7 @@ export default function LoginForm({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [policyTitle, setPolicyTitle] = useState(null); // open policy window, or null
   // Sign-up only: mobile number, password confirmation (never sent) and consent.
   const [phone, setPhone] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -323,22 +325,42 @@ export default function LoginForm({
             className="mt-0.5 w-4 h-4 shrink-0 accent-brand-green-600"
           />
           <span>
+            {" "}
             I agree to the{" "}
-            <Link to="/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-brand-green-600 font-medium underline underline-offset-2">
+             <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault(); // don't tick the checkbox just by opening the policy
+                setPolicyTitle("Terms of Use");
+              }}
+              className="text-brand-green-600 font-medium underline underline-offset-2"
+            >
               Terms of Use
-            </Link>{" "}
+            </button>{" "}
             and{" "}
-            <Link to="/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-brand-green-600 font-medium underline underline-offset-2">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                setPolicyTitle("Privacy Policy");
+              }}
+              className="text-brand-green-600 font-medium underline underline-offset-2"
+            >
               Privacy Policy
-            </Link>
+            </button>
           </span>
         </label>
       )}
 
-      {error && (
-        <p role="alert" className="text-sm text-rose-600 font-medium">
-          {error}
-        </p>
+      {policyTitle && (
+        <PolicyModal
+          title={policyTitle}
+          onClose={() => setPolicyTitle(null)}
+          onAgree={() => {
+            setAcceptedTerms(true);
+            setPolicyTitle(null);
+          }}
+        />
       )}
 
       <button

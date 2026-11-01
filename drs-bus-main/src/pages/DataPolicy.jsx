@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { ChevronLeft } from "lucide-react";
 
@@ -101,51 +102,52 @@ const SECTIONS = [
   },
 ];
 
+// The policy text on its own, so the sign-up form can show it in a window too.
+export function PolicyText() {
+  return (
+    <>
+      <p className="text-sm text-ink-600">Last updated: {LAST_UPDATED}</p>
+      <div className="mt-8 space-y-8">
+        {SECTIONS.map((section) => (
+          <section key={section.heading}>
+            <h2 className="font-display text-lg font-semibold text-brand-forest-900">{section.heading}</h2>
+            <p className="mt-2 text-sm leading-relaxed text-ink-600">{section.body}</p>
+            {section.items && (
+              <ul className="mt-2 list-disc pl-5 space-y-1.5 text-sm leading-relaxed text-ink-600">
+                {section.items.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            )}
+            {section.after && <p className="mt-2 text-sm leading-relaxed text-ink-600">{section.after}</p>}
+          </section>
+        ))}
+      </div>
+    </>
+  );
+}
+
 export default function PrivacyPolicy() {
+  // React Router keeps the old scroll position, so coming from the footer
+  // opened this page at the bottom. "instant" skips the smooth scrolling in index.css.
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  }, []);
+
   return (
     <div className="min-h-screen bg-surface text-ink-900">
       <header className="border-b border-slate-200">
         <div className="max-w-3xl mx-auto px-6 h-16 flex items-center">
-          <Link
-            to="/"
-            className="flex items-center gap-1 text-sm text-ink-600 hover:text-brand-green-600"
-          >
+          <Link to="/" className="flex items-center gap-1 text-sm text-ink-600 hover:text-brand-green-600">
             <ChevronLeft className="w-4 h-4" /> Back to home
           </Link>
         </div>
       </header>
 
       <main className="max-w-3xl mx-auto px-6 py-12">
-        <h1 className="font-display text-3xl font-bold text-brand-forest-900">
-          Privacy Policy
-        </h1>
-        <p className="mt-2 text-sm text-ink-600">
-          Last updated: {LAST_UPDATED}
-        </p>
-
-        <div className="mt-10 space-y-10">
-          {SECTIONS.map((section) => (
-            <section key={section.heading}>
-              <h2 className="font-display text-lg font-semibold text-brand-forest-900">
-                {section.heading}
-              </h2>
-              <p className="mt-2 text-sm leading-relaxed text-ink-600">
-                {section.body}
-              </p>
-              {section.items && (
-                <ul className="mt-2 list-disc pl-5 space-y-1.5 text-sm leading-relaxed text-ink-600">
-                  {section.items.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              )}
-              {section.after && (
-                <p className="mt-2 text-sm leading-relaxed text-ink-600">
-                  {section.after}
-                </p>
-              )}
-            </section>
-          ))}
+        <h1 className="font-display text-3xl font-bold text-brand-forest-900">Privacy Policy</h1>
+        <div className="mt-2">
+          <PolicyText />
         </div>
       </main>
     </div>

@@ -45,6 +45,19 @@
     outline: 2px solid var(--color-brand-green-600);
     outline-offset: 2px;
   }
+    /* iPhone browsers give date/time inputs a built-in minimum width and
+     ignore width: 100%, so they spill out of narrow cards. */
+  input[type="date"],
+  input[type="time"],
+  input[type="datetime-local"] {
+    min-width: 0;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  /* iOS centres the date text by default; keep it lined up with the other fields */
+  input::-webkit-date-and-time-value {
+    text-align: left;
+  }
 }
 
 @layer components {

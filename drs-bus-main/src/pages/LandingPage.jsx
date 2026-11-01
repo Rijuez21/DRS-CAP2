@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import useScrollReveal from "../hooks/useScrollReveal";
 import sunLogo from "../assets/logo-sun.svg";
+import ContactModal from "../components/landing/ContactModal";
 
 const stripeStyle = {
   background:
@@ -9,10 +10,11 @@ const stripeStyle = {
 };
 
 export default function LandingPage() {
-  useScrollReveal();
+  useScrollReveal()
+  const [contactOpen, setContactOpen] = useState(false);
 
   return (
-    <div className="bg-surface text-ink-900">
+    <>
       {/* NAV */}
       <header className="border-b border-slate-200">
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
@@ -26,7 +28,9 @@ export default function LandingPage() {
           <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-ink-600">
             <a href="#solution" className="hover:text-ink-900">Platform</a>
             <a href="#stack" className="hover:text-ink-900">Technology</a>
-            <a href="#" className="hover:text-ink-900">Docs</a>
+            <button type="button" onClick={() => setContactOpen(true)} className="hover:text-ink-900">
+              Contact
+            </button>
           </nav>
 
           <Link
@@ -271,14 +275,16 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto px-6 py-8 border-t border-white/10 flex flex-col sm:flex-row justify-between gap-4 text-sm text-white/60">
           <span>© 2026 D&apos; Rising Sun Transport. All rights reserved.</span>
           <div className="flex flex-wrap gap-6">
-            <a href="#" className="hover:text-white">Developer Docs</a>
             <Link to="/privacy-policy" className="hover:text-white">Privacy Statement</Link>
-            <a href="#" className="hover:text-white">Contact Sales</a>
+            <button type="button" onClick={() => setContactOpen(true)} className="hover:text-white">
+              Contact Us
+            </button>
           </div>
-
         </div>
       </footer>
-    </div>
+
+      {contactOpen && <ContactModal onClose={() => setContactOpen(false)} />}
+    </>
   );
 }
 
