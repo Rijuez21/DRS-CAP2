@@ -57,11 +57,12 @@ describe("forgot password", () => {
   });
 
   test("unknown email gets the same answer as a real one, and no code", async () => {
-    const [[{ before }]] = await db.query(`SELECT COUNT(*) AS before FROM password_resets`);
+    // (BEFORE is a reserved word in MySQL, so it can't be a bare alias.)
+    const [[{ n: before }]] = await db.query(`SELECT COUNT(*) AS n FROM password_resets`);
     const r = await api("POST", "/api/auth/forgot-password", { body: { email: "nobody-here@test.local", role: "passenger" } });
     assert.equal(r.status, 200);
     await sleep(300);
-    const [[{ after: count }]] = await db.query(`SELECT COUNT(*) AS after FROM password_resets`);
+    const [[{ n: count }]] = await db.query(`SELECT COUNT(*) AS n FROM password_resets`);
     assert.equal(count, before);
   });
 

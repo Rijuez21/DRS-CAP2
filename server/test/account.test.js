@@ -89,8 +89,9 @@ describe("change password", () => {
 
   test("works for staff too", async () => {
     const s = await createStaff("Desk Changer", "terminal_staff");
-    const r = await api("POST", "/api/auth/change-password", { token: s.token, body: { currentPassword: PASSWORD, newPassword: "Desk-pass-789" } });
-    assert.equal(r.status, 200);
+    // (Not "Desk-…": the policy refuses a password containing the first name.)
+    const r = await api("POST", "/api/auth/change-password", { token: s.token, body: { currentPassword: PASSWORD, newPassword: "Shift-pass-789" } });
+    assert.equal(r.status, 200, JSON.stringify(r.data));
   });
 });
 
