@@ -609,6 +609,7 @@ describe("15. refunds", () => {
 
     const c1 = await api("PATCH", `/api/bookings/${mine}/status`, { token: p.token, body: { status: "Cancelled" } });
     assert.equal(c1.status, 200);
+    assert.equal(c1.data.refunds_opened, 1, "the screen is told a refund was opened");
     const pay = (await paymentsFor(mine))[0];
     assert.equal(pay.status, "Refund Pending", "money for a cancelled seat is never left as a plain Verified payment");
     assert.equal(pay.refund_reason, "Passenger cancelled the booking");
@@ -629,6 +630,7 @@ describe("15. refunds", () => {
     const [unpaid] = await book(p, tripId, ["38"]);
     const c3 = await api("PATCH", `/api/bookings/${unpaid}/status`, { token: p.token, body: { status: "Cancelled" } });
     assert.equal(c3.status, 200);
+    assert.equal(c3.data.refunds_opened, 0);
     assert.equal((await paymentsFor(unpaid)).length, 0);
   });
 
@@ -640,9 +642,16 @@ describe("15. refunds", () => {
     await verify(staff.token, r.data.submission_id);
     const cancel = await api("PATCH", `/api/trips/${tripId}/status`, { token: admin.token, body: { status: "Cancelled" } });
     assert.equal(cancel.status, 200, JSON.stringify(cancel.data));
+    assert.equal(cancel.data.refunds_opened, 1);
     const pay = (await paymentsFor(bookingId))[0];
     assert.equal(pay.status, "Refund Pending");
     assert.equal(pay.refund_reason, "Trip cancelled by the operator");
+    // Told once the cancel went through, while the booking still counted.
+    const [[told]] = await db.query(
+      `SELECT COUNT(*) AS n FROM notifications WHERE recipient_type = 'passenger' AND recipient_id = ? AND type = 'trip_cancelled'`,
+      [p.id]
+    );
+    assert.equal(Number(told.n), 1, "the passenger hears the trip was cancelled");
   });
 });
 

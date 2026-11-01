@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ShieldCheck, Plus, Pencil, Trash2, UserRound, Bus, Phone, IdCard, Briefcase } from "lucide-react";
 import * as api from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
+import { useConfirm } from "../../hooks/useConfirm";
 import { useListState, useViewPreference } from "../../hooks/useListState";
 import CardGrid from "../../components/common/CardGrid";
 import DataTable from "../../components/common/DataTable";
@@ -72,6 +73,7 @@ export default function AdminUserManagement() {
   const [editing, setEditing] = useState(null); // null | 'new' | user row
   const [form, setForm] = useState(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
+  const [confirm, confirmDialog] = useConfirm();
   const [view, setView] = useViewPreference("drs:view:users", "cards");
   const list = useListState(LIST_OPTIONS); // shared by both views, so switching keeps search/filters
 
@@ -173,7 +175,8 @@ export default function AdminUserManagement() {
       setError("You can't delete your own account while signed in as it.");
       return;
     }
-    if (!window.confirm(`Remove ${u.name}'s account? This can't be undone.`)) return;
+    const ok = await confirm({ title: `Remove ${u.name}'s account?`, body: "They won't be able to sign in. This can't be undone.", confirmLabel: "Remove account" });
+    if (!ok) return;
     try {
       await ({ driver: api.deleteDriver, owner: api.deleteOwner }[u.kind] ?? api.deleteStaff)(u.id);
       setSuccess(`${u.name}'s account was removed.`);
@@ -444,6 +447,7 @@ export default function AdminUserManagement() {
           </form>
         </Modal>
       )}
+      {confirmDialog}
     </div>
   );
 }

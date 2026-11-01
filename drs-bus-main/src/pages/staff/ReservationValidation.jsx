@@ -9,6 +9,7 @@ import { Spinner } from "../../components/common/Buttons";
 import PageHeading from "../../components/common/PageHeading";
 import CashPaymentModal from "../../components/staff/CashPaymentModal";
 import { useListState } from "../../hooks/useListState";
+import { useConfirm } from "../../hooks/useConfirm";
 import * as api from "../../lib/api";
 import { formatDate, formatPeso, formatTime } from "../../lib/format";
 import { CATEGORY_LABELS, DISCOUNT_PERCENT } from "../../lib/discounts";
@@ -72,6 +73,7 @@ export default function ReservationValidation() {
   const [collecting, setCollecting] = useState(false); // cash payment dialog open
   const [collectError, setCollectError] = useState("");
   const [isCollecting, setIsCollecting] = useState(false);
+  const [confirm, confirmDialog] = useConfirm();
   const searchRef = useRef(null);
 
   // Peak-End: after finishing with one passenger, one tap starts the next.
@@ -133,11 +135,13 @@ export default function ReservationValidation() {
     setSuccess("");
     setBusyTo(to);
     try {
-      await api.updateBookingStatus(selected.booking_id, to);
+      const result = await api.updateBookingStatus(selected.booking_id, to);
       const updated = { ...selected, status: to };
       setSelected(updated);
       setResults((prev) => prev?.map((r) => (r.booking_id === updated.booking_id ? updated : r)) ?? prev);
-      setSuccess(DONE_MESSAGE[to] ?? `Marked ${to}.`);
+      setSuccess(
+        `${DONE_MESSAGE[to] ?? `Marked ${to}.`}${result?.refunds_opened > 0 ? " It was paid online, so a refund was opened for an administrator to send." : ""}`
+      );
     } catch (err) {
       setError(err.message);
     } finally {
@@ -177,7 +181,7 @@ export default function ReservationValidation() {
 
   const primary = actions.filter((a) => a.tone !== "danger");
   const danger = actions.filter((a) => a.tone === "danger");
-  function runAction(a) {
+  async function runAction(a) {
     if (a.payment) {
       setCollectError("");
       setCollecting(true);
@@ -186,7 +190,19 @@ export default function ReservationValidation() {
     const paidOnline = paymentInfo?.payment?.status === "Verified";
     if (
       a.to === "Cancelled" &&
-      !window.confirm(`Cancel booking #${selected.booking_id}? The seat will be released.${paidOnline ? " It was paid online, so a refund is opened for an administrator to send." : ""}`)
+      !(await confirm({
+        title: `Cancel booking #${selected.booking_id}?`,
+        body: (
+          <>
+            <p className="text-ink-900">
+              {selected.passenger_name} · Seat {selected.seat_number} · {selected.origin} → {selected.destination}
+            </p>
+            <p>The seat will be released.{paidOnline ? " It was paid online, so a refund is opened for an administrator to send." : ""}</p>
+          </>
+        ),
+        confirmLabel: "Cancel booking",
+        cancelLabel: "Keep booking",
+      }))
     ) {
       return;
     }
@@ -381,6 +397,7 @@ export default function ReservationValidation() {
           onClose={() => setCollecting(false)}
         />
       )}
+      {confirmDialog}
     </div>
   );
 }
@@ -416,7 +433,7 @@ function OnlinePaymentStatus({ info }) {
   if (p.status === "Refund Pending" || p.status === "Refunded") {
     return (
       <p className={`${box} bg-sky-50 text-sky-800`}>
-        Online payment {p.status === "Refunded" ? "refunded" : "being refunded"} ({ref}){p.refund_reason ? `: ${p.refund_reason}` : ""}.
+        Online payment {p.status === "Refunded" ? "refunded" : "being refunded"} ({ref}){p.refund_reason ? `: ${p.refund_reason.replace(/[.\s]+$/, "")}` : ""}.
       </p>
     );
   }

@@ -6,6 +6,7 @@ import InlineAlert from "../../components/common/InlineAlert";
 import ReceiptImage from "../../components/payments/ReceiptImage";
 import Modal from "../../components/admin/Modal";
 import * as api from "../../lib/api";
+import { useConfirm } from "../../hooks/useConfirm";
 import { formatDate, formatDateTime } from "../../lib/format";
 import { CATEGORY_LABELS, DISCOUNT_PERCENT } from "../../lib/discounts";
 
@@ -25,6 +26,7 @@ export default function DiscountReview() {
   const [rejecting, setRejecting] = useState(null); // the row being rejected
   const [reason, setReason] = useState("");
   const [zoomUrl, setZoomUrl] = useState(null);
+  const [confirm, confirmDialog] = useConfirm();
 
   const load = useCallback(() => {
     return api
@@ -42,7 +44,13 @@ export default function DiscountReview() {
 
   async function approve(row) {
     const validity = row.category === "student" ? " It will be valid for one year." : "";
-    if (!window.confirm(`Approve ${row.passenger_name}'s ${CATEGORY_LABELS[row.category]} ID?${validity}`)) return;
+    const ok = await confirm({
+      title: `Approve ${row.passenger_name}'s ${CATEGORY_LABELS[row.category]} ID?`,
+      body: `They'll get ${DISCOUNT_PERCENT}% off their fares.${validity}`,
+      confirmLabel: "Approve",
+      tone: "primary",
+    });
+    if (!ok) return;
     setBusyId(row.application_id);
     setError("");
     try {
@@ -225,6 +233,7 @@ export default function DiscountReview() {
           <img src={zoomUrl} alt="ID photo, full size" className="w-full rounded-xl" />
         </Modal>
       )}
+      {confirmDialog}
     </div>
   );
 }

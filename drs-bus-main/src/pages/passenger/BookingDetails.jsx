@@ -56,18 +56,18 @@ export default function BookingDetails() {
   // Asked in an in-app dialog (rendered below), not window.confirm().
   async function handleCancel() {
     const flagged = booking.channel === "flagged";
-    const paidOnline = paymentInfo?.payment?.status === "Verified";
     setActionError("");
     setIsCancelling(true);
     try {
-      await api.updateBookingStatus(bookingId, "Cancelled");
+      const result = await api.updateBookingStatus(bookingId, "Cancelled");
       setBooking((prev) => ({ ...prev, status: "Cancelled" }));
       api.getBookingPayment(bookingId).then(setPaymentInfo).catch(() => {});
+      // The server says whether it opened a refund (it does for a verified payment).
       setSuccess(
         flagged
           ? "Ride cancelled. The driver has been told."
-          : paidOnline
-            ? "Booking cancelled and a refund requested. You'll be notified when it's sent."
+          : result?.refunds_opened > 0
+            ? "Booking cancelled. A refund has been requested — you'll be notified when it's sent."
             : "Booking cancelled. Your seat has been released."
       );
     } catch (err) {

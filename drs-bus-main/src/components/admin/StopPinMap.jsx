@@ -6,6 +6,7 @@ import "../../lib/leafletDefaultIcon"; // makes the default pin marker load (see
 import Modal from "./Modal";
 import InlineAlert from "../common/InlineAlert";
 import { useGeolocation } from "../../hooks/useGeolocation";
+import { useConfirm } from "../../hooks/useConfirm";
 import * as api from "../../lib/api";
 import { distanceKm, formatDistance } from "../../lib/geo";
 import { keepMapSized } from "../../lib/leafletAutoResize";
@@ -58,6 +59,7 @@ export default function StopPinMap({ route, allRoutes, onSaved, onClose }) {
   const [wantGps, setWantGps] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
+  const [confirm, confirmDialog] = useConfirm(); // opens over this dialog; Escape closes only it
 
   const { status: gpsStatus, position, request: requestGps } = useGeolocation();
 
@@ -189,7 +191,12 @@ export default function StopPinMap({ route, allRoutes, onSaved, onClose }) {
   }
 
   async function handleClear() {
-    if (!window.confirm(`Remove the map pin for ${route.destination}? It will stop showing on the tracking maps.`)) return;
+    const ok = await confirm({
+      title: `Remove the map pin for ${route.destination}?`,
+      body: "It will stop showing on the tracking maps.",
+      confirmLabel: "Remove pin",
+    });
+    if (!ok) return;
     setIsSaving(true);
     setError("");
     try {
@@ -323,6 +330,7 @@ export default function StopPinMap({ route, allRoutes, onSaved, onClose }) {
           <MapPin className="w-3.5 h-3.5" /> Nearest other pinned stop: {nearest.stop.name}, {formatDistance(nearest.km)} away (straight line).
         </p>
       )}
+      {confirmDialog}
     </Modal>
   );
 }

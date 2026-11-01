@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Route as RouteIcon, Plus, Pencil, Power, MapPin, Navigation, ChevronRight } from "lucide-react";
 import * as api from "../../lib/api";
+import { useConfirm } from "../../hooks/useConfirm";
 import ListFrame from "../../components/common/ListFrame";
 import SectionGroup from "../../components/common/SectionGroup";
 import { groupBy } from "../../lib/groupBy";
@@ -61,6 +62,7 @@ export default function AdminRouteManagement() {
   const [pinning, setPinning] = useState(null); // route whose pin dialog is open
   const [statusView, setStatusView] = useState("active"); // "active" | "inactive" | "all"
   const [expandedIds, setExpandedIds] = useState(() => new Set()); // rows opened into cards
+  const [confirm, confirmDialog] = useConfirm();
 
   function load() {
     api.getAdminRoutes().then(setRoutes).catch((err) => setError(err.message)).finally(() => setIsLoading(false));
@@ -150,7 +152,14 @@ export default function AdminRouteManagement() {
   async function toggleActive(route) {
     setError("");
     setSuccess("");
-    if (!window.confirm(`${route.is_active ? "Deactivate" : "Reactivate"} ${route.origin} → ${route.destination}?`)) return;
+    const verb = route.is_active ? "Deactivate" : "Reactivate";
+    const ok = await confirm({
+      title: `${verb} ${route.origin} → ${route.destination}?`,
+      body: route.is_active ? "Passengers won't see it in trip search until it's reactivated." : "Passengers will see it in trip search again.",
+      confirmLabel: `${verb} route`,
+      tone: route.is_active ? "danger" : "primary",
+    });
+    if (!ok) return;
     try {
       await api.setRouteActive(route.route_id, !route.is_active);
       setSuccess(`Route ${route.is_active ? "deactivated" : "reactivated"}.`);
@@ -360,6 +369,7 @@ export default function AdminRouteManagement() {
           </form>
         </Modal>
       )}
+      {confirmDialog}
     </div>
   );
 }

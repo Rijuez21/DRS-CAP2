@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Users, Plus, Pencil, Trash2, Phone, Mail, IdCard } from "lucide-react";
 import * as api from "../../lib/api";
+import { useConfirm } from "../../hooks/useConfirm";
 import CardGrid from "../../components/common/CardGrid";
 import PageHeading from "../../components/common/PageHeading";
 import OverflowMenu from "../../components/common/OverflowMenu";
@@ -30,6 +31,7 @@ export default function AdminDriverManagement() {
   const [editing, setEditing] = useState(null); // null | 'new' | driver object
   const [form, setForm] = useState(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
+  const [confirm, confirmDialog] = useConfirm();
 
   function load() {
     api.getDrivers().then(setDrivers).catch((err) => setError(err.message)).finally(() => setIsLoading(false));
@@ -82,7 +84,8 @@ export default function AdminDriverManagement() {
   async function handleDelete(driver) {
     setError("");
     setSuccess("");
-    if (!window.confirm(`Remove ${driver.name}? This can't be undone.`)) return;
+    const ok = await confirm({ title: `Remove ${driver.name}?`, body: "Their driver account is removed. This can't be undone.", confirmLabel: "Remove driver" });
+    if (!ok) return;
     try {
       await api.deleteDriver(driver.driver_id);
       setSuccess(`${driver.name} was removed.`);
@@ -205,6 +208,7 @@ export default function AdminDriverManagement() {
           </form>
         </Modal>
       )}
+      {confirmDialog}
     </div>
   );
 }

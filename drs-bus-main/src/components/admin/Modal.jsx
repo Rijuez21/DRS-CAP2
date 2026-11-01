@@ -11,15 +11,20 @@ import { X } from "lucide-react";
 export default function Modal({ title, onClose, children, footer, size = "md" }) {
   const titleId = useId();
   const bodyRef = useRef(null);
+  const panelRef = useRef(null);
 
   // Start typing straight away: focus the first field when the dialog opens.
   useEffect(() => {
     bodyRef.current?.querySelector("input:not([type=hidden]):not(:disabled), select:not(:disabled), textarea:not(:disabled)")?.focus();
   }, []);
 
+  // Escape closes only the dialog on top (the last one in the page): a
+  // ConfirmDialog opened over the pin map shouldn't close both.
   useEffect(() => {
     function onKey(e) {
-      if (e.key === "Escape") onClose?.();
+      if (e.key !== "Escape") return;
+      const open = document.querySelectorAll('[role="dialog"]');
+      if (open[open.length - 1] === panelRef.current) onClose?.();
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -28,6 +33,7 @@ export default function Modal({ title, onClose, children, footer, size = "md" })
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

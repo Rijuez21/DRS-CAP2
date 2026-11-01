@@ -1549,7 +1549,7 @@ export function buildPaymentsRouter(io) {
           notifyRecipient(
             io,
             { type: "passenger", id: booking.passenger_id },
-            `A refund of ${formatPesoCentavos(toCentavos(payment.amount))} for booking #${booking.booking_id} (${bookingReference(booking.booking_id, booking.booked_at)}) has been requested: ${reason}.${holdsSeat ? " The booking has been cancelled." : ""} You'll be notified when it's sent.`,
+            `A refund of ${formatPesoCentavos(toCentavos(payment.amount))} for booking #${booking.booking_id} (${bookingReference(booking.booking_id, booking.booked_at)}) has been requested: ${reason.replace(/[.\s]+$/, "")}.${holdsSeat ? " The booking has been cancelled." : ""} You'll be notified when it's sent.`,
             "payment_refund"
           ),
       };

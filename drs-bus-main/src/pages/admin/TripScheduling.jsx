@@ -11,6 +11,7 @@ import Modal from "../../components/admin/Modal";
 import StatusBadge from "../../components/common/StatusBadge";
 import SectionGroup from "../../components/common/SectionGroup";
 import { useAuth } from "../../context/AuthContext";
+import { useConfirm } from "../../hooks/useConfirm";
 import { formatDate, formatTime } from "../../lib/format";
 
 const emptyForm = { busId: "", driverId: "", routeId: "", departureTime: "", arrivalTime: "" };
@@ -96,6 +97,7 @@ export default function AdminTripScheduling() {
   const [editingId, setEditingId] = useState(null); // null = scheduling a new trip
   const [showPast, setShowPast] = useState(false);
   const [busyTripId, setBusyTripId] = useState(null);
+  const [confirm, confirmDialog] = useConfirm();
 
   function load() {
     Promise.all([api.getTrips(), api.getBuses(), api.getDrivers(), api.getAdminRoutes()])
@@ -123,14 +125,35 @@ export default function AdminTripScheduling() {
   // and notifies those passengers — the confirm says so.
   async function handleCancelTrip(t) {
     const booked = Number(t.booked_count ?? 0);
-    const msg = `Cancel ${t.origin} → ${t.destination} on ${formatDate(t.departure_time)} ${formatTime(t.departure_time)}?` +
-      (booked > 0 ? `\n\n${booked} booked passenger${booked === 1 ? "" : "s"} will have their booking cancelled and be notified.` : "");
-    if (!window.confirm(msg)) return;
+    const ok = await confirm({
+      title: "Cancel this trip?",
+      body: (
+        <>
+          <p className="text-ink-900">
+            {t.origin} → {t.destination} · {formatDate(t.departure_time)} {formatTime(t.departure_time)}
+          </p>
+          {booked > 0 && (
+            <p>
+              {booked} booked passenger{booked === 1 ? "" : "s"} will have their booking cancelled and be notified. Seats already paid online get a
+              refund opened for you to send.
+            </p>
+          )}
+          <p>This can&apos;t be undone.</p>
+        </>
+      ),
+      confirmLabel: "Cancel trip",
+      cancelLabel: "Keep trip",
+    });
+    if (!ok) return;
     setBusyTripId(t.trip_id);
     setError("");
     try {
-      await api.updateTripStatus(t.trip_id, "Cancelled");
-      setSuccess(booked > 0 ? `Trip cancelled. ${booked} passenger${booked === 1 ? " was" : "s were"} notified.` : "Trip cancelled.");
+      const result = await api.updateTripStatus(t.trip_id, "Cancelled");
+      const refunds = result?.refunds_opened ?? 0;
+      setSuccess(
+        (booked > 0 ? `Trip cancelled. ${booked} passenger${booked === 1 ? " was" : "s were"} notified.` : "Trip cancelled.") +
+          (refunds > 0 ? ` ${refunds} online payment${refunds === 1 ? "" : "s"} now need${refunds === 1 ? "s" : ""} a refund (Payment Verification).` : "")
+      );
       load();
     } catch (err) {
       setError(err.message);
@@ -348,6 +371,7 @@ export default function AdminTripScheduling() {
           </form>
         </Modal>
       )}
+      {confirmDialog}
     </div>
   );
 }

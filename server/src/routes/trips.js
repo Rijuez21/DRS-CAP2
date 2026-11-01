@@ -454,20 +454,21 @@ export function buildTripsRouter(io) {
       const refusal = whyTripStatusChangeNotAllowed({ user: req.user, trip, next, otherActiveTrip });
       if (refusal) return res.status(409).json({ error: refusal });
 
-      if (next === "Cancelled") {
-        await notifyTripChange(io, trip.trip_id, "Your trip has been cancelled. Your booking has been cancelled too — please book another trip.", "trip_cancelled");
-      }
-
       const [result] = await pool.query(
         `UPDATE trips SET status = ?, completed_at = IF(? = 'Completed', NOW(), completed_at) WHERE trip_id = ? AND status = ?`,
         [next, next, trip.trip_id, trip.status]
       );
       if (result.affectedRows === 0) return res.status(409).json({ error: "This trip was just updated by someone else — refresh and try again" });
 
+      let refundsOpened = 0;
       if (next === "Cancelled") {
+        // Told only once the cancel has gone through (before, a cancel that
+        // lost a race still told everyone), but before their bookings are
+        // cancelled: notifyTripChange reaches the passengers still booked.
+        await notifyTripChange(io, trip.trip_id, "Your trip has been cancelled. Your booking has been cancelled too — please book another trip.", "trip_cancelled");
         await pool.query(`UPDATE bookings SET status = 'Cancelled' WHERE trip_id = ? AND status IN ('Reserved', 'Confirmed')`, [trip.trip_id]);
         // Seats paid online are owed back: Verified -> Refund Pending (audited).
-        await openRefundsForCancelledTrip(io, trip.trip_id, req.user);
+        refundsOpened = await openRefundsForCancelledTrip(io, trip.trip_id, req.user);
       } else if (next === "Completed") {
         await pool.query(`UPDATE bookings SET status = 'No-Show' WHERE trip_id = ? AND status IN ('Reserved', 'Confirmed')`, [trip.trip_id]);
       }
@@ -476,7 +477,7 @@ export function buildTripsRouter(io) {
         await logAudit({ staffId: req.user.id, action: "update", entityType: "trip", entityId: trip.trip_id, details: { status: next } });
       }
 
-      res.json({ trip_id: trip.trip_id, status: next });
+      res.json({ trip_id: trip.trip_id, status: next, refunds_opened: refundsOpened });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: "Failed to update trip status" });

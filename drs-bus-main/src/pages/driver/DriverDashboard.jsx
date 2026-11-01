@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { WifiOff, Satellite, MapPinOff, LocateFixed } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
+import { useConfirm } from "../../hooks/useConfirm";
 import { useDriverLocation } from "../../hooks/useDriverLocation";
 import { useBusTracker } from "../../hooks/useBusTracker";
 import FlagRequestsPanel from "../../components/driver/FlagRequestsPanel";
@@ -25,6 +26,7 @@ export default function DriverDashboard() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [updatingId, setUpdatingId] = useState(null);
+  const [confirm, confirmDialog] = useConfirm();
 
   const reload = useCallback(() => {
     if (!user) return;
@@ -48,9 +50,13 @@ export default function DriverDashboard() {
     const next = NEXT[trip.status];
     if (!next) return;
     if (next.to === "Completed") {
-      const ok = window.confirm(
-        "Complete this trip? Passengers who haven't been marked Boarded will be recorded as No-Show, and location sharing stops."
-      );
+      const ok = await confirm({
+        title: "Complete this trip?",
+        body: "Passengers who haven't been marked Boarded will be recorded as No-Show, and location sharing stops.",
+        confirmLabel: "Complete trip",
+        cancelLabel: "Not yet",
+        tone: "primary",
+      });
       if (!ok) return;
     }
     setError("");
@@ -111,6 +117,7 @@ export default function DriverDashboard() {
           {past.length > 0 && <TripGroup title="Recently completed" trips={past} muted />}
         </>
       )}
+      {confirmDialog}
     </div>
   );
 }

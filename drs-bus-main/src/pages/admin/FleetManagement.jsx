@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Bus, MapPin, Plus, Pencil, Trash2, UserRound, Satellite, Armchair, MapPinned } from "lucide-react";
 import * as api from "../../lib/api";
+import { useConfirm } from "../../hooks/useConfirm";
 import { useListState, useViewPreference } from "../../hooks/useListState";
 import DataTable from "../../components/common/DataTable";
 import CardGrid from "../../components/common/CardGrid";
@@ -66,6 +67,7 @@ export default function AdminFleetManagement() {
   const [layout, setLayout] = useState(null);
   const [initialLayout, setInitialLayout] = useState(null);
   const [formError, setFormError] = useState(null); // string or node, shown inside the dialog
+  const [confirm, confirmDialog] = useConfirm();
   const [view, setView] = useViewPreference("drs:view:fleet", "cards");
   const list = useListState(LIST_OPTIONS); // shared by both views
 
@@ -179,7 +181,8 @@ export default function AdminFleetManagement() {
   async function handleDelete(bus) {
     setError("");
     setSuccess("");
-    if (!window.confirm(`Remove bus ${bus.bus_number ?? bus.plate_num}? This can't be undone.`)) return;
+    const ok = await confirm({ title: `Remove bus ${bus.bus_number ?? bus.plate_num}?`, body: "This can't be undone.", confirmLabel: "Remove bus" });
+    if (!ok) return;
     try {
       await api.deleteBus(bus.bus_id);
       setSuccess("Bus removed.");
@@ -381,6 +384,7 @@ export default function AdminFleetManagement() {
           </form>
         </Modal>
       )}
+      {confirmDialog}
     </div>
   );
 }

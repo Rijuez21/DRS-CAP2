@@ -240,7 +240,7 @@ export function buildDiscountsRouter(io) {
     await notifyRecipient(
       io,
       { type: "passenger", id: app.commuter_id },
-      `Your ${CATEGORY_LABELS[app.category]} ID couldn't be verified: ${reason}. You can send a new photo from your profile.`,
+      `Your ${CATEGORY_LABELS[app.category]} ID couldn't be verified: ${reason.replace(/[.\s]+$/, "")}. You can send a new photo from your profile.`,
       "discount_rejected"
     );
     res.json({ application_id: app.application_id, status: "Rejected" });

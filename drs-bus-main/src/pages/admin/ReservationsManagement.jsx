@@ -10,6 +10,7 @@ import PageHeading from "../../components/common/PageHeading";
 import InlineAlert from "../../components/common/InlineAlert";
 import StatusBadge from "../../components/common/StatusBadge";
 import { useListState } from "../../hooks/useListState";
+import { useConfirm } from "../../hooks/useConfirm";
 import { formatDate, formatDateTime, formatTime } from "../../lib/format";
 
 const STATUS_OPTIONS = ["Reserved", "Confirmed", "Boarded", "Cancelled", "No-Show"];
@@ -41,6 +42,7 @@ export default function AdminReservationsManagement() {
   const [loadedKey, setLoadedKey] = useState(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [confirm, confirmDialog] = useConfirm();
   const filterKey = `${status}|${channel}`;
   const isLoading = loadedKey !== filterKey;
 
@@ -63,10 +65,29 @@ export default function AdminReservationsManagement() {
   useEffect(load, [status, channel]);
 
   async function handleCancel(booking) {
-    if (!window.confirm(`Cancel booking #${booking.booking_id} (${booking.passenger_name})?`)) return;
+    const ok = await confirm({
+      title: `Cancel booking #${booking.booking_id}?`,
+      body: (
+        <>
+          <p className="text-ink-900">
+            {booking.passenger_name} · Seat {booking.seat_number} · {routeLabel(booking)}
+          </p>
+          <p>
+            The seat will be released and this can&apos;t be undone.
+            {booking.channel === "online" ? " If it was already paid online, a refund is opened for you to send." : ""}
+          </p>
+        </>
+      ),
+      confirmLabel: "Cancel booking",
+      cancelLabel: "Keep booking",
+    });
+    if (!ok) return;
     try {
-      await api.updateBookingStatus(booking.booking_id, "Cancelled");
-      setSuccess(`Booking #${booking.booking_id} (${booking.passenger_name}, seat ${booking.seat_number}) was cancelled — the seat is free again.`);
+      const result = await api.updateBookingStatus(booking.booking_id, "Cancelled");
+      setSuccess(
+        `Booking #${booking.booking_id} (${booking.passenger_name}, seat ${booking.seat_number}) was cancelled — the seat is free again.` +
+          (result?.refunds_opened > 0 ? " It was paid online, so a refund is waiting in Payment Verification." : "")
+      );
       load();
     } catch (err) {
       setError(err.message);
@@ -153,6 +174,7 @@ export default function AdminReservationsManagement() {
           </div>
         )}
       </ListFrame>
+      {confirmDialog}
     </div>
   );
 }

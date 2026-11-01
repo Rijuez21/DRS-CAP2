@@ -458,8 +458,10 @@ bookingsRouter.patch("/:id/status", authenticate, async (req, res) => {
     // A seat that was already paid online: the money is owed back, so open
     // the refund (before, the payment stayed Verified on a cancelled booking
     // and nobody was told). The cancel itself has committed either way.
+    // The count goes back so the screen can say a refund was opened.
+    let refundsOpened = 0;
     if (next === "Cancelled") {
-      await openRefundsForCancelledBooking(bookingsIo, booking.booking_id, req.user).catch(() => {});
+      refundsOpened = await openRefundsForCancelledBooking(bookingsIo, booking.booking_id, req.user).catch(() => 0);
     }
 
     // A flagged ride cancelled from BookingDetails: close its flag too and
@@ -477,7 +479,7 @@ bookingsRouter.patch("/:id/status", authenticate, async (req, res) => {
       }
     }
 
-    res.json({ booking_id: booking.booking_id, status: next });
+    res.json({ booking_id: booking.booking_id, status: next, refunds_opened: refundsOpened });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to update booking" });
@@ -904,7 +906,7 @@ export function buildFlagRequestsRouter(io) {
 
       const flag = await loadFlag(req.params.id);
       emitFlagUpdate(io, flag);
-      await notifyRecipient(io, { type: "passenger", id: flag.passenger_id }, `Bus ${flag.plate_num} can't stop for you: ${reason}.`, "flag_declined");
+      await notifyRecipient(io, { type: "passenger", id: flag.passenger_id }, `Bus ${flag.plate_num} can't stop for you: ${reason.replace(/[.\s]+$/, "")}.`, "flag_declined");
       res.json(flag);
     } catch (err) {
       console.error(err);
