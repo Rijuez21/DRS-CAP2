@@ -1,357 +1,430 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { Armchair, ChevronDown, Fan, MapPinned, Navigation, Radio, ShieldCheck, Ticket, Wind, WifiOff, CloudUpload } from "lucide-react";
 import useScrollReveal from "../hooks/useScrollReveal";
-import sunLogo from "../assets/logo-sun.svg";
-import ContactModal from "../components/landing/ContactModal";
+import * as api from "../lib/api";
+import { formatPeso } from "../lib/format";
+import { DISCOUNT_PERCENT } from "../lib/discounts";
+import SiteChrome from "../components/landing/SiteChrome";
+import LandingSearch from "../components/landing/LandingSearch";
+import RouteLine from "../components/landing/RouteLine";
+import Shot from "../components/landing/Shot";
 
-const stripeStyle = {
-  background:
-    "repeating-linear-gradient(135deg, #E9EBE4 0px, #E9EBE4 10px, #DFE2D9 10px, #DFE2D9 20px)",
+import heroPhone from "../assets/hero-phone.png";
+import trackingMap from "../assets/tracking-map.png";
+import busOrdinary from "../assets/bus-ordinary.jpg";
+import busAircon from "../assets/bus-aircon.jpg";
+import rolePassengers from "../assets/role-passengers.png";
+import roleStaff from "../assets/role-staff.png";
+import roleAdmins from "../assets/role-admins.png";
+
+// // ── Pictures ───────────────────────────────────────────────────────────────
+const SHOTS = {
+  heroPhone: heroPhone,
+  trackingMap: trackingMap,
+  busOrdinary: busOrdinary,
+  busAircon: busAircon,
+  rolePassengers: rolePassengers,
+  roleStaff: roleStaff,
+  roleAdmins: roleAdmins,
 };
 
+// ── Popular routes ─────────────────────────────────────────────────────────
+// `stop` must match a destination in Route Management (case doesn't matter).
+// Fares and distance come live from the fare table; a card whose stop isn't
+// found is left out. `hours` is the usual travel time — leave null to show an
+// estimate from the distance (AVERAGE_KMH, mountain-road speed).
+const POPULAR = [
+  { stop: "BONTOC", name: "Bontoc", province: "Mountain Province", hours: null },
+  { stop: "SAGADA", name: "Sagada", province: "Mountain Province", hours: null },
+  { stop: "BAGUINGEY", name: "Baguinge", province: "Benguet", hours: null },
+  { stop: "TABUK", name: "Tabuk", province: "Kalinga", hours: null },
+];
+const AVERAGE_KMH = 28;
+// Grid width follows how many cards were found, so there's never an empty slot.
+const COLS = { 1: "lg:grid-cols-2", 2: "lg:grid-cols-2", 3: "lg:grid-cols-3", 4: "lg:grid-cols-4" };
+
 export default function LandingPage() {
-  useScrollReveal()
-  const [contactOpen, setContactOpen] = useState(false);
+  useScrollReveal();
+  const [routes, setRoutes] = useState([]);
+  const [routesLoaded, setRoutesLoaded] = useState(false);
+
+  useEffect(() => {
+    // Public endpoint: the same fare table the passenger app uses.
+    api
+      .getRoutes()
+      .then(setRoutes)
+      .catch(() => setRoutes([]))
+      .finally(() => setRoutesLoaded(true));
+  }, []);
 
   return (
-    <>
-      {/* NAV */}
-      <header className="border-b border-slate-200">
-        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-          <span className="flex items-center gap-2">
-            <img src={sunLogo} alt="D' Rising Sun logo" className="w-7 h-7" />
-            <span className="font-landing font-bold text-xl tracking-tight text-brand-forest-900">
-              D&apos; Rising Sun
-            </span>
-          </span>
-
-          <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-ink-600">
-            <a href="#solution" className="hover:text-ink-900">Platform</a>
-            <a href="#stack" className="hover:text-ink-900">Technology</a>
-            <button type="button" onClick={() => setContactOpen(true)} className="hover:text-ink-900">
-              Contact
-            </button>
-          </nav>
-
-          <Link
-            to="/login/passenger"
-            className="inline-flex items-center px-4 py-2 rounded text-sm font-semibold text-white bg-brand-green-600 hover:bg-brand-green-500 transition-colors"
-          >
-            Get Started
-          </Link>
-        </div>
-      </header>
-
-      {/* 1. HERO — text reveals first, then mobile mockup, then desktop mockup */}
-      <section className="max-w-6xl mx-auto px-6 pt-16 pb-20 grid md:grid-cols-2 gap-12 items-center">
-        <div data-reveal>
-          <h1 className="font-landing font-bold text-4xl sm:text-5xl leading-[1.1] tracking-tight text-brand-forest-900">
-            Smart transit for rugged terrains.
-          </h1>
-          <p className="mt-6 text-lg leading-relaxed max-w-md text-ink-600">
-            D&apos; Rising Sun Transport is bringing order to travel across
-            the Cordillera — real-time booking, live GIS tracking, and
-            offline-proof telemetry, built for our routes through mountain
-            terrain and dead zones.
-          </p>
-          <div className="mt-8 flex flex-wrap gap-3">
-            <Link
-              to="/login/passenger"
-              className="inline-flex items-center px-5 py-3 rounded text-sm font-semibold text-white bg-brand-green-600 hover:bg-brand-green-500 transition-colors"
-            >
-              Get Started
-            </Link>
-            <a
-              href="#solution"
-              className="inline-flex items-center px-5 py-3 rounded text-sm font-semibold border border-slate-200 text-ink-900"
-            >
-              See the platform
-            </a>
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-4">
-          <div
-            data-reveal="1"
-            style={stripeStyle}
-            className="rounded border border-slate-200 aspect-9/16 max-w-55 mx-auto md:mx-0 flex items-center justify-center text-xs text-center p-4 text-ink-600"
-          >
-            Mobile mockup placeholder
-            <br />
-            375 × 667 — Passenger booking app
-          </div>
-          <div
-            data-reveal="2"
-            style={stripeStyle}
-            className="rounded border border-slate-200 aspect-16/10 flex items-center justify-center text-xs text-center p-4 text-ink-600"
-          >
-            Desktop mockup placeholder
-            <br />
-            1200 × 750 — Admin fleet dashboard
-          </div>
-        </div>
-      </section>
-
-      {/* 2. THE OPERATIONAL REALITY — heading, then 3 columns cascading left to right */}
-      <section className="border-t border-slate-200">
-        <div className="max-w-6xl mx-auto px-6 py-16">
-          <h2 data-reveal className="font-landing font-semibold text-2xl sm:text-3xl max-w-xl text-brand-forest-900">
-            Regional transit runs on a different set of problems.
-          </h2>
-
-          <div className="mt-10 grid md:grid-cols-3">
-            <div data-reveal="1" className="pt-6 pr-6 md:border-r border-slate-200">
-              <h3 className="font-landing font-semibold text-lg">
-                Extreme geography
-              </h3>
-              <p className="mt-3 text-sm leading-relaxed text-ink-600">
-                Steep terrain, narrow roads, and real safety risk define
-                these routes. The Cordillera Administrative Region records
-                18.7 traffic deaths per 100,000 people, against a 12.3
-                national average — this isn't a convenience problem, it's a
-                safety one.
-              </p>
-            </div>
-            <div data-reveal="2" className="pt-6 md:px-6 border-t md:border-t-0 md:border-r border-slate-200 mt-6 md:mt-0">
-              <h3 className="font-landing font-semibold text-lg">
-                Connectivity gaps
-              </h3>
-              <p className="mt-3 text-sm leading-relaxed text-ink-600">
-                Mountain route dead zones break generic GPS trackers built
-                for flat, well-covered cities — leaving operators with gaps
-                in the record exactly where visibility matters most.
-              </p>
-            </div>
-            <div data-reveal="3" className="pt-6 md:pl-6 border-t md:border-t-0 border-slate-200 mt-6 md:mt-0">
-              <h3 className="font-landing font-semibold text-lg">
-                Manual bottlenecks
-              </h3>
-              <p className="mt-3 text-sm leading-relaxed text-ink-600">
-                Walk-in counters and text-based dispatching cause terminal
-                queues, double-bookings, and quiet revenue leakage that's
-                hard to trace after the fact.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 3. CORE VALUE PILLARS — each row: text reveals, then its image */}
-      <section id="solution" className="border-t border-slate-200">
-        <div className="max-w-6xl mx-auto px-6 py-16">
-          <h2 data-reveal className="font-landing font-semibold text-2xl sm:text-3xl max-w-xl text-brand-forest-900">
-            Three systems, working from one shared record.
-          </h2>
-
-          {/* Pillar A */}
-          <div className="mt-14 grid md:grid-cols-2 gap-10 items-center">
-            <div
-              data-reveal="1"
-              style={stripeStyle}
-              className="rounded border border-slate-200 aspect-4/3 flex items-center justify-center text-xs text-center p-4 text-ink-600"
-            >
-              Screenshot placeholder
-              <br />
-              960 × 720 — Ticket counter + seat sync view
-            </div>
-            <div data-reveal>
-              <span className="text-xs font-semibold text-brand-green-600">
-                Pillar A
-              </span>
-              <h3 className="font-landing font-semibold text-xl mt-2">
-                Double-booking prevention &amp; ticket counter sync
-              </h3>
-              <p className="mt-3 text-sm leading-relaxed max-w-md text-ink-600">
-                Over-the-counter and mobile seat bookings sync in real time,
-                so a seat sold at the terminal is instantly unavailable
-                online — and passengers can reserve online while paying in
-                cash at the terminal.
-              </p>
-            </div>
-          </div>
-
-          {/* Pillar B */}
-          <div className="mt-16 grid md:grid-cols-2 gap-10 items-center">
-            <div
-              data-reveal="1"
-              style={stripeStyle}
-              className="md:order-2 rounded border border-slate-200 aspect-4/3 flex items-center justify-center text-xs text-center p-4 text-ink-600"
-            >
-              Screenshot placeholder
-              <br />
-              960 × 720 — Live map with route ETA
-            </div>
-            <div data-reveal className="md:order-1">
-              <span className="text-xs font-semibold text-brand-green-600">
-                Pillar B
-              </span>
-              <h3 className="font-landing font-semibold text-xl mt-2">
-                Live GIS tracking &amp; route ETA monitoring
-              </h3>
-              <p className="mt-3 text-sm leading-relaxed max-w-md text-ink-600">
-                Commuters and managers see the same live bus location and
-                route progress bar, on an interactive map that updates as
-                the trip moves through its stops.
-              </p>
-            </div>
-          </div>
-
-          {/* Pillar C */}
-          <div className="mt-16 grid md:grid-cols-2 gap-10 items-center">
-            <div
-              data-reveal="1"
-              style={stripeStyle}
-              className="rounded border border-slate-200 aspect-4/3 flex items-center justify-center text-xs text-center p-4 text-ink-600"
-            >
-              Diagram placeholder
-              <br />
-              960 × 720 — Offline buffering to auto-sync flow
-            </div>
-            <div data-reveal>
-              <span className="text-xs font-semibold text-brand-sunrise-500">
-                Pillar C — The secret sauce
-              </span>
-              <h3 className="font-landing font-semibold text-xl mt-2">
-                The offline-first telemetry protocol
-              </h3>
-              <p className="mt-3 text-sm leading-relaxed max-w-md text-ink-600">
-                GPS telemetry buffers locally on the driver's Android device
-                the moment a dead zone breaks the signal, then auto-syncs
-                the instant the device re-enters range — so the trip record
-                stays 100% complete, even on routes that drop connectivity
-                for miles at a time.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 5. ROLE-BASED DASHBOARDS */}
-      <RoleTabs />
-
-      {/* 6. TECH STACK — heading, then the 3 cards cascading in sequence */}
-      <section id="stack" className="border-t border-slate-200 bg-white">
-        <div className="max-w-6xl mx-auto px-6 py-16">
-          <h2 data-reveal className="font-landing font-semibold text-2xl sm:text-3xl max-w-xl text-brand-forest-900">
-            Built on infrastructure that holds up on bad connections.
-          </h2>
-
-          <div className="mt-10 grid md:grid-cols-3 border-t border-l border-slate-200">
-            {[
-              ["React + Tailwind CSS", "Responsive interfaces for passengers, staff, and administrators alike."],
-              ["Node.js + Express + Socket.io", "Real-time, bidirectional updates between drivers, terminals, and dashboards."],
-              ["MySQL + Redis", "ACID-compliant storage with caching, keeping bookings double-booking-proof."],
-            ].map(([title, desc], i) => (
-              <div
-                key={title}
-                data-reveal={String(i + 1)}
-                className="p-6 border-r border-b border-slate-200"
-              >
-                <h3 className="font-landing font-semibold">{title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-ink-600">{desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* 7. FINAL CTA — heading, then the button */}
-      <section className="bg-brand-forest-900">
-        <div className="max-w-6xl mx-auto px-6 py-16 text-center">
-          <h2 data-reveal className="font-landing font-semibold text-2xl sm:text-3xl text-white max-w-lg mx-auto">
-            Ready to see D&apos; Rising Sun in motion?
-          </h2>
-          <Link
-            data-reveal="1"
-            to="/login/passenger"
-            className="mt-8 inline-flex items-center px-6 py-3 rounded text-sm font-semibold text-white bg-brand-green-600 hover:bg-brand-green-500 transition-colors"
-          >
-            Get Started
-          </Link>
-        </div>
-      </section>
-
-      <footer className="bg-brand-forest-900">
-        <div className="max-w-6xl mx-auto px-6 py-8 border-t border-white/10 flex flex-col sm:flex-row justify-between gap-4 text-sm text-white/60">
-          <span>© 2026 D&apos; Rising Sun Transport. All rights reserved.</span>
-          <div className="flex flex-wrap gap-6">
-            <Link to="/privacy-policy" className="hover:text-white">Privacy Statement</Link>
-            <button type="button" onClick={() => setContactOpen(true)} className="hover:text-white">
-              Contact Us
-            </button>
-          </div>
-        </div>
-      </footer>
-
-      {contactOpen && <ContactModal onClose={() => setContactOpen(false)} />}
-    </>
+    <SiteChrome home>
+      <Hero routes={routes} />
+      <TheLine />
+      <Tracking />
+      <HowItWorks />
+      <FleetAndSafety />
+      <PopularRoutes routes={routes} loaded={routesLoaded} />
+      <ForTheTerminal />
+      <Faq />
+      <FinalCta />
+    </SiteChrome>
   );
 }
 
-function RoleTabs() {
-  const panels = {
-    passengers: [
-      "Intuitive seat selection on a live seat map",
-      "Digital receipts with a scannable booking code",
-      "Live map view of their bus in transit",
-    ],
-    staff: [
-      "Instant walk-in ticket counter entry",
-      "One-tap validation of online bookings",
-      "Manifest printing for each departing trip",
-    ],
-    admins: [
-      "Fleet-wide control across every route and vehicle",
-      "Route configuration with scheduling conflict prevention",
-    ],
-  };
-  const [active, setActive] = useState("passengers");
-  const tabs = [
-    { key: "passengers", label: "Passengers" },
-    { key: "staff", label: "Terminal Staff" },
-    { key: "admins", label: "Administrators" },
+/* ── 1. Hero + booking ─────────────────────────────────────────────────── */
+function Hero({ routes }) {
+  return (
+    <section className="max-w-6xl mx-auto px-5 sm:px-6 pt-10 pb-14 sm:pt-16 sm:pb-20 grid gap-10 lg:grid-cols-[1fr_auto] lg:items-center">
+      <div className="max-w-xl">
+        <h1 className="font-display font-bold text-[2.5rem] leading-[1.05] sm:text-6xl tracking-tight text-brand-forest-900">
+          Skip the terminal line. Book your seat from home.
+        </h1>
+        <p className="mt-5 text-lg leading-relaxed text-ink-600 max-w-lg">
+          Reserve a seat on a D&apos; Rising Sun bus from Baguio City to the towns of Benguet, Mountain Province and Ifugao — on your phone, before you leave the house.
+        </p>
+        <div className="mt-8">
+          <LandingSearch routes={routes} />
+        </div>
+      </div>
+
+      <div className="hidden lg:block w-[300px]">
+        <Shot src={SHOTS.heroPhone} alt="Booking a seat in the D' Rising Sun app" aspect="aspect-11/22" rounded="rounded-[2.25rem]" className="shadow-[0_40px_80px_-40px_rgb(18_39_27/0.5)] border-8! border-brand-forest-900!" note="Phone screenshot — 375 × 667" />
+      </div>
+    </section>
+  );
+}
+
+/* ── The route, drawn to scale ─────────────────────────────────────────── */
+function TheLine() {
+  return (
+    <section className="border-y border-brand-forest-900/10 bg-white">
+      <div className="max-w-6xl mx-auto px-5 sm:px-6 py-12 sm:py-14">
+        <h2 className="font-display font-semibold text-2xl sm:text-3xl text-brand-forest-900 max-w-2xl">151 km of mountain road, from the Baguio terminal to Sagada.</h2>
+        <p className="mt-3 text-ink-600 max-w-2xl">Every stop along the Halsema Highway has its own fare, so you pay for the distance you actually ride.</p>
+        <div className="mt-10">
+          <RouteLine />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── 2. Live tracking ──────────────────────────────────────────────────── */
+function Tracking() {
+  const offline = [
+    { icon: WifiOff, title: "Signal drops", text: "The bus enters a dead spot on a high stretch of road." },
+    { icon: Radio, title: "Location keeps recording", text: "GPS points are saved on the driver's device while there's no network." },
+    { icon: CloudUpload, title: "Back in range, it catches up", text: "The saved points are sent on their own, so the trip has no gaps." },
   ];
+  return (
+    <section id="tracking" className="hero-forest scroll-mt-16">
+      <div className="max-w-6xl mx-auto px-5 sm:px-6 py-16 sm:py-24 grid gap-12 lg:grid-cols-2 lg:items-center">
+        <div data-reveal>
+          <h2 className="font-display font-semibold text-3xl sm:text-4xl leading-tight">Know where your bus is before you leave the house.</h2>
+          <p className="mt-4 text-white/75 text-lg leading-relaxed max-w-lg">
+            Open your booking and see the bus on a live map, moving along the route, and how far it still is from you. Wait indoors instead of on the roadside.
+          </p>
+
+          <h3 className="mt-10 font-display font-semibold text-lg text-brand-sunrise-400">Built for the mountains</h3>
+          <ol className="mt-4 space-y-4">
+            {offline.map(({ icon: Icon, title, text }) => (
+              <li key={title} className="flex gap-4">
+                <span className="w-10 h-10 shrink-0 rounded-xl bg-white/10 border border-white/15 flex items-center justify-center">
+                  <Icon className="w-5 h-5 text-brand-sunrise-400" aria-hidden="true" />
+                </span>
+                <span>
+                  <span className="block font-semibold">{title}</span>
+                  <span className="block text-sm text-white/70">{text}</span>
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+
+        <div data-reveal="1">
+          <Shot src={SHOTS.trackingMap} alt="Live map showing a D' Rising Sun bus on its route" className="shadow-2xl shadow-black/30" note="Live tracking screenshot — 960 × 720" />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── 3. How it works ───────────────────────────────────────────────────── */
+function HowItWorks() {
+  const steps = [
+    {
+      title: "Search and choose a trip",
+      text: "Pick where you're starting and where you're getting off. Trips from Baguio City run to stops across Benguet, Mountain Province and Ifugao.",
+    },
+    {
+      title: "Reserve your seat",
+      text: "See which seats are still free and tap the one you want. It's held for you alone, so nobody else can book it, and you get a confirmation code with your trip details.",
+      extra: (
+        <span className="mt-4 inline-flex items-center gap-2 rounded-lg bg-brand-forest-900 text-white px-3 py-2 text-sm font-semibold tabular-nums">
+          <Ticket className="w-4 h-4 text-brand-sunrise-400" aria-hidden="true" /> DRS-2026-00042
+        </span>
+      ),
+    },
+    {
+      title: "Pay and board",
+      text: "Show your confirmation at the terminal or to the conductor, pay your fare, and take your seat. Your online booking is already on the trip's passenger list.",
+    },
+  ];
+  return (
+    <section id="how-it-works" className="scroll-mt-16 max-w-6xl mx-auto px-5 sm:px-6 py-16 sm:py-24">
+      <h2 className="font-display font-semibold text-3xl sm:text-4xl text-brand-forest-900 max-w-xl">Three steps from your couch to your seat.</h2>
+      <ol className="mt-12 grid gap-10 md:grid-cols-3 md:gap-8">
+        {steps.map((s, i) => (
+          <li key={s.title} data-reveal={String(i + 1)} className="relative border-t-4 border-brand-forest-900 pt-6">
+            <span className="font-display font-bold text-5xl text-brand-sunrise-500 leading-none" aria-hidden="true">
+              {i + 1}
+            </span>
+            <h3 className="mt-4 font-display font-semibold text-xl text-brand-forest-900">{s.title}</h3>
+            <p className="mt-2 text-ink-600 leading-relaxed">{s.text}</p>
+            {s.extra}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+/* ── 4. Fleet & safety ─────────────────────────────────────────────────── */
+function FleetAndSafety() {
+  const buses = [
+    {
+      key: "busOrdinary",
+      icon: Wind,
+      name: "Ordinary",
+      text: "Open-window buses that run the line every day — the everyday ride for workers, students and market-goers.",
+    },
+    {
+      key: "busAircon",
+      icon: Fan,
+      name: "Air-conditioned",
+      text: "A closed, cooled cabin for the long climb to Bontoc and Sagada.",
+    },
+  ];
+  return (
+    <section className="bg-white border-y border-brand-forest-900/10">
+      <div className="max-w-6xl mx-auto px-5 sm:px-6 py-16 sm:py-24">
+        <h2 className="font-display font-semibold text-3xl sm:text-4xl text-brand-forest-900 max-w-2xl">Ordinary or air-conditioned. You&apos;ll know which before you book.</h2>
+        <p className="mt-3 text-ink-600 max-w-2xl">We run both kinds of bus. Every trip shows its bus type next to the departure time, so there are no surprises at the terminal.</p>
+
+        <div className="mt-10 grid gap-6 md:grid-cols-2">
+          {buses.map(({ key, icon: Icon, name, text }) => (
+            <article key={key} data-reveal className="rounded-3xl border border-brand-forest-900/10 bg-surface p-3">
+              <Shot src={SHOTS[key]} alt={`${name} D' Rising Sun bus`} note={`Photo of an ${name.toLowerCase()} bus — 960 × 720`} />
+              <div className="p-4 flex gap-4">
+                <span className="w-11 h-11 shrink-0 rounded-2xl bg-brand-forest-900 text-brand-sunrise-400 flex items-center justify-center">
+                  <Icon className="w-5 h-5" aria-hidden="true" />
+                </span>
+                <div>
+                  <h3 className="font-display font-semibold text-xl text-brand-forest-900">{name}</h3>
+                  <p className="mt-1 text-ink-600">{text}</p>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+
+        <div className="mt-6 rounded-3xl bg-brand-forest-900 text-white p-6 sm:p-8 grid gap-8 md:grid-cols-[auto_1fr_1fr] md:items-start">
+          <ShieldCheck className="w-10 h-10 text-brand-sunrise-400" aria-hidden="true" />
+          <div>
+            <h3 className="font-display font-semibold text-lg">Every bus is GPS-monitored</h3>
+            <p className="mt-1 text-white/70">Our team sees each bus live on the map for the whole trip, from the terminal to the last stop.</p>
+          </div>
+          <div>
+            <h3 className="font-display font-semibold text-lg">Checked before every departure</h3>
+            <p className="mt-1 text-white/70">Drivers complete a digital pre-trip safety checklist — engine, tires and brakes — before each trip leaves.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── 5. Popular routes & fares ─────────────────────────────────────────── */
+function PopularRoutes({ routes, loaded }) {
+  const cards = POPULAR.map((p) => {
+    const r = routes.find((x) => String(x.destination).toUpperCase() === p.stop.toUpperCase());
+    return r ? { ...p, route: r } : null;
+  }).filter(Boolean);
 
   return (
-    <section className="border-t border-slate-200">
-      <div className="max-w-6xl mx-auto px-6 py-16">
-        <h2 data-reveal className="font-landing font-semibold text-2xl sm:text-3xl max-w-xl text-brand-forest-900">
-          One platform, built for every seat at the terminal.
-        </h2>
+    <section id="routes" className="scroll-mt-16 max-w-6xl mx-auto px-5 sm:px-6 py-16 sm:py-24">
+      <h2 className="font-display font-semibold text-3xl sm:text-4xl text-brand-forest-900 max-w-xl">Popular trips from Baguio City</h2>
+      <p className="mt-3 text-ink-600 max-w-2xl">
+        Fares come straight from our fare table. Students, PWDs and senior citizens get {DISCOUNT_PERCENT}% off with a verified ID.
+      </p>
 
-        <div data-reveal="1" className="mt-8 flex flex-wrap gap-2" role="tablist">
+      {!loaded ? (
+        <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {POPULAR.map((p) => (
+            <div key={p.stop} className="h-56 rounded-3xl bg-white border border-brand-forest-900/10 animate-pulse" />
+          ))}
+        </div>
+      ) : cards.length === 0 ? (
+        <p className="mt-10 rounded-2xl border border-dashed border-brand-forest-900/20 bg-white/60 p-6 text-ink-600">
+          Fares couldn&apos;t be loaded right now. Sign in to see every route and fare.
+        </p>
+      ) : (
+        <ul className={`mt-10 grid gap-4 sm:grid-cols-2 ${COLS[cards.length] ?? "lg:grid-cols-4"}`}>
+          {cards.map(({ stop, name, province, hours, route }) => {
+            const km = route.distance != null ? Number(route.distance) : null;
+            const travel = hours ?? (km ? Math.max(1, Math.round((km / AVERAGE_KMH) * 2) / 2) : null);
+            const params = new URLSearchParams({ origin: route.origin, destination: route.destination });
+            return (
+              <li key={stop} className="rounded-3xl bg-white border border-brand-forest-900/10 p-5 flex flex-col">
+                <p className="text-sm text-ink-600">{province}</p>
+                <h3 className="font-display font-bold text-2xl text-brand-forest-900">{name}</h3>
+                <p className="mt-4 font-display font-bold text-3xl text-brand-forest-900 tabular-nums">{formatPeso(route.base_fare)}</p>
+                <p className="text-sm text-ink-600">
+                  {route.special_fare != null ? `${formatPeso(route.special_fare)} student / special fare` : "Regular fare"}
+                </p>
+                <dl className="mt-5 grid grid-cols-2 gap-2 text-sm">
+                  <div className="rounded-xl bg-surface px-3 py-2">
+                    <dt className="text-ink-600">Distance</dt>
+                    <dd className="font-semibold tabular-nums">{km != null ? `${km} km` : "—"}</dd>
+                  </div>
+                  <div className="rounded-xl bg-surface px-3 py-2">
+                    <dt className="text-ink-600">Travel time</dt>
+                    <dd className="font-semibold tabular-nums">{travel != null ? `about ${travel} hr` : "—"}</dd>
+                  </div>
+                </dl>
+                <Link
+                  to={`/passenger/trips?${params}`}
+                  className="mt-5 inline-flex items-center justify-center min-h-11 rounded-xl border-2 border-brand-forest-900 text-brand-forest-900 font-semibold hover:bg-brand-forest-900 hover:text-white transition-colors"
+                >
+                  See trips to {name}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/* ── For the terminal (role tabs) ──────────────────────────────────────── */
+function ForTheTerminal() {
+  const panels = {
+    passengers: {
+      icon: Armchair,
+      lines: ["Pick your exact seat on a live seat map", "A digital receipt with your booking code", "Follow your bus live on the map"],
+    },
+    staff: {
+      icon: Ticket,
+      lines: ["Sell walk-in tickets at the counter", "Check online bookings in one tap", "Print the passenger list for each trip"],
+    },
+    admins: {
+      icon: MapPinned,
+      lines: ["See every bus and route at a glance", "Schedule trips without double-assigning a bus or driver", "Reports on trips, fleet use and bookings"],
+    },
+  };
+  const tabs = [
+    { key: "passengers", label: "Passengers", shot: SHOTS.rolePassengers },
+    { key: "staff", label: "Terminal staff", shot: SHOTS.roleStaff },
+    { key: "admins", label: "Management", shot: SHOTS.roleAdmins },
+  ];
+  const [active, setActive] = useState("passengers");
+  const tab = tabs.find((t) => t.key === active);
+  const Icon = panels[active].icon;
+
+  return (
+    <section className="bg-white border-y border-brand-forest-900/10">
+      <div className="max-w-6xl mx-auto px-5 sm:px-6 py-16 sm:py-24">
+        <h2 className="font-display font-semibold text-3xl sm:text-4xl text-brand-forest-900 max-w-2xl">One system for everyone at the terminal.</h2>
+        <p className="mt-3 text-ink-600 max-w-2xl">The seat you book online is the same seat the counter sees, so it can&apos;t be sold twice.</p>
+
+        <div className="mt-8 inline-flex flex-wrap gap-1 rounded-full bg-surface border border-brand-forest-900/10 p-1" role="tablist" aria-label="Who uses it">
           {tabs.map((t) => (
             <button
               key={t.key}
               type="button"
+              role="tab"
+              aria-selected={active === t.key}
               onClick={() => setActive(t.key)}
-              className={`px-4 py-2 rounded text-sm font-semibold border transition-colors ${
-                active === t.key
-                  ? "bg-brand-green-600 text-white border-brand-green-600"
-                  : "border-slate-200 text-ink-900"
-              }`}
+              className={`px-4 min-h-10 rounded-full text-sm font-semibold transition-colors ${active === t.key ? "bg-brand-forest-900 text-white" : "text-ink-600 hover:text-brand-forest-900"}`}
             >
               {t.label}
             </button>
           ))}
         </div>
 
-        <div className="mt-8 grid md:grid-cols-2 gap-10 items-center">
-          <div
-            data-reveal="1"
-            style={stripeStyle}
-            className="rounded border border-slate-200 aspect-4/3 flex items-center justify-center text-xs text-center p-4 text-ink-600 md:order-first"
-          >
-            Screenshot placeholder
-            <br />
-            960 × 720 — Role-specific dashboard view
+        <div className="mt-8 grid gap-10 md:grid-cols-2 md:items-center" role="tabpanel">
+          <Shot src={tab.shot} alt={`${tab.label} view of D' Rising Sun`} note={`${tab.label} screenshot — 960 × 720`} />
+          <div>
+            <Icon className="w-8 h-8 text-brand-green-600" aria-hidden="true" />
+            <ul className="mt-4 space-y-3">
+              {panels[active].lines.map((line) => (
+                <li key={line} className="flex gap-3 text-lg text-brand-forest-900">
+                  <Navigation className="w-4 h-4 mt-1.5 shrink-0 rotate-90 text-brand-sunrise-500" aria-hidden="true" />
+                  {line}
+                </li>
+              ))}
+            </ul>
           </div>
+        </div>
+      </div>
+    </section>
+  );
+}
 
-          <ul data-reveal="2" className="space-y-3 text-sm leading-relaxed text-ink-600">
-            {panels[active].map((line) => (
-              <li key={line}>{line}</li>
-            ))}
-          </ul>
+/* ── FAQ ───────────────────────────────────────────────────────────────── */
+function Faq() {
+  const items = [
+    {
+      q: "Do I pay online?",
+      a: "No. Booking online reserves your seat. You pay at the terminal or when you board, in cash or by e-wallet.",
+    },
+    {
+      q: "Do I need an account to book?",
+      a: "Yes. Sign up with your email so your bookings, receipts and live tracking are all in one place.",
+    },
+    {
+      q: "Is there a discount for students, PWDs and senior citizens?",
+      a: `Yes, ${DISCOUNT_PERCENT}% off your own seat. Upload a photo of your ID when you sign up or later from your profile; it applies once terminal staff verify it.`,
+    },
+    {
+      q: "What if the bus loses signal in the mountains?",
+      a: "Its location keeps being recorded on the driver's device and is sent as soon as the bus is back in range, so the map catches up on its own.",
+    },
+  ];
+  return (
+    <section className="max-w-3xl mx-auto px-5 sm:px-6 py-16 sm:py-24">
+      <h2 className="font-display font-semibold text-3xl sm:text-4xl text-brand-forest-900">Questions passengers ask</h2>
+      <div className="mt-8 divide-y divide-brand-forest-900/10 border-y border-brand-forest-900/10">
+        {items.map(({ q, a }) => (
+          <details key={q} className="group py-5">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-display font-semibold text-lg text-brand-forest-900">
+              {q}
+              <ChevronDown className="w-5 h-5 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
+            </summary>
+            <p className="mt-3 text-ink-600 leading-relaxed">{a}</p>
+          </details>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ── Final call to action ──────────────────────────────────────────────── */
+function FinalCta() {
+  return (
+    <section className="px-5 sm:px-6 pb-16 sm:pb-24">
+      <div className="hero-forest max-w-6xl mx-auto rounded-[2rem] px-6 py-14 sm:px-12 sm:py-20">
+        <h2 className="font-display font-bold text-3xl sm:text-5xl max-w-2xl leading-tight">Reserve your seat before the line forms.</h2>
+        <div className="mt-8 flex flex-wrap gap-3">
+          <Link to="/login/passenger" className="inline-flex items-center min-h-12 px-6 rounded-full bg-brand-sunrise-500 hover:bg-brand-sunrise-400 text-brand-forest-950 font-display font-semibold">
+            Book a seat
+          </Link>
+          <a href="#routes" className="inline-flex items-center min-h-12 px-6 rounded-full border border-white/30 hover:bg-white/10 font-semibold">
+            See routes &amp; fares
+          </a>
         </div>
       </div>
     </section>

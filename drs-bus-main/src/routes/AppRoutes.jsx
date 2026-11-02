@@ -5,6 +5,7 @@ import PageLoader from '../components/common/PageLoader'
 // Marketing
 import LandingPage from "../pages/LandingPage";
 import PrivacyPolicy from "../pages/DataPolicy";
+import AboutPage from "../pages/AboutPage";
 
 // Auth
 import PassengerLogin from "../pages/auth/PassengerLogin";
@@ -76,6 +77,7 @@ export default function AppRoutes() {
           anything still links to the old URL. */}
       <Route path="/" element={<LandingPage />} />
       <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+      <Route path="/about" element={<AboutPage />} />
       <Route path="/select-role" element={<Navigate to="/login/passenger" replace />} />
       <Route path="/login/passenger" element={<PassengerLogin />} />
       <Route path="/login/driver" element={<Navigate to="/login/staff" replace />} />

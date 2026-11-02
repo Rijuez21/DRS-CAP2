@@ -8,6 +8,11 @@ import InlineAlert from "../../components/common/InlineAlert";
 import { useAuth } from "../../context/AuthContext";
 import * as api from "../../lib/api";
 import { formatTime } from "../../lib/format";
+import { usePagedList } from "../../hooks/usePagedList";
+import Pager from "../../components/passenger/Pager";
+
+// How many bookings each section shows per page.
+const PAGE_SIZE = 5;
 
 // A booking is "upcoming" while it still means a ride: it holds a seat and
 // its trip hasn't finished or been called off. Everything else is history.
@@ -87,25 +92,26 @@ export default function MyBookings() {
         />
       ) : (
         <>
-          <Section title="Upcoming" rows={upcoming} empty="No upcoming trips." onOpen={(id) => navigate(`/passenger/my-bookings/${id}`)} />
-          {past.length > 0 && <Section title="Past & cancelled" rows={past} muted onOpen={(id) => navigate(`/passenger/my-bookings/${id}`)} />}
+          <Section id="bookings-upcoming" title="Upcoming" rows={upcoming} empty="No upcoming trips." onOpen={(id) => navigate(`/passenger/my-bookings/${id}`)} />
+          {past.length > 0 && <Section id="bookings-past" title="Past & cancelled" rows={past} muted onOpen={(id) => navigate(`/passenger/my-bookings/${id}`)} />}
         </>
       )}
     </div>
   );
 }
 
-function Section({ title, rows, empty, muted = false, onOpen }) {
+function Section({ id, title, rows, empty, muted = false, onOpen }) {
+  const paged = usePagedList(rows, PAGE_SIZE, id);
   return (
     <section className="space-y-3">
-      <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ink-600">
+      <h2 id={id} className="scroll-mt-20 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ink-600">
         {title}
         <span className="rounded-full bg-slate-200/70 px-2 py-0.5 text-[10px] text-ink-600">{rows.length}</span>
       </h2>
       {rows.length === 0 ? (
         <p className="text-sm text-ink-600 rounded-2xl border border-dashed border-slate-200 px-4 py-5 text-center">{empty}</p>
       ) : (
-        rows.map((b) => {
+        paged.pageRows.map((b) => {
           const d = b.departure_time ? new Date(b.departure_time) : null;
           return (
             <button
@@ -154,6 +160,7 @@ function Section({ title, rows, empty, muted = false, onOpen }) {
           );
         })
       )}
+      <Pager paged={paged} label="bookings" />
     </section>
   );
 }

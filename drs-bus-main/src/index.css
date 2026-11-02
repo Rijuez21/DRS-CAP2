@@ -268,3 +268,15 @@ html {
 .drs-stop-labels-hidden .leaflet-tooltip.drs-stop-label {
   display: none;
 }
+
+@keyframes route-bus {
+ from { left: 0%; }
+ to { left: 100%; }
+}
+ .route-bus {
+ left: 0%;
+ animation: route-bus 16s ease-in-out infinite alternate;
+}
+ @media (prefers-reduced-motion: reduce) {
+ .route-bus { animation: none; left: 38%; }
+}

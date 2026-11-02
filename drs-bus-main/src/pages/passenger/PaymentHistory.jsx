@@ -8,6 +8,11 @@ import PaymentStatusBadge from "../../components/payments/PaymentStatusBadge";
 import * as api from "../../lib/api";
 import { formatPeso } from "../../lib/image";
 import { formatDateTime } from "../../lib/format";
+import { usePagedList } from "../../hooks/usePagedList";
+import Pager from "../../components/passenger/Pager";
+
+// How many payments to show per page.
+const PAGE_SIZE = 5;
 
 // Every online payment the passenger has submitted, newest first — status,
 // trip, seat, fare, method and any reason staff gave. Their own data only
@@ -15,6 +20,7 @@ import { formatDateTime } from "../../lib/format";
 export default function PaymentHistory() {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState("");
+  const paged = usePagedList(rows ?? [], PAGE_SIZE, "payments-list");
 
   useEffect(() => {
     let cancelled = false;
@@ -40,30 +46,33 @@ export default function PaymentHistory() {
       ) : rows?.length === 0 ? (
         <EmptyState icon={Wallet} title="No online payments yet" description="When you pay for a booking online, its status shows up here." />
       ) : (
-        <ul className="space-y-3">
-          {rows?.map((p) => (
-            <li key={p.payment_id}>
-              <Link to={`/passenger/my-bookings/${p.booking_id}`} className="card card-interactive group flex items-center gap-3 p-4">
-                <div className="flex-1 min-w-0 space-y-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-sm font-semibold">{p.booking_reference}</span>
-                    <PaymentStatusBadge status={p.status} />
+        <div id="payments-list" className="scroll-mt-20 space-y-4">
+          <ul className="space-y-3">
+            {paged.pageRows.map((p) => (
+              <li key={p.payment_id}>
+                <Link to={`/passenger/my-bookings/${p.booking_id}`} className="card card-interactive group flex items-center gap-3 p-4">
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-sm font-semibold">{p.booking_reference}</span>
+                      <PaymentStatusBadge status={p.status} />
+                    </div>
+                    <p className="text-sm font-medium truncate">
+                      {p.origin} → {p.destination} · Seat {p.seat_number}
+                    </p>
+                    <p className="text-xs text-ink-600">
+                      {formatDateTime(p.departure_time)} · {formatPeso(p.amount)} · {p.method_name ?? p.method_label} · sent {formatDateTime(p.submitted_at)}
+                    </p>
+                    {p.rejection_reason && ["Rejected", "Needs Resubmission"].includes(p.status) && (
+                      <p className="text-xs text-rose-600">Staff: {p.rejection_reason}</p>
+                    )}
                   </div>
-                  <p className="text-sm font-medium truncate">
-                    {p.origin} → {p.destination} · Seat {p.seat_number}
-                  </p>
-                  <p className="text-xs text-ink-600">
-                    {formatDateTime(p.departure_time)} · {formatPeso(p.amount)} · {p.method_name ?? p.method_label} · sent {formatDateTime(p.submitted_at)}
-                  </p>
-                  {p.rejection_reason && ["Rejected", "Needs Resubmission"].includes(p.status) && (
-                    <p className="text-xs text-rose-600">Staff: {p.rejection_reason}</p>
-                  )}
-                </div>
-                <ChevronRight className="w-4 h-4 text-ink-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
-              </Link>
-            </li>
-          ))}
-        </ul>
+                  <ChevronRight className="w-4 h-4 text-ink-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <Pager paged={paged} label="payments" />
+        </div>
       )}
     </div>
   );

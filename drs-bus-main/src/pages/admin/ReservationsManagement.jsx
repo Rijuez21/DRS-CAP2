@@ -106,8 +106,7 @@ export default function AdminReservationsManagement() {
         rows={bookings}
         fields={SORT_FIELDS}
         isLoading={isLoading}
-        paging="more"
-        pageSize={30}
+        paging="pages"
         searchKeys={["passenger_name", routeLabel, "seat_number", "booking_id"]}
         searchPlaceholder="Search passenger, trip or seat…"
         filters={FILTERS}
