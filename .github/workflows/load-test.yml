@@ -18,7 +18,7 @@ on:
 
 jobs:
   jmeter:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       mysql:
         image: mysql:8
@@ -40,11 +40,12 @@ jobs:
       USERS: ${{ github.event.inputs.users || '20' }}
       DURATION: ${{ github.event.inputs.duration || '60' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
+          package-manager-cache: false   # no lockfile at the repo root
 
       - name: Install and start the API
         working-directory: server
@@ -54,14 +55,14 @@ jobs:
           node src/index.js > server.log 2>&1 &
           npx --yes wait-on http://localhost:4000/api/health --timeout 60000
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
 
       - name: Cache JMeter
         id: cache-jmeter
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: apache-jmeter-${{ env.JMETER_VERSION }}
           key: jmeter-${{ env.JMETER_VERSION }}
@@ -90,7 +91,7 @@ jobs:
 
       - name: Upload HTML report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: jmeter-report
           path: |
