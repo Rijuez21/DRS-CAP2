@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Eye, EyeOff } from "lucide-react";
+import { AlertCircle, Eye, EyeOff } from "lucide-react";
 import { useAuth, AUTH_NOTICE_KEY } from "../../context/AuthContext";
 import * as api from "../../lib/api";
 import { readIdImage } from "../../lib/discounts";
@@ -9,19 +9,32 @@ import DiscountIdFields from "../passenger/DiscountIdFields";
 import ForgotPasswordForm from "./ForgotPasswordForm";
 import EmailCodeForm from "./EmailCodeForm";
 import PolicyModal from "./PolicyModal";
+import FormAlert from "./FormAlert";
 
 // One style for every field on the login / sign-up form. Change it here.
 const INPUT_CLASS =
-  "w-full bg-white border border-slate-300 rounded-xl px-4 py-3 outline-none transition-colors hover:border-slate-400 focus:border-brand-green-600 focus:ring-2 focus:ring-brand-green-600/25 placeholder:text-ink-600/50";
+  "w-full bg-white border border-slate-300 rounded-xl px-4 py-3 outline-none transition-colors hover:border-slate-400 focus:border-brand-green-600 focus:ring-2 focus:ring-brand-green-600/25 placeholder:text-ink-600/50 aria-invalid:border-rose-400 aria-invalid:focus:border-rose-500 aria-invalid:focus:ring-rose-500/20";
 
 // Sign-up checks, run before anything is sent. Same rules as the server
 // (services/passwordPolicy.js), which re-checks everything and has the
 // final say. Returns { field: message } for each field that's wrong.
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/;
+
+// Sign-in: checked here instead of by the browser, so every role's login
+// page shows the same in-app message (not the browser's own popup).
+function loginErrors({ email, password }) {
+  const errors = {};
+  if (!email) errors.email = "Enter your email address.";
+  else if (!EMAIL_PATTERN.test(email)) errors.email = "Enter a valid email address, like juan@email.com.";
+  if (!password) errors.password = "Enter your password.";
+  return errors;
+}
+
 function signupErrors({ name, email, phone, password, confirmPassword }) {
   const errors = {};
   if (!name) errors.name = "Enter your name to create an account.";
   if (!email) errors.email = "Enter your email address.";
-  else if (!/^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/.test(email)) errors.email = "Enter a valid email address.";
+  else if (!EMAIL_PATTERN.test(email)) errors.email = "Enter a valid email address.";
   if (!phone.trim()) errors.phone = "Enter your mobile number.";
   else if (!normalizePhMobile(phone)) errors.phone = "Enter a valid Philippine mobile number, e.g. 0917 123 4567.";
   if (!password) errors.password = "Enter a password.";
@@ -81,17 +94,17 @@ export default function LoginForm({
   // Sign-up only: student / PWD / senior passengers send an ID for the fare discount.
   const [discount, setDiscount] = useState({ type: "regular", idNumber: "", file: null });
   const [error, setError] = useState("");
-  const [fieldErrors, setFieldErrors] = useState({}); // sign-up: { field: message }, shown under each field
+  const [fieldErrors, setFieldErrors] = useState({}); // { field: message }, shown under each field (sign in and sign up)
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isSignup = mode === "signup";
 
-  // onChange for a sign-up field: clears that field's error once it's edited.
+  // onChange for a field: clears that field's error once it's edited.
   const edit = (field, setter) => (e) => {
     setter(e.target.value);
     if (fieldErrors[field]) setFieldErrors((prev) => ({ ...prev, [field]: undefined }));
   };
   const errorProps = (field) =>
-    fieldErrors[field] ? { "aria-invalid": true, "aria-describedby": `signup-${field}-error` } : {};
+    fieldErrors[field] ? { "aria-invalid": true, "aria-describedby": `auth-${field}-error` } : {};
 
   function switchMode(next) {
     setMode(next);
@@ -102,9 +115,10 @@ export default function LoginForm({
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
+    setFieldErrors({});
 
     let fullName = name;
-    let loginEmail = email;
+    let loginEmail; // set below: trimmed (and lowercased for sign-up)
     if (isSignup) {
       // Trimmed, and the email lowercased, the way the server stores them.
       fullName = name.trim().replace(/\s+/g, " ");
@@ -118,9 +132,11 @@ export default function LoginForm({
         setError("Agree to the Terms of Use and Privacy Policy to create an account.");
         return;
       }
-    } else if (!email || !password) {
-      setError("Enter your email and password to continue.");
-      return;
+    } else {
+      loginEmail = email.trim();
+      const errors = loginErrors({ email: loginEmail, password });
+      setFieldErrors(errors);
+      if (Object.keys(errors).length > 0) return;
     }
     const wantsDiscount = isSignup && discount.type !== "regular";
 
@@ -206,20 +222,16 @@ export default function LoginForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate={isSignup} className="space-y-4" aria-label={`${role} ${mode} form`}>
+    <form onSubmit={handleSubmit} noValidate className="space-y-4" aria-label={`${role} ${mode} form`}>
       <div>
         <h2 className="font-display text-2xl font-bold text-ink-900">{isSignup ? "Create your account" : "Sign in"}</h2>
         <p className="text-sm text-ink-600 mt-1">
           {isSignup ? "It only takes a minute. You can add a discount ID now or later." : "Welcome back. Enter your email and password to continue."}
         </p>
       </div>
-      {(resetNotice || notice) && !error && (
-        <p role="status" className="text-sm font-medium text-brand-forest-900 bg-brand-sunrise-400/30 rounded-xl px-4 py-2.5">
-          {resetNotice || notice}
-        </p>
-      )}
+      {!error && <FormAlert type="info" message={resetNotice || notice} />}
       {isSignup && (
-        <Field label="Full Name" error={fieldErrors.name} errorId="signup-name-error">
+        <Field label="Full Name" error={fieldErrors.name} errorId="auth-name-error">
           <input
             type="text"
             autoComplete="name"
@@ -233,20 +245,20 @@ export default function LoginForm({
         </Field>
       )}
 
-      <Field label="Email" error={isSignup ? fieldErrors.email : null} errorId="signup-email-error">
+      <Field label="Email" error={fieldErrors.email} errorId="auth-email-error">
         <input
           type="email"
           autoComplete="email"
           value={email}
-          onChange={isSignup ? edit("email", setEmail) : (e) => setEmail(e.target.value)}
+          onChange={edit("email", setEmail)}
           placeholder="you@email.com"
           className={INPUT_CLASS}
-          {...(isSignup ? errorProps("email") : {})}
+          {...errorProps("email")}
         />
       </Field>
 
       {isSignup && (
-        <Field label="Mobile Number" error={fieldErrors.phone} errorId="signup-phone-error">
+        <Field label="Mobile Number" error={fieldErrors.phone} errorId="auth-phone-error">
           <input
             type="tel"
             autoComplete="tel"
@@ -261,7 +273,7 @@ export default function LoginForm({
         </Field>
       )}
 
-      <Field label="Password" error={isSignup ? fieldErrors.password : null} errorId="signup-password-error">
+      <Field label="Password" error={fieldErrors.password} errorId="auth-password-error">
         {isSignup ? (
           <PasswordInput
             visible={showPassword}
@@ -276,10 +288,11 @@ export default function LoginForm({
             type="password"
             autoComplete="current-password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={edit("password", setPassword)}
             placeholder="••••••••"
             maxLength={128}
             className={INPUT_CLASS}
+            {...errorProps("password")}
           />
         )}
         {strength && (
@@ -296,7 +309,7 @@ export default function LoginForm({
       </Field>
 
       {isSignup && (
-        <Field label="Confirm Password" error={fieldErrors.confirmPassword} errorId="signup-confirmPassword-error">
+        <Field label="Confirm Password" error={fieldErrors.confirmPassword} errorId="auth-confirmPassword-error">
           <PasswordInput
             visible={showConfirm}
             onToggle={() => setShowConfirm((v) => !v)}
@@ -363,6 +376,8 @@ export default function LoginForm({
         />
       )}
 
+      <FormAlert message={error} />
+
       <button
         type="submit"
         disabled={isSubmitting || (isSignup && !acceptedTerms)}
@@ -426,7 +441,8 @@ function Field({ label, error, errorId, children }) {
       </span>
       {children}
       {error && (
-        <span id={errorId} className="block text-xs text-rose-600 font-medium mt-1">
+        <span id={errorId} className="flex items-start gap-1.5 text-xs text-rose-700 font-medium mt-1.5">
+          <AlertCircle className="w-3.5 h-3.5 mt-px shrink-0" aria-hidden="true" />
           {error}
         </span>
       )}

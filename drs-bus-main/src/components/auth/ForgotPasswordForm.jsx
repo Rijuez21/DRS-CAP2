@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronLeft, Eye, EyeOff } from "lucide-react";
 import * as api from "../../lib/api";
+import FormAlert from "./FormAlert";
 
 // "Forgot password?" on LoginForm, in three steps:
 //   email -> the server emails a 6-digit code (POST /api/auth/forgot-password)
@@ -120,11 +121,7 @@ export default function ForgotPasswordForm({ role, initialEmail = "", inputClass
         <h2 className="font-display text-2xl font-bold text-ink-900">{heading[0]}</h2>
         <p className="text-sm text-ink-600 mt-1">{heading[1]}</p>
       </div>
-      {info && !error && (
-        <p role="status" className="text-sm font-medium text-brand-forest-900 bg-brand-sunrise-400/30 rounded-xl px-4 py-2.5">
-          {info}
-        </p>
-      )}
+      {!error && <FormAlert type="info" message={info} />}
 
       {step === "email" && (
         <FieldLabel label="Email">
@@ -196,11 +193,7 @@ export default function ForgotPasswordForm({ role, initialEmail = "", inputClass
         </>
       )}
 
-      {error && (
-        <p role="alert" className="text-sm text-rose-600 font-medium">
-          {error}
-        </p>
-      )}
+      <FormAlert message={error} />
 
       <button
         type="submit"

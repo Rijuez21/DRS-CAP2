@@ -47,12 +47,15 @@ export default function RouteLine() {
         </span>
       </div>
 
-      {/* Phone: the same stops as a vertical line */}
-      <ol className="sm:hidden relative pl-8 space-y-3" aria-hidden="true">
-        <span className="absolute left-[11px] top-2 bottom-2 w-1.5 rounded-full bg-brand-forest-900" />
+      {/* Phone: the same stops as a vertical line. The road and every dot
+          sit in the same 20px column and are centred in it, so they line up
+          exactly (the road runs from the first dot's centre to the last). */}
+      <ol className="sm:hidden relative flex flex-col gap-2" aria-hidden="true">
+        <span className="absolute left-[6px] top-3 bottom-3 w-2 rounded-full bg-brand-forest-900" />
+        <span className="absolute left-[9px] top-3 bottom-3 border-l-2 border-dashed border-brand-sunrise-400/70" />
         {STOPS.map((s) => (
-          <li key={s.name} className="relative flex items-baseline justify-between gap-3">
-            <span className="absolute -left-[26px] top-1 w-3.5 h-3.5 rounded-full bg-surface border-[3px] border-brand-forest-900" />
+          <li key={s.name} className="relative grid grid-cols-[20px_1fr_auto] items-center gap-3 min-h-6">
+            <span className="justify-self-center w-4 h-4 rounded-full bg-white border-[3px] border-brand-forest-900" />
             <span className="text-sm font-semibold text-brand-forest-900">{s.name}</span>
             <span className="text-xs tabular-nums text-ink-600">km {s.km}</span>
           </li>

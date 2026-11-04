@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronLeft } from "lucide-react";
 import * as api from "../../lib/api";
+import FormAlert from "./FormAlert";
 
 // The step after passenger sign-up (LoginForm.jsx): enter the 6-digit code
 // emailed to the new account. A right code signs the passenger in
@@ -65,11 +66,7 @@ export default function EmailCodeForm({ email, notice, inputClass, onVerified, o
           Enter the 6-digit code we sent to <span className="font-medium text-ink-900 break-all">{email}</span>.
         </p>
       </div>
-      {info && !error && (
-        <p role="status" className="text-sm font-medium text-brand-forest-900 bg-brand-sunrise-400/30 rounded-xl px-4 py-2.5">
-          {info}
-        </p>
-      )}
+      {!error && <FormAlert type="info" message={info} />}
       <label className="block text-left">
         <span className="block text-xs font-semibold uppercase tracking-wide text-ink-900/70 mb-1.5">6-digit code</span>
         <input
@@ -83,11 +80,7 @@ export default function EmailCodeForm({ email, notice, inputClass, onVerified, o
           autoFocus
         />
       </label>
-      {error && (
-        <p role="alert" className="text-sm text-rose-600 font-medium">
-          {error}
-        </p>
-      )}
+      <FormAlert message={error} />
       <button
         type="submit"
         disabled={isSubmitting}
