@@ -67,7 +67,10 @@ driversRouter.post("/", requireRole("admin"), async (req, res) => {
   if (licenseNumber != null && (typeof licenseNumber !== "string" || licenseNumber.length > 50)) {
     return res.status(400).json({ error: "License number must be text up to 50 characters" });
   }
-  const expiry = cleanDate(req.body?.licenseExpiry, "License expiry");
+  // Optional, and not sent at all by DriverManagement.jsx's form — a missing
+  // field is "not given", same as PATCH below (cleanDate only treats null/""
+  // as blank, so undefined used to fail as an invalid date).
+  const expiry = req.body?.licenseExpiry === undefined ? { value: null } : cleanDate(req.body.licenseExpiry, "License expiry");
   if (expiry.error) return res.status(400).json({ error: expiry.error });
 
   try {
