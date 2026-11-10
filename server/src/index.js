@@ -25,6 +25,7 @@ import { buildPaymentsRouter } from "./routes/payments.js";
 import { buildDiscountsRouter } from "./routes/discounts.js";
 import { startPaymentSweeper } from "./services/paymentSweeper.js";
 import { gpsRouter } from "./routes/gps.js";
+import { buildCollectionsRouter } from "./routes/collections.js";
 import { startGpsGateway } from "./services/gpsGateway.js";
 import { startRetentionSweeper } from "./services/retentionSweeper.js";
 import { startDepartureReminders } from "./services/departureReminders.js";
@@ -218,6 +219,7 @@ app.use("/api/reports", reportsRouter);
 app.use("/api/payments", buildPaymentsRouter(io));
 app.use("/api/discounts", buildDiscountsRouter(io));
 app.use("/api/gps", gpsRouter);
+app.use("/api/collections", buildCollectionsRouter(io));
 
 // An oversized body (e.g. a screenshot over the payments limit) reaches
 // here as a 413 from express.json(); answer in the same { error } shape the

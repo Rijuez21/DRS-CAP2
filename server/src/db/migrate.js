@@ -287,6 +287,49 @@ const STATEMENTS = [
 
   // ---- Departure reminders (services/departureReminders.js) -------------
   `ALTER TABLE bookings ADD COLUMN reminder_sent_at DATETIME NULL`,
+
+  // ---- Cash accountability (routes/collections.js) ----------------------
+  // Fares the conductor collects on board (flagged riders and walk-on
+  // passengers without the app), and the cash remitted after each trip.
+  // New tables only. See the matching comments in schema.sql.
+  `CREATE TABLE IF NOT EXISTS onboard_fares (
+    fare_id INT AUTO_INCREMENT PRIMARY KEY,
+    trip_id INT NOT NULL,
+    booking_id INT NULL,
+    passenger_count INT NOT NULL DEFAULT 1,
+    board_stop VARCHAR(150) NOT NULL,
+    drop_stop VARCHAR(150) NOT NULL,
+    fare_type ENUM('regular', 'discounted') NOT NULL DEFAULT 'regular',
+    fare_each DECIMAL(8,2) NOT NULL,
+    amount DECIMAL(10,2) NOT NULL,
+    recorded_by INT NOT NULL,
+    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    voided_at TIMESTAMP NULL DEFAULT NULL,
+    void_reason VARCHAR(150) NULL,
+    active_booking_id INT GENERATED ALWAYS AS (CASE WHEN voided_at IS NULL THEN booking_id ELSE NULL END) STORED,
+    FOREIGN KEY (trip_id) REFERENCES trips(trip_id),
+    FOREIGN KEY (booking_id) REFERENCES bookings(booking_id),
+    FOREIGN KEY (recorded_by) REFERENCES drivers(driver_id),
+    UNIQUE KEY one_fare_per_booking (active_booking_id),
+    KEY idx_onboard_fares_trip (trip_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS trip_remittances (
+    remittance_id INT AUTO_INCREMENT PRIMARY KEY,
+    trip_id INT NOT NULL,
+    driver_id INT NOT NULL,
+    expected_amount DECIMAL(10,2) NOT NULL,
+    remitted_amount DECIMAL(10,2) NOT NULL,
+    received_by INT NOT NULL,
+    received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    notes VARCHAR(255) NULL,
+    corrected_by INT NULL,
+    corrected_at TIMESTAMP NULL DEFAULT NULL,
+    FOREIGN KEY (trip_id) REFERENCES trips(trip_id),
+    FOREIGN KEY (driver_id) REFERENCES drivers(driver_id),
+    FOREIGN KEY (received_by) REFERENCES staff_accounts(staff_id),
+    FOREIGN KEY (corrected_by) REFERENCES staff_accounts(staff_id),
+    UNIQUE KEY one_remittance_per_trip (trip_id)
+  )`,
 ];
 
 // ---- One passenger account per mobile number (routes/auth.js) -----------

@@ -321,6 +321,16 @@ export const getDashboardSummary = () => request("/api/dashboard/summary");
 export const getOnTimeReport = (params) => request("/api/reports/on-time-performance", { params });
 export const getFleetUtilizationReport = (params) => request("/api/reports/fleet-utilization", { params });
 export const getReservationTrendsReport = (params) => request("/api/reports/reservation-trends", { params });
+export const getTripCollectionsReport = (params) => request("/api/reports/trip-collections", { params });
+export const getDailyCollectionsReport = (params) => request("/api/reports/daily-collections", { params });
+
+// ---- Cash accountability: on-board fares and remittances (routes/collections.js) ----
+export const getTripCollections = (tripId) => request(`/api/collections/trips/${tripId}`);
+export const recordOnboardFare = (tripId, payload) => request(`/api/collections/trips/${tripId}/fares`, { method: "POST", body: payload });
+export const voidOnboardFare = (fareId, reason) => request(`/api/collections/fares/${fareId}/void`, { method: "POST", body: { reason } });
+export const getRemittances = (params) => request("/api/collections/remittances", { params });
+export const recordRemittance = (tripId, payload) => request(`/api/collections/trips/${tripId}/remittance`, { method: "POST", body: payload });
+export const correctRemittance = (remittanceId, payload) => request(`/api/collections/remittances/${remittanceId}`, { method: "PATCH", body: payload });
 export const getReportExportUrl = (type, params) => {
   const url = new URL(`${BASE_URL}/api/reports/export`);
   url.searchParams.set("type", type);

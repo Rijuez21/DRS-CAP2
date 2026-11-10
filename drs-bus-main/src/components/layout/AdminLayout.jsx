@@ -1,4 +1,4 @@
-import { LayoutDashboard, Bus, Map, Route, IdCard, CalendarClock, Ticket, BarChart3, Users, Wallet, QrCode, Satellite, BadgePercent, UserRound, History } from "lucide-react";
+import { LayoutDashboard, Bus, Map, Route, IdCard, CalendarClock, Ticket, BarChart3, Users, Wallet, QrCode, Satellite, BadgePercent, UserRound, History, Banknote } from "lucide-react";
 import RoleLayout from "./RoleLayout";
 import sunLogo from "../../assets/logo-sun.svg";
 
@@ -9,6 +9,7 @@ const links = [
   { to: "trips", label: "Trip Scheduling", short: "Trips", icon: CalendarClock, tab: true },
   { to: "reservations", label: "Reservations", short: "Bookings", icon: Ticket, tab: true },
   { to: "payments", label: "Payment Verification", icon: Wallet },
+  { to: "remittances", label: "Remittances", icon: Banknote },
   { to: "payment-settings", label: "Payment Methods", icon: QrCode },
   { to: "discounts", label: "ID Verification", icon: BadgePercent },
   { to: "tracking", label: "Live Tracking", short: "Tracking", icon: Map, tab: true },

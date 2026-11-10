@@ -4,12 +4,16 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContai
 import * as api from "../../lib/api";
 import InlineAlert from "../../components/common/InlineAlert";
 import PageHeading from "../../components/common/PageHeading";
-import { formatDate } from "../../lib/format";
+import { formatDate, formatTime } from "../../lib/format";
+import { formatPeso } from "../../lib/image";
+import StatusBadge from "../../components/common/StatusBadge";
 
 const REPORT_TYPES = [
   { key: "on-time-performance", label: "On-Time Performance" },
   { key: "fleet-utilization", label: "Fleet Utilization" },
   { key: "reservation-trends", label: "Reservation Trends" },
+  { key: "trip-collections", label: "Trip Collections" },
+  { key: "daily-collections", label: "Daily Collection Summary" },
 ];
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -46,6 +50,8 @@ export default function ReportsAnalytics() {
       "on-time-performance": api.getOnTimeReport,
       "fleet-utilization": api.getFleetUtilizationReport,
       "reservation-trends": api.getReservationTrendsReport,
+      "trip-collections": api.getTripCollectionsReport,
+      "daily-collections": api.getDailyCollectionsReport,
     };
     loaders[reportType](params)
       .then(setData)
@@ -108,6 +114,8 @@ export default function ReportsAnalytics() {
           {reportType === "on-time-performance" && <OnTimeChart rows={data} />}
           {reportType === "fleet-utilization" && <UtilizationChart rows={data} />}
           {reportType === "reservation-trends" && <TrendsChart data={data} />}
+          {reportType === "trip-collections" && <TripCollectionsTable rows={data} />}
+          {reportType === "daily-collections" && <DailyCollectionsTable rows={data} />}
         </section>
       )}
     </div>
@@ -159,6 +167,107 @@ function TrendsChart({ data }) {
         <Line type="monotone" dataKey="count" stroke="#2f9e5c" strokeWidth={2} dot={false} />
       </LineChart>
     </ResponsiveContainer>
+  );
+}
+
+// Cash accountability: per trip, passengers carried and where every peso
+// came from, with the conductor's remittance checked against the on-board
+// fares. Short trips are highlighted.
+function TripCollectionsTable({ rows }) {
+  if (!Array.isArray(rows) || !rows.length) return <EmptyNote />;
+  const sum = (f) => rows.reduce((s, r) => s + f(r), 0);
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide border-b">
+          <tr>
+            <th className="py-2 pr-3">Trip</th>
+            <th className="py-2 pr-3">Driver</th>
+            <th className="py-2 pr-3 text-right">Passengers</th>
+            <th className="py-2 pr-3 text-right">Online</th>
+            <th className="py-2 pr-3 text-right">Terminal cash</th>
+            <th className="py-2 pr-3 text-right">On board</th>
+            <th className="py-2 pr-3 text-right">Remitted</th>
+            <th className="py-2 pr-3 text-right">Difference</th>
+            <th className="py-2">Status</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y">
+          {rows.map((r) => (
+            <tr key={r.trip_id} className={r.status === "Short" ? "bg-rose-50" : ""}>
+              <td className="py-2 pr-3">
+                <p className="font-medium">{formatDate(r.departure_time)} {formatTime(r.departure_time)}</p>
+                <p className="text-xs text-gray-500">{r.origin} → {r.destination} · {r.plate_num}</p>
+              </td>
+              <td className="py-2 pr-3">{r.driver_name}</td>
+              <td className="py-2 pr-3 text-right">
+                {r.passengers.total}
+                {r.passengers.walk_on > 0 && <span className="block text-xs text-gray-500">{r.passengers.walk_on} walk-on</span>}
+                {r.flagged_unpaid > 0 && <span className="block text-xs text-rose-700">{r.flagged_unpaid} flagged, no fare</span>}
+              </td>
+              <td className="py-2 pr-3 text-right">{formatPeso(r.collected.online)}</td>
+              <td className="py-2 pr-3 text-right">{formatPeso(r.collected.terminal)}</td>
+              <td className="py-2 pr-3 text-right">{formatPeso(r.collected.on_board)}</td>
+              <td className="py-2 pr-3 text-right">{r.remittance ? formatPeso(r.remittance.remitted) : "—"}</td>
+              <td className={`py-2 pr-3 text-right font-semibold ${r.difference < 0 ? "text-rose-700" : ""}`}>{r.difference == null ? "—" : formatPeso(r.difference)}</td>
+              <td className="py-2"><StatusBadge status={r.status} /></td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot className="border-t font-semibold">
+          <tr>
+            <td className="py-2 pr-3" colSpan={2}>{rows.length} trips</td>
+            <td className="py-2 pr-3 text-right">{sum((r) => r.passengers.total)}</td>
+            <td className="py-2 pr-3 text-right">{formatPeso(sum((r) => r.collected.online))}</td>
+            <td className="py-2 pr-3 text-right">{formatPeso(sum((r) => r.collected.terminal))}</td>
+            <td className="py-2 pr-3 text-right">{formatPeso(sum((r) => r.collected.on_board))}</td>
+            <td className="py-2 pr-3 text-right">{formatPeso(sum((r) => r.remittance?.remitted ?? 0))}</td>
+            <td className="py-2 pr-3 text-right text-rose-700">{formatPeso(sum((r) => (r.difference < 0 ? r.difference : 0)))}</td>
+            <td />
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
+
+function DailyCollectionsTable({ rows }) {
+  if (!Array.isArray(rows) || !rows.length) return <EmptyNote />;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide border-b">
+          <tr>
+            <th className="py-2 pr-3">Day</th>
+            <th className="py-2 pr-3 text-right">Trips</th>
+            <th className="py-2 pr-3 text-right">Passengers</th>
+            <th className="py-2 pr-3 text-right">Online</th>
+            <th className="py-2 pr-3 text-right">Terminal cash</th>
+            <th className="py-2 pr-3 text-right">On board</th>
+            <th className="py-2 pr-3 text-right">Total collected</th>
+            <th className="py-2 pr-3 text-right">Remitted</th>
+            <th className="py-2 pr-3 text-right">Awaiting</th>
+            <th className="py-2 text-right">Short</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y">
+          {rows.map((d) => (
+            <tr key={d.day} className={d.short_trips ? "bg-rose-50" : ""}>
+              <td className="py-2 pr-3 font-medium">{formatDate(d.day)}</td>
+              <td className="py-2 pr-3 text-right">{d.trips}</td>
+              <td className="py-2 pr-3 text-right">{d.passengers}</td>
+              <td className="py-2 pr-3 text-right">{formatPeso(d.online)}</td>
+              <td className="py-2 pr-3 text-right">{formatPeso(d.terminal)}</td>
+              <td className="py-2 pr-3 text-right">{formatPeso(d.on_board)}</td>
+              <td className="py-2 pr-3 text-right font-semibold">{formatPeso(d.total)}</td>
+              <td className="py-2 pr-3 text-right">{formatPeso(d.remitted)}</td>
+              <td className="py-2 pr-3 text-right">{d.awaiting}</td>
+              <td className={`py-2 text-right font-semibold ${d.short_trips ? "text-rose-700" : ""}`}>{d.short_trips ? `${d.short_trips} (${formatPeso(d.shortage)})` : "0"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

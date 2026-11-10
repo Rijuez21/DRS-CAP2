@@ -41,6 +41,12 @@ const STATUS_STYLES = {
   // trips on sale
   "sold out": "bg-rose-500/15 text-rose-700",
   full: "bg-rose-500/15 text-rose-700",
+  // conductor cash remittance (Remittances page)
+  "on the road": "bg-sky-500/15 text-sky-700",
+  "awaiting remittance": "bg-brand-sunrise-500/15 text-amber-700",
+  balanced: "bg-brand-green-500/15 text-emerald-700",
+  short: "bg-rose-500/15 text-rose-700",
+  over: "bg-violet-500/15 text-violet-700",
 };
 
 // Colour is never the only signal: each colour family has its own icon

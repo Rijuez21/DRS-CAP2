@@ -1,4 +1,4 @@
-import { LayoutDashboard, Bus, CalendarDays, Users, User } from "lucide-react";
+import { LayoutDashboard, Bus, CalendarDays, Users, User, Banknote } from "lucide-react";
 import RoleLayout from "./RoleLayout";
 
 // Drivers work from their phones, so the two things done every trip are
@@ -6,6 +6,7 @@ import RoleLayout from "./RoleLayout";
 const links = [
   { to: "dashboard", label: "My Trips", short: "Trips", icon: LayoutDashboard, tab: true },
   { to: "manifest", label: "Passenger List", short: "Passengers", icon: Users, tab: true },
+  { to: "fares", label: "Fare Collection", short: "Fares", icon: Banknote, tab: true },
   { to: "assigned-bus", label: "Assigned Bus", icon: Bus },
   { to: "route-schedule", label: "Route Schedule", icon: CalendarDays },
   { to: "profile", label: "Profile", icon: User },

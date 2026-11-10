@@ -39,6 +39,8 @@ const DriverDashboard = lazy(() => import('../pages/driver/DriverDashboard'))
 const AssignedBus = lazy(() => import('../pages/driver/AssignedBus'))      // NEW
 const RouteSchedule = lazy(() => import('../pages/driver/RouteSchedule'))
 const Manifest = lazy(() => import('../pages/driver/Manifest'))
+const FareCollection = lazy(() => import('../pages/driver/FareCollection'))
+const Remittances = lazy(() => import('../pages/staff/Remittances'))
 const DriverProfile = lazy(() => import('../pages/driver/Profile'))        // NEW — named DriverProfile, not Profile, to avoid colliding with the passenger Profile import already in this file
 
 // Staff pages
@@ -127,6 +129,7 @@ export default function AppRoutes() {
         <Route path="assigned-bus" element={<AssignedBus />} />       {/* NEW */}
         <Route path="route-schedule" element={<RouteSchedule />} />
         <Route path="manifest" element={<Manifest />} />
+        <Route path="fares" element={<FareCollection />} />            {/* cash collected on board: flagged riders + walk-on passengers */}
         <Route path="profile" element={<DriverProfile />} />          {/* NEW */}
         <Route path="account" element={<AccountSettings />} />
       </Route>
@@ -147,6 +150,7 @@ export default function AppRoutes() {
         <Route path="trips" element={<TripScheduling />} />            {/* staff can add/edit schedules; cancelling stays admin-only */}
         <Route path="discounts" element={<DiscountReview />} />       {/* student / PWD / senior IDs for the 20% fare discount */}
         <Route path="tracking" element={<FleetTracking />} />          {/* same live fleet map as admin — where every bus is, so staff can tell waiting passengers */}
+        <Route path="remittances" element={<Remittances />} />        {/* conductor cash turned over after each trip vs fares recorded on board */}
         <Route path="account" element={<AccountSettings />} />
       </Route>
 
@@ -169,6 +173,7 @@ export default function AppRoutes() {
         <Route path="trips" element={<TripScheduling />} />
         <Route path="reservations" element={<ReservationsManagement />} />
         <Route path="reports" element={<ReportsAnalytics />} />
+        <Route path="remittances" element={<Remittances />} />        {/* same page as staff, plus correcting a recorded amount */}
         <Route path="users" element={<UserManagement />} />
         <Route path="payments" element={<PaymentReview />} />
         <Route path="payment-settings" element={<PaymentSettings />} />

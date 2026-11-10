@@ -463,3 +463,52 @@ CREATE TABLE IF NOT EXISTS email_verifications (
   KEY idx_email_verifications_commuter (commuter_id, created_at),
   FOREIGN KEY (commuter_id) REFERENCES commuters(commuter_id) ON DELETE CASCADE
 );
+
+-- addition: cash accountability. A fare the conductor collects on board —
+-- either for a flagged rider (booking_id set, one fare per booking) or for
+-- walk-on passengers who board along the road without the app (booking_id
+-- NULL, passenger_count riders). The fare is worked out by the server from
+-- the route fare list (see routes/collections.js); a mistaken entry is
+-- voided, never deleted, so the trip's record stays complete.
+CREATE TABLE IF NOT EXISTS onboard_fares (
+  fare_id INT AUTO_INCREMENT PRIMARY KEY,
+  trip_id INT NOT NULL,
+  booking_id INT NULL,
+  passenger_count INT NOT NULL DEFAULT 1,
+  board_stop VARCHAR(150) NOT NULL,
+  drop_stop VARCHAR(150) NOT NULL,
+  fare_type ENUM('regular', 'discounted') NOT NULL DEFAULT 'regular',
+  fare_each DECIMAL(8,2) NOT NULL,
+  amount DECIMAL(10,2) NOT NULL,
+  recorded_by INT NOT NULL, -- the driver's account (the conductor uses the driver's phone)
+  recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  voided_at TIMESTAMP NULL DEFAULT NULL,
+  void_reason VARCHAR(150) NULL,
+  active_booking_id INT GENERATED ALWAYS AS (CASE WHEN voided_at IS NULL THEN booking_id ELSE NULL END) STORED,
+  FOREIGN KEY (trip_id) REFERENCES trips(trip_id),
+  FOREIGN KEY (booking_id) REFERENCES bookings(booking_id),
+  FOREIGN KEY (recorded_by) REFERENCES drivers(driver_id),
+  UNIQUE KEY one_fare_per_booking (active_booking_id),
+  KEY idx_onboard_fares_trip (trip_id)
+);
+
+-- addition: the cash the conductor turns over after a completed trip, and
+-- the terminal staff member who received it. expected_amount is the on-board
+-- cash recorded for the trip at that moment; the difference flags a short trip.
+CREATE TABLE IF NOT EXISTS trip_remittances (
+  remittance_id INT AUTO_INCREMENT PRIMARY KEY,
+  trip_id INT NOT NULL,
+  driver_id INT NOT NULL,
+  expected_amount DECIMAL(10,2) NOT NULL,
+  remitted_amount DECIMAL(10,2) NOT NULL,
+  received_by INT NOT NULL,
+  received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  notes VARCHAR(255) NULL,
+  corrected_by INT NULL, -- an admin who corrected the amount afterwards (audited)
+  corrected_at TIMESTAMP NULL DEFAULT NULL,
+  FOREIGN KEY (trip_id) REFERENCES trips(trip_id),
+  FOREIGN KEY (driver_id) REFERENCES drivers(driver_id),
+  FOREIGN KEY (received_by) REFERENCES staff_accounts(staff_id),
+  FOREIGN KEY (corrected_by) REFERENCES staff_accounts(staff_id),
+  UNIQUE KEY one_remittance_per_trip (trip_id)
+);
