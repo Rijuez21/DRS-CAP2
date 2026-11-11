@@ -37,16 +37,16 @@ export function isReservedEmail(email) {
 // for any of them.
 //
 // "Unpaid" = an online booking still Reserved, on a trip that hasn't left,
-// with no payment under review or received. Sending proof counts as paid
-// (the passenger has done their part; staff review is on us), but a proof
-// that was rejected or sent back for a new receipt does not.
+// with no money received. Paid means CONFIRMED paid: staff verified the
+// online payment, or cash was taken at the counter. An uploaded proof that
+// is still under review doesn't count yet (under_review tells the passenger
+// to wait for the check rather than to pay again).
 // ---------------------------------------------------------------------------
-const PAID_OR_UNDER_REVIEW = [...OPEN_STATUSES, ...FUNDS_RECEIVED_STATUSES];
-
 export async function findUnpaidHolds(conn, passengerId) {
   const [rows] = await conn.query(
     `SELECT bk.booking_id, bk.trip_id, bk.seat_number, bk.booked_at, bk.payment_deadline,
-            tr.departure_time, rt.origin, rt.destination
+            tr.departure_time, rt.origin, rt.destination,
+            EXISTS (SELECT 1 FROM payments p WHERE p.booking_id = bk.booking_id AND p.status IN (?)) AS under_review
      FROM bookings bk
      JOIN trips tr ON tr.trip_id = bk.trip_id
      JOIN routes rt ON rt.route_id = tr.route_id
@@ -54,9 +54,9 @@ export async function findUnpaidHolds(conn, passengerId) {
        AND tr.status IN (?) AND tr.departure_time > NOW()
        AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.booking_id = bk.booking_id AND p.status IN (?))
      ORDER BY bk.booked_at, bk.booking_id`,
-    [passengerId, BOOKABLE_TRIP_STATUSES, PAID_OR_UNDER_REVIEW]
+    [OPEN_STATUSES, passengerId, BOOKABLE_TRIP_STATUSES, FUNDS_RECEIVED_STATUSES]
   );
-  return rows;
+  return rows.map((r) => ({ ...r, under_review: Boolean(r.under_review) }));
 }
 
 // Shown as-is to the passenger (TripDetail.jsx also shows its own card).
@@ -64,6 +64,9 @@ export function unpaidHoldMessage(holds) {
   const first = holds[0];
   const seats = holds.filter((h) => h.trip_id === first.trip_id).map((h) => h.seat_number);
   const what = `${first.origin} → ${first.destination}, seat${seats.length === 1 ? "" : "s"} ${seats.join(", ")}`;
+  if (holds.every((h) => h.under_review)) {
+    return `Your payment for ${what} is still being checked. You can book another seat once it's confirmed.`;
+  }
   return `You still have an unpaid reservation (${what}). Pay for it or cancel it in My Bookings before booking another seat.`;
 }
 

@@ -348,8 +348,18 @@ describe("GPS data", () => {
     const big = await api("POST", "/api/tracking/batch", { token: driver.token, body: { points: Array.from({ length: 1001 }, () => ({ ...base, latitude: 16.4, longitude: 120.6 })) } });
     assert.equal(big.status, 413);
     assert.equal((await api("GET", `/api/tracking/${trip.bus_id}/latest`)).status, 401);
+
+    // Passengers: only with a PAID seat on the bus's current trip.
     const p = await createPassenger();
-    assert.equal((await api("GET", `/api/tracking/${trip.bus_id}/latest`, { token: p.token })).status, 200);
+    assert.equal((await api("GET", `/api/tracking/${trip.bus_id}/latest`, { token: p.token })).status, 403, "no booking");
+    const booked = await api("POST", "/api/bookings", { token: p.token, body: { tripId, seatNumbers: ["7"] } });
+    assert.equal(booked.status, 201, JSON.stringify(booked.data));
+    const unpaid = await api("GET", `/api/tracking/${trip.bus_id}/latest`, { token: p.token });
+    assert.equal(unpaid.status, 403, "reserved but not paid");
+    assert.match(unpaid.data.error, /payment/);
+    await db.query(`UPDATE bookings SET status = 'Confirmed' WHERE booking_id = ?`, [booked.data.bookings[0].booking_id]);
+    assert.equal((await api("GET", `/api/tracking/${trip.bus_id}/latest`, { token: p.token })).status, 200, "paid");
+    assert.equal((await api("GET", `/api/tracking/${trip.bus_id}/latest`, { token: driver.token })).status, 200, "staff/drivers unaffected");
   });
 
   test("anonymous sockets can't follow a bus; signed-in ones can", async () => {

@@ -171,6 +171,7 @@ const unpaidHoldJson = (h) => ({
   destination: h.destination,
   departure_time: h.departure_time,
   payment_deadline: h.payment_deadline,
+  under_review: h.under_review, // proof sent, waiting for staff to confirm it
 });
 
 bookingsRouter.get("/unpaid", requireRole("passenger"), async (req, res) => {

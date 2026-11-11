@@ -236,6 +236,8 @@ export default function TripDetail() {
 function UnpaidHoldCard({ unpaid }) {
   const trips = groupBy(unpaid, (u) => u.trip_id);
   const first = unpaid[0];
+  // Proof already sent for all of them: nothing to do but wait for staff.
+  const waitingForCheck = unpaid.every((u) => u.under_review);
   return (
     <div role="alert" className="card p-5 space-y-4">
       <div className="space-y-1">
@@ -243,11 +245,12 @@ function UnpaidHoldCard({ unpaid }) {
           <span className="w-9 h-9 rounded-xl bg-brand-sunrise-400/20 flex items-center justify-center shrink-0">
             <Info className="w-5 h-5 text-amber-700" />
           </span>
-          Pay for your other reservation first
+          {waitingForCheck ? "Your payment is still being checked" : "Pay for your other reservation first"}
         </p>
         <p className="text-sm text-ink-600">
-          You can only hold one unpaid reservation at a time. Pay for it, or cancel it if you no longer need it, then come back to
-          book this trip. Already sent your payment? Once it's submitted you can book again.
+          {waitingForCheck
+            ? "You can book another trip once the terminal staff confirm the payment for your reservation below. You'll get a notification when it's confirmed."
+            : "You can only hold one unpaid reservation at a time. Pay for it, or cancel it if you no longer need it. You can book this trip once the payment is confirmed."}
         </p>
       </div>
       <ul className="space-y-2">
@@ -268,7 +271,7 @@ function UnpaidHoldCard({ unpaid }) {
           to={`/passenger/my-bookings/${first.booking_id}`}
           className="text-center bg-brand-green-600 hover:bg-brand-green-500 text-white font-display font-semibold rounded-xl px-4 py-2.5 shadow-md shadow-brand-green-600/25 transition-colors"
         >
-          Pay or cancel it
+          {waitingForCheck ? "View it" : "Pay or cancel it"}
         </Link>
         <Link
           to="/passenger/my-bookings"

@@ -7,7 +7,7 @@ import ConfirmDialog from "../../components/common/ConfirmDialog";
 import PaymentPanel from "../../components/passenger/PaymentPanel";
 import PaymentStatusCard from "../../components/passenger/PaymentStatusCard";
 import * as api from "../../lib/api";
-import { formatDate, formatTime, formatPeso, receiptNumber, bookingReference } from "../../lib/format";
+import { formatDate, formatTime, formatPeso, receiptNumber, bookingReference, PAID_BOOKING_STATUSES } from "../../lib/format";
 import { CATEGORY_LABELS, DISCOUNT_PERCENT } from "../../lib/discounts";
 
 export default function BookingDetails() {
@@ -108,8 +108,12 @@ export default function BookingDetails() {
   const busNotLeft = ["Scheduled", "Boarding"].includes(booking.trip_status);
   // Same rule the server enforces (bookingRules.whyStatusChangeNotAllowed).
   const canCancel = ["Reserved", "Confirmed"].includes(booking.status) && busNotLeft;
-  // A position only exists once the driver is sharing GPS (Boarding onward).
-  const canTrack = holdsSeat && ["Boarding", "In Transit"].includes(booking.trip_status);
+  // A position only exists once the driver is sharing GPS (Boarding onward),
+  // and live tracking is for PAID seats only (Confirmed = payment verified
+  // or cash taken) — same rule as LiveTracking.jsx.
+  const trackingTime = holdsSeat && ["Boarding", "In Transit"].includes(booking.trip_status);
+  const canTrack = trackingTime && PAID_BOOKING_STATUSES.includes(booking.status);
+  const trackingLocked = trackingTime && !canTrack;
 
   const reference = paymentInfo?.booking_reference ?? bookingReference(booking.booking_id, booking.booked_at);
   const notice =
@@ -223,6 +227,11 @@ export default function BookingDetails() {
         >
           <MapPin className="w-4 h-4" /> Track this bus live
         </Link>
+      )}
+      {trackingLocked && (
+        <p className="flex items-center justify-center gap-2 text-sm text-ink-600 rounded-xl border border-dashed border-slate-300 py-3 px-4 text-center">
+          <MapPin className="w-4 h-4 shrink-0" /> Live tracking unlocks once your payment is confirmed.
+        </p>
       )}
       {canCancel && (
         <button

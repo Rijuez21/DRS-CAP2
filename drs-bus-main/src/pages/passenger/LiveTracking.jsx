@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
-import { Satellite, WifiOff, LocateFixed, Clock, MapPin, MapPinned } from "lucide-react";
+import { Link, useParams } from "react-router-dom";
+import { Satellite, WifiOff, LocateFixed, Clock, MapPin, MapPinned, Lock } from "lucide-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "../../lib/leafletDefaultIcon"; // makes the default pin marker load (see that file)
@@ -10,7 +10,7 @@ import LocationPermissionCard from "../../components/common/LocationPermissionCa
 import { useGeolocation } from "../../hooks/useGeolocation";
 import * as api from "../../lib/api";
 import { getSocket } from "../../lib/socket";
-import { mapTrip, formatTime } from "../../lib/format";
+import { mapTrip, formatTime, PAID_BOOKING_STATUSES } from "../../lib/format";
 import { distanceKm, formatDistance, timeAgo } from "../../lib/geo";
 import { addStopMarker } from "../../lib/stopMarkers";
 import { keepMapSized } from "../../lib/leafletAutoResize";
@@ -38,15 +38,27 @@ export default function LiveTracking() {
   const stopMarkerRef = useRef(null);
   const stopFittedRef = useRef(false);
 
-  // 1. Resolve the trip -> bus_id, then get the last known point.
+  // Live tracking is for PAID seats only: the passenger needs a Confirmed
+  // (payment verified / cash taken) or Boarded booking on this trip. null =
+  // still checking; { bookingId } = locked (points them at that booking).
+  const [locked, setLocked] = useState(null);
+  const [allowed, setAllowed] = useState(false);
+
+  // 1. Resolve the trip -> bus_id, check the passenger paid, then get the
+  // last known point.
   useEffect(() => {
     let cancelled = false;
-    api
-      .getTrip(tripId)
-      .then((row) => {
+    Promise.all([api.getTrip(tripId), api.getBookings({ tripId })])
+      .then(([row, mine]) => {
         if (cancelled) return null;
         const mapped = mapTrip(row);
         setTrip(mapped);
+        if (!mine.some((b) => PAID_BOOKING_STATUSES.includes(b.status))) {
+          const live = mine.find((b) => !["Cancelled", "No-Show"].includes(b.status)) ?? null;
+          setLocked({ bookingId: live?.booking_id ?? null });
+          return null;
+        }
+        setAllowed(true);
         return api.getLatestLocation(mapped.busId).catch(() => null);
       })
       .then((point) => {
@@ -71,7 +83,7 @@ export default function LiveTracking() {
   // room membership when a connection blips, which used to freeze this map
   // until a manual refresh.
   useEffect(() => {
-    if (!trip?.busId) return undefined;
+    if (!trip?.busId || !allowed) return undefined;
     const socket = getSocket();
     const join = () => socket.emit("subscribe:bus", trip.busId);
     join();
@@ -91,7 +103,7 @@ export default function LiveTracking() {
       socket.off("location:update", handleUpdate);
       socket.off("connect", join);
     };
-  }, [trip?.busId]);
+  }, [trip?.busId, allowed]);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 15000);
@@ -189,7 +201,7 @@ export default function LiveTracking() {
   const stopDistance = stop && position ? distanceKm(position, stop) : null;
 
   // What the trip's own status means for tracking, in plain words.
-  const tripNotice = !trip
+  const tripNotice = !trip || locked
     ? null
     : trip.status === "Scheduled"
       ? `This bus departs at ${trip.departureTime}. Live tracking starts when boarding opens.`
@@ -221,8 +233,24 @@ export default function LiveTracking() {
         </p>
       )}
 
-      {!position ? (
-        !tripNotice && (
+      {locked ? (
+        <div role="alert" className="flex flex-col items-center text-center gap-3 py-12 px-4 rounded-2xl border border-dashed border-slate-200 bg-white/60">
+          <Lock className="w-8 h-8 text-ink-600/50" strokeWidth={1.5} />
+          <p className="font-display font-semibold">Live tracking unlocks once your payment is confirmed</p>
+          <p className="text-sm text-ink-600 max-w-xs">
+            {locked.bookingId
+              ? "Pay for your seat (or wait for the terminal staff to confirm the payment you sent), then come back here."
+              : "You don't have a paid seat on this trip."}
+          </p>
+          <Link
+            to={locked.bookingId ? `/passenger/my-bookings/${locked.bookingId}` : "/passenger/my-bookings"}
+            className="bg-brand-green-600 hover:bg-brand-green-500 text-white font-display font-semibold rounded-xl px-4 py-2.5"
+          >
+            {locked.bookingId ? "Go to my booking" : "My Bookings"}
+          </Link>
+        </div>
+      ) : !position ? (
+        !tripNotice && allowed && (
           <div className="flex flex-col items-center text-center gap-2 py-16 rounded-2xl border border-dashed border-slate-200 bg-white/60">
             <WifiOff className="w-8 h-8 text-ink-600/50" strokeWidth={1.5} />
             <p className="font-display font-semibold">Waiting for the bus's location</p>

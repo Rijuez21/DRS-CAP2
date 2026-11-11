@@ -675,8 +675,10 @@ describe("17. existing features still work", () => {
     assert.equal(blockedCash.status, 409, "no double charge while online proof is under review");
     assert.ok(pend.data.submission_id);
 
-    const [b3] = await book(p, tripId, ["4"]);
-    const c = await api("PATCH", `/api/bookings/${b3}/status`, { token: p.token, body: { status: "Cancelled" } });
+    // (Another passenger: p's seat 3 isn't confirmed paid yet, so p can't book again.)
+    const p3 = await createPassenger();
+    const [b3] = await book(p3, tripId, ["4"]);
+    const c = await api("PATCH", `/api/bookings/${b3}/status`, { token: p3.token, body: { status: "Cancelled" } });
     assert.equal(c.status, 200);
 
     const trips = await api("GET", "/api/trips?scope=bookable");
@@ -726,14 +728,16 @@ describe("cash and overpayments", () => {
 
 describe("staff queue & dashboard", () => {
   test("filters, search by booking reference, priority sort and summary counts", async () => {
+    // Two passengers: one account can't book again until its payment is
+    // confirmed, and these proofs must stay open for the queue checks.
     const p = await createPassenger("Zed Searchable");
+    const p2 = await createPassenger("Amy Searchable");
     const soon = await createTrip({ hours: 2 });
     const later = await createTrip({ hours: 48 });
-    // Each paid before the next booking: one unpaid reservation at a time.
     const [bLater] = await book(p, later.tripId);
     const rLater = await submit(p, proof({ bookingIds: [bLater], methodId: gcash }));
-    const [bSoon] = await book(p, soon.tripId);
-    const rSoon = await submit(p, proof({ bookingIds: [bSoon], methodId: bank, reference: "BANKREF9" + Date.now() }));
+    const [bSoon] = await book(p2, soon.tripId);
+    const rSoon = await submit(p2, proof({ bookingIds: [bSoon], methodId: bank, reference: "BANKREF9" + Date.now() }));
     const prio = await api("GET", "/api/payments/queue?status=open&sort=priority", { token: staff.token });
     const order = prio.data.map((s) => s.submission_id);
     assert.ok(order.indexOf(rSoon.data.submission_id) < order.indexOf(rLater.data.submission_id), "departing sooner first");
@@ -803,11 +807,12 @@ describe("leaving the payment step before paying", () => {
     assert.equal(paid.status, 409);
     assert.equal((await bookingRow(paidId)).status, "Reserved");
 
-    const [unpaidId] = await book(p, tripId);
+    const owner = await createPassenger("Owner Of Seat");
+    const [unpaidId] = await book(owner, tripId);
     const stranger = await createPassenger("Not Mine");
     assert.equal((await api("POST", "/api/bookings/abandon", { token: stranger.token, body: { bookingIds: [unpaidId] } })).status, 404);
     assert.equal((await api("POST", "/api/bookings/abandon", { token: staff.token, body: { bookingIds: [unpaidId] } })).status, 403);
-    assert.equal((await api("POST", "/api/bookings/abandon", { token: p.token, body: { bookingIds: [] } })).status, 400);
+    assert.equal((await api("POST", "/api/bookings/abandon", { token: owner.token, body: { bookingIds: [] } })).status, 400);
     assert.equal((await bookingRow(unpaidId)).status, "Reserved");
   });
 });
@@ -831,8 +836,16 @@ describe("one unpaid reservation at a time", () => {
     assert.match(refused.data.error, /unpaid reservation/);
     assert.equal((await api("GET", `/api/trips/${second.tripId}/seats`)).data.bookedSeats.length, 0, "nothing was booked");
 
-    // Proof sent = the passenger's part is done.
-    assert.equal((await submit(p, proof({ bookingIds: [held], methodId: gcash }))).status, 201);
+    // Proof sent but not yet checked: still blocked, with a "being checked" message.
+    const sent = await submit(p, proof({ bookingIds: [held], methodId: gcash }));
+    assert.equal(sent.status, 201);
+    const waiting = await api("POST", "/api/bookings", { token: p.token, body: { tripId: second.tripId, seatNumbers: ["1"] } });
+    assert.equal(waiting.status, 409);
+    assert.equal(waiting.data.unpaid[0].under_review, true);
+    assert.match(waiting.data.error, /being checked/);
+
+    // Staff confirm the payment: free to book again.
+    assert.equal((await verify(staff.token, sent.data.submission_id)).status, 200);
     assert.deepEqual((await api("GET", "/api/bookings/unpaid", { token: p.token })).data.unpaid, []);
     const [next] = await book(p, second.tripId, ["1"]);
 

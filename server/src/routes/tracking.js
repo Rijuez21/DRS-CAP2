@@ -271,6 +271,20 @@ export function buildTrackingRouter(io) {
   trackingRouter.get("/:busId/latest", authenticate, async (req, res) => {
     if (!/^\d+$/.test(req.params.busId)) return res.status(404).json({ error: "No location data for this bus yet" });
     try {
+      // Passengers track only a bus they've PAID to ride: a Confirmed
+      // (payment verified / cash taken) or Boarded seat on its current trip.
+      // (Flag a Bus doesn't use this — it lists moving buses via /in-transit.)
+      if (req.user.role === "passenger") {
+        const [[paid]] = await pool.query(
+          `SELECT 1 FROM bookings bk JOIN trips tr ON tr.trip_id = bk.trip_id
+           WHERE bk.passenger_id = ? AND tr.bus_id = ? AND bk.status IN ('Confirmed', 'Boarded')
+             AND tr.status IN ('Boarding', 'In Transit')
+           LIMIT 1`,
+          [req.user.id, req.params.busId]
+        );
+        if (!paid) return res.status(403).json({ error: "Live tracking is available once your payment for this trip is confirmed." });
+      }
+
       const cached = await redis.get(`cache:bus:${req.params.busId}:location`).catch(() => null);
       if (cached) return res.json(JSON.parse(cached));
 
