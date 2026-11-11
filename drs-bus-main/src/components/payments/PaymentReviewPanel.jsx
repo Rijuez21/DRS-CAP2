@@ -51,6 +51,7 @@ const ACTION_LABELS = {
   refund_confirmed: "Refund confirmed sent",
   refund_cancelled: "Refund cancelled",
   seat_released: "Seat released (deadline passed)",
+  checkout_abandoned: "Seat released (passenger left before paying)",
   legacy_backfill: "Imported from the old payment system",
 };
 

@@ -1,9 +1,12 @@
-import { useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useRef, useState } from "react";
+import { useBlocker, useLocation, useNavigate } from "react-router-dom";
 import { CheckCircle2, Ticket } from "lucide-react";
 import StatusBadge from "../../components/common/StatusBadge";
+import ConfirmDialog from "../../components/common/ConfirmDialog";
+import InlineAlert from "../../components/common/InlineAlert";
 import BookingSteps from "../../components/passenger/BookingSteps";
 import PaymentPanel from "../../components/passenger/PaymentPanel";
+import * as api from "../../lib/api";
 import { LAST_BOOKING_KEY } from "../../lib/storageKeys";
 import { bookingReference } from "../../lib/format";
 import { discountedFare, CATEGORY_LABELS, DISCOUNT_PERCENT } from "../../lib/discounts";
@@ -31,6 +34,53 @@ export default function BookingConfirmed() {
   // Fresh statuses from the payment panel (the sessionStorage copy still
   // says Reserved after staff verify the payment and confirm the seats).
   const [liveStatus, setLiveStatus] = useState({});
+  // The panel's per-seat rows (null until loaded): `payment` is set once
+  // any proof was sent or cash taken.
+  const [paymentItems, setPaymentItems] = useState(null);
+
+  // Going BACK from here (browser/phone back, or the Trips link) used to
+  // leave the seats Reserved without a payment — on the admin Reservations
+  // page and blocking other passengers — until the payment hold ran out.
+  // While the seats are still an unpaid hold, ask first; going ahead puts
+  // them back on sale. "View My Bookings" / "Back to Home" keep the
+  // reservation (the passenger can still pay from My Bookings or at the
+  // terminal before the deadline).
+  const unpaidHold =
+    bookings.length > 0 &&
+    (paymentItems
+      ? paymentItems.every((i) => i.booking_status === "Reserved" && !i.payment)
+      : bookings.every((b) => b.status === "Reserved"));
+  const leavingRef = useRef(false);
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation, historyAction }) =>
+      unpaidHold &&
+      !leavingRef.current &&
+      currentLocation.pathname !== nextLocation.pathname &&
+      (historyAction === "POP" || nextLocation.pathname.startsWith("/passenger/trips"))
+  );
+  const [releasing, setReleasing] = useState(false);
+  const [leaveError, setLeaveError] = useState("");
+
+  async function releaseAndLeave() {
+    if (releasing) return;
+    setReleasing(true);
+    setLeaveError("");
+    try {
+      await api.abandonBookings(bookings.map((b) => b.booking_id));
+    } catch (err) {
+      // 409 = a payment exists after all (sent from another tab, or cash at
+      // the counter), 404 = already gone: either way nothing to release.
+      if (err.status !== 409 && err.status !== 404) {
+        setReleasing(false);
+        setLeaveError(`Your seats weren't released: ${err.message}`);
+        blocker.reset?.();
+        return;
+      }
+    }
+    sessionStorage.removeItem(LAST_BOOKING_KEY);
+    leavingRef.current = true;
+    blocker.proceed?.();
+  }
 
   if (bookings.length === 0) {
     return (
@@ -56,13 +106,36 @@ export default function BookingConfirmed() {
 
   function handlePaymentStatus(items) {
     setLiveStatus(Object.fromEntries(items.map((i) => [i.booking_id, i.booking_status])));
+    setPaymentItems(items);
   }
+
+  const seatList = bookings.map((b) => b.seat_number).join(", ");
 
   return (
     <div className="page-enter max-w-md mx-auto px-4 py-8 space-y-5">
       <div className="flex justify-center">
         <BookingSteps current={2} />
       </div>
+
+      <InlineAlert type="error" message={leaveError} onDismiss={() => setLeaveError("")} />
+
+      {blocker.state === "blocked" && (
+        <ConfirmDialog
+          title="Leave without paying?"
+          confirmLabel={bookings.length === 1 ? "Release seat & go back" : "Release seats & go back"}
+          cancelLabel="Stay and pay"
+          busyLabel="Releasing…"
+          busy={releasing}
+          onConfirm={releaseAndLeave}
+          onCancel={() => blocker.reset()}
+        >
+          <p>
+            {bookings.length === 1 ? `Seat ${seatList} is` : `Seats ${seatList} are`} only held while you pay. If you go back now, the
+            reservation is cancelled and {bookings.length === 1 ? "the seat goes" : "the seats go"} back on sale.
+          </p>
+          <p className="mt-2">To keep it and pay at the terminal instead, stay and tap “View My Bookings”.</p>
+        </ConfirmDialog>
+      )}
 
       <div className="flex flex-col items-center text-center gap-2 pt-2">
         <span className="w-16 h-16 rounded-full bg-brand-green-600 text-white flex items-center justify-center ring-8 ring-brand-green-500/15 shadow-lg shadow-brand-green-600/30 mb-2">

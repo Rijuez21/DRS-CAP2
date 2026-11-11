@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { createHash, randomBytes, randomInt } from "node:crypto";
 import { pool } from "../db/pool.js";
 import { signToken, authenticate, requireRole, invalidateAccount } from "../middleware/auth.js";
+import { startSession, endSession } from "../services/sessions.js";
 import { isReservedEmail } from "../services/bookingRules.js";
 import { rateLimit, failureLimiter } from "../services/rateLimit.js";
 import { whyPasswordWeak, cleanEmail, cleanName, cleanPhMobile, PASSWORD_MAX } from "../services/passwordPolicy.js";
@@ -122,7 +123,9 @@ authRouter.post("/login", loginRequestsPerIp, async (req, res) => {
       return res.status(403).json({ error: `Confirm your email first. Enter the 6-digit code we sent to ${account.email}.`, code: "EMAIL_NOT_VERIFIED" });
     }
 
-    const token = signToken({ id: account.id, role, passwordHash: account.password_hash });
+    // A new session signs out any other device on this account.
+    const sid = await startSession(role, account.id);
+    const token = signToken({ id: account.id, role, passwordHash: account.password_hash, sid });
     const user = { id: account.id, name: account.name, email: account.email, role };
     // Shown on the passenger Profile page.
     if (role === "passenger") user.phoneno = account.phoneno ?? null;
@@ -254,7 +257,8 @@ authRouter.post("/verify-email", verifyPerIp, async (req, res) => {
     );
     if (result.affectedRows !== 1) return res.status(400).json({ error: VERIFY_CODE_INVALID });
     await pool.query(`UPDATE commuters SET email_verified = TRUE WHERE commuter_id = ?`, [account.id]);
-    const token = signToken({ id: account.id, role: "passenger", passwordHash: account.password_hash });
+    const sid = await startSession("passenger", account.id);
+    const token = signToken({ id: account.id, role: "passenger", passwordHash: account.password_hash, sid });
     res.json({ token, user: { id: account.id, name: account.name, email: account.email, role: "passenger", phoneno: account.phoneno ?? null } });
   } catch (err) {
     console.error(err);
@@ -458,8 +462,27 @@ async function loadOwnAccount(user, columns = "") {
   return { config, row };
 }
 
+// GET /api/auth/session — "am I still signed in?" AuthContext asks when the
+// tab comes back into view, so a device whose account was signed in on
+// another phone finds out right away instead of on its next action.
+// authenticate does all the work: 204 = still valid, 401 = why not.
+authRouter.get("/session", authenticate, (req, res) => res.status(204).end());
+
+// POST /api/auth/logout — Log Out. Ends this device's session on the server
+// too, so the token stops working even if a copy of it is still around.
+authRouter.post("/logout", authenticate, async (req, res) => {
+  try {
+    await endSession(req.user.role, req.user.id, req.sessionId);
+    res.status(204).end();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Couldn't log out. Try again." });
+  }
+});
+
 // The new password changes every token's version (middleware/auth.js), so
-// other devices are signed out; this one gets a fresh token back.
+// other devices are signed out; this one gets a fresh token back (same
+// session, so it stays the account's one signed-in device).
 authRouter.post("/change-password", authenticate, async (req, res) => {
   const { currentPassword, newPassword } = req.body ?? {};
   if (typeof currentPassword !== "string" || !currentPassword) return res.status(400).json({ error: "Enter your current password" });
@@ -483,7 +506,7 @@ authRouter.post("/change-password", authenticate, async (req, res) => {
     await wrongCurrentPassword.reset(key);
     invalidateAccount(req.user.role, row.id);
     sendMail({ to: row.email, ...passwordChangedEmail({ name: row.name, when: new Date() }) }); // not awaited; never throws
-    res.json({ message: "Password changed. You've been signed out on your other devices.", token: signToken({ id: row.id, role: req.user.role, passwordHash }) });
+    res.json({ message: "Password changed. You've been signed out on your other devices.", token: signToken({ id: row.id, role: req.user.role, passwordHash, sid: req.sessionId }) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Couldn't change the password. Try again." });

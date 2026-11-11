@@ -17,6 +17,51 @@ after(teardown);
 
 const login = (email, password, role) => api("POST", "/api/auth/login", { body: { email, password, role } });
 
+describe("one signed-in device per account", () => {
+  test("signing in on a second device signs the first one out, with a reason", async () => {
+    const p = await createPassenger("Two Phones");
+    assert.equal((await api("GET", "/api/payments/mine", { token: p.token })).status, 200);
+    const second = await login(p.email, PASSWORD, "passenger");
+    assert.equal(second.status, 200);
+    const old = await api("GET", "/api/payments/mine", { token: p.token });
+    assert.equal(old.status, 401);
+    assert.match(old.data.error, /another device/);
+    assert.equal((await api("GET", "/api/payments/mine", { token: second.data.token })).status, 200);
+    assert.equal((await api("GET", "/api/auth/session", { token: second.data.token })).status, 204);
+  });
+
+  test("staff and admin accounts are limited the same way", async () => {
+    const s = await createStaff("Desk Twice", "terminal_staff");
+    const [[row]] = await db.query(`SELECT email FROM staff_accounts WHERE staff_id = ?`, [s.id]);
+    assert.equal((await login(row.email, PASSWORD, "staff")).status, 200);
+    assert.equal((await api("GET", "/api/payments/summary", { token: s.token })).status, 401);
+  });
+
+  test("the first device's live socket is told it was signed out", async () => {
+    const p = await createPassenger("Socket Phone");
+    const socket = ioClient(BASE, { transports: ["websocket"], auth: { token: p.token } });
+    const revoked = new Promise((resolve) => socket.on("session:revoked", resolve));
+    await new Promise((r) => socket.on("connect", r));
+    await sleep(100);
+    assert.equal((await login(p.email, PASSWORD, "passenger")).status, 200);
+    const payload = await Promise.race([revoked, sleep(2000).then(() => null)]);
+    socket.close();
+    assert.ok(payload, "session:revoked was not received");
+    assert.match(payload.message, /another device/);
+  });
+
+  test("logging out ends the session; a password change keeps this device signed in", async () => {
+    const p = await createPassenger("Leaver");
+    assert.equal((await api("POST", "/api/auth/logout", { token: p.token })).status, 204);
+    assert.equal((await api("GET", "/api/payments/mine", { token: p.token })).status, 401);
+
+    const again = await login(p.email, PASSWORD, "passenger");
+    const changed = await api("POST", "/api/auth/change-password", { token: again.data.token, body: { currentPassword: PASSWORD, newPassword: "Other-pass-8812" } });
+    assert.equal(changed.status, 200, JSON.stringify(changed.data));
+    assert.equal((await api("GET", "/api/payments/mine", { token: changed.data.token })).status, 200);
+  });
+});
+
 describe("revoked access stops working immediately", () => {
   test("demoted admin's old token loses admin access", async () => {
     const other = await createStaff("Second Admin", "admin");

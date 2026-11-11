@@ -330,6 +330,18 @@ const STATEMENTS = [
     FOREIGN KEY (corrected_by) REFERENCES staff_accounts(staff_id),
     UNIQUE KEY one_remittance_per_trip (trip_id)
   )`,
+
+  // ---- One signed-in device per account (middleware/auth.js) ------------
+  // New table only; see the matching comment in schema.sql. Tokens issued
+  // before this existed carry no session id and are refused, so everyone
+  // signs in once more after the deploy.
+  `CREATE TABLE IF NOT EXISTS auth_sessions (
+    account_kind VARCHAR(12) NOT NULL,
+    account_id INT NOT NULL,
+    session_id CHAR(32) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (account_kind, account_id)
+  )`,
 ];
 
 // ---- One passenger account per mobile number (routes/auth.js) -----------

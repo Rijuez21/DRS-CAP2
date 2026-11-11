@@ -81,14 +81,17 @@ test("approving a student ID gives one year; the first seat booked is 20% off", 
   const pay = await api("GET", `/api/payments/booking/${own}`, { token: p.token });
   assert.equal(pay.data.amount_due, 280);
 
+  // Counter cash for the discounted seat accepts the discounted fare.
+  const cash = await api("POST", `/api/bookings/${own}/counter-payment`, { token: staff.token, body: { cashReceived: 280 } });
+  assert.equal(cash.status, 200, JSON.stringify(cash.data));
+  // (Both seats paid, so the one-unpaid-reservation rule lets them book again.)
+  const cashCompanion = await api("POST", `/api/bookings/${companion}/counter-payment`, { token: staff.token, body: { cashReceived: 350 } });
+  assert.equal(cashCompanion.status, 200, JSON.stringify(cashCompanion.data));
+
   // A second booking on the same trip doesn't get a second discounted seat.
   const [later] = await book(p, tripId, ["13"]);
   const laterRow = await api("GET", `/api/bookings/${later}`, { token: p.token });
   assert.equal(laterRow.data.discount_category, null);
-
-  // Counter cash for the discounted seat accepts the discounted fare.
-  const cash = await api("POST", `/api/bookings/${own}/counter-payment`, { token: staff.token, body: { cashReceived: 280 } });
-  assert.equal(cash.status, 200, JSON.stringify(cash.data));
 });
 
 test("booking 6 seats discounts only the first; the other 5 are regular fare", async () => {
@@ -121,7 +124,11 @@ test("two bookings sent at the same moment can't both get a discounted seat", as
   const results = await Promise.all(
     [["31", "32", "33"], ["34", "35", "36"]].map((seatNumbers) => api("POST", "/api/bookings", { token: p.token, body: { tripId, seatNumbers } }))
   );
-  for (const r of results) assert.equal(r.status, 201, JSON.stringify(r.data));
+  // The first one through holds an unpaid reservation, so the other is
+  // refused outright (one unpaid reservation at a time) — and either way
+  // only one seat can carry the discount.
+  assert.deepEqual(results.map((r) => r.status).sort(), [201, 409], JSON.stringify(results.map((r) => r.data)));
+  assert.equal(results.find((r) => r.status === 409).data.code, "UNPAID_BOOKING");
   const [[{ discounted }]] = await db.query(
     `SELECT COUNT(*) AS discounted FROM bookings WHERE trip_id = ? AND passenger_id = ? AND discount_category IS NOT NULL`,
     [tripId, p.id]

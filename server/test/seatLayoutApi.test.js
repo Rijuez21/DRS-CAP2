@@ -48,7 +48,10 @@ async function tripOn(busId, { hours = 24, status = "Scheduled" } = {}) {
   return trip.insertId;
 }
 
-const bookSeats = (tripId, seatNumbers) => api("POST", "/api/bookings", { token: passenger.token, body: { tripId, seatNumbers } });
+// A fresh passenger per booking: one account may only hold one unpaid
+// reservation at a time, and these tests are about seats, not payments.
+const bookSeats = async (tripId, seatNumbers) =>
+  api("POST", "/api/bookings", { token: (await createPassenger("Layout Rider")).token, body: { tripId, seatNumbers } });
 
 describe("saving a layout", () => {
   test("capacity is derived from the layout's seats", async () => {

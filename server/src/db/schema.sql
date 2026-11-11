@@ -512,3 +512,19 @@ CREATE TABLE IF NOT EXISTS trip_remittances (
   FOREIGN KEY (corrected_by) REFERENCES staff_accounts(staff_id),
   UNIQUE KEY one_remittance_per_trip (trip_id)
 );
+
+-- addition: one signed-in device per account. Every login token carries a
+-- session id (sid); the account's current one is kept here, and a token whose
+-- sid doesn't match is refused (middleware/auth.js). Signing in on another
+-- device replaces the row, which signs the previous device out; logging out
+-- deletes it. account_kind is the table the id belongs to: 'passenger'
+-- (commuters), 'driver', 'staff' (staff_accounts, terminal staff AND admins,
+-- who share one id space) or 'owner' (bus_owners) — no FK because it points
+-- at a different table per kind.
+CREATE TABLE IF NOT EXISTS auth_sessions (
+  account_kind VARCHAR(12) NOT NULL,
+  account_id INT NOT NULL,
+  session_id CHAR(32) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (account_kind, account_id)
+);

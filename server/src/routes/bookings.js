@@ -8,6 +8,8 @@ import {
   insertSeatsAtomically,
   whyStatusChangeNotAllowed,
   firstFreeSeat,
+  findUnpaidHolds,
+  unpaidHoldMessage,
 } from "../services/bookingRules.js";
 import { notifyRecipient } from "../services/notify.js";
 import { emailCounterPaymentReceipt } from "../services/receiptEmail.js";
@@ -15,6 +17,7 @@ import { likeEscape } from "../services/validate.js";
 import { initialPaymentDeadline, bookingReference, toCentavos } from "../services/paymentRules.js";
 import { openRefundsForCancelledBooking } from "../services/paymentSweeper.js";
 import { logAudit } from "../services/audit.js";
+import { logPaymentEvent } from "../services/paymentAudit.js";
 import { activeDiscount, FARE_DUE_SQL } from "../services/discounts.js";
 
 export const bookingsRouter = Router();
@@ -155,6 +158,29 @@ bookingsRouter.get("/search", requireRole("staff", "admin"), async (req, res) =>
   }
 });
 
+// GET /api/bookings/unpaid — TripDetail.jsx. The passenger's own seats still
+// waiting for payment; while there are any, POST /api/bookings refuses a new
+// reservation, so the page says so before they pick seats.
+const unpaidHoldJson = (h) => ({
+  booking_id: h.booking_id,
+  booking_reference: bookingReference(h.booking_id, h.booked_at),
+  trip_id: h.trip_id,
+  seat_number: h.seat_number,
+  origin: h.origin,
+  destination: h.destination,
+  departure_time: h.departure_time,
+  payment_deadline: h.payment_deadline,
+});
+
+bookingsRouter.get("/unpaid", requireRole("passenger"), async (req, res) => {
+  try {
+    res.json({ unpaid: (await findUnpaidHolds(pool, req.user.id)).map(unpaidHoldJson) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to load your unpaid reservations" });
+  }
+});
+
 // GET /api/bookings/:id — BookingDetails.jsx. A passenger may only open
 // their own booking (booking ids are sequential, so they were guessable).
 bookingsRouter.get("/:id", authenticate, async (req, res) => {
@@ -210,7 +236,12 @@ bookingsRouter.post("/", requireRole("passenger"), async (req, res) => {
     const paymentDeadline = initialPaymentDeadline(trip.departure_time);
     const result = await insertSeatsAtomically(pool, {
       tripId, passengerId: req.user.id, passengerName, seats: parsed.seats, status: "Reserved", channel: "online", paymentDeadline, discountCategory,
+      refuseIfUnpaid: true,
     });
+    // One unpaid reservation at a time (bookingRules.findUnpaidHolds).
+    if (result.unpaid) {
+      return res.status(409).json({ error: unpaidHoldMessage(result.unpaid), code: "UNPAID_BOOKING", unpaid: result.unpaid.map(unpaidHoldJson) });
+    }
     if (result.conflictSeat) {
       return res.status(409).json({
         error: `Seat ${result.conflictSeat} was just taken by someone else. Nothing was booked — please pick another seat.`,
@@ -227,6 +258,68 @@ bookingsRouter.post("/", requireRole("passenger"), async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to create booking" });
+  }
+});
+
+// POST /api/bookings/abandon — BookingConfirmed.jsx. body: { bookingIds }.
+// The passenger went back from the payment step without paying: the seats
+// they just reserved go straight back on sale, instead of showing as
+// Reserved on the admin Reservations page (and in My Bookings) until the
+// payment hold runs out.
+//
+// Only the passenger's own online bookings that are still Reserved with NO
+// payment of any kind qualify. Once proof was sent or cash taken it's a real
+// reservation, cancelled the normal way. All seats or none.
+//
+// The rows are deleted, not Cancelled: a checkout abandoned before paying
+// never became a reservation, so it shouldn't leave a cancelled ticket
+// behind on either list. payment_audit_logs (no FK) keeps the record.
+bookingsRouter.post("/abandon", requireRole("passenger"), async (req, res) => {
+  const raw = Array.isArray(req.body?.bookingIds) ? req.body.bookingIds : [];
+  const ids = [...new Set(raw.map(Number))];
+  if (ids.length === 0 || ids.length > MAX_ONLINE_SEATS || !ids.every((id) => Number.isInteger(id) && id > 0)) {
+    return res.status(400).json({ error: "bookingIds must list the bookings to release" });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    // Same lock order as the payment routes and the sweeper: bookings first,
+    // so a proof being submitted right now either committed already (seen
+    // below) or waits and then finds the booking gone.
+    const [rows] = await conn.query(
+      `SELECT booking_id, passenger_id, trip_id, seat_number, status, channel FROM bookings WHERE booking_id IN (?) ORDER BY booking_id FOR UPDATE`,
+      [ids]
+    );
+    // Someone else's booking looks exactly like a missing one.
+    if (rows.length !== ids.length || rows.some((b) => b.passenger_id !== req.user.id)) {
+      await conn.rollback();
+      return res.status(404).json({ error: "Booking not found" });
+    }
+    const [payments] = await conn.query(`SELECT payment_id FROM payments WHERE booking_id IN (?) FOR UPDATE`, [ids]);
+    if (payments.length > 0 || rows.some((b) => b.status !== "Reserved" || b.channel !== "online")) {
+      await conn.rollback();
+      return res.status(409).json({ error: "A payment was already recorded for this reservation, so it was kept. Cancel it from My Bookings if you no longer need it." });
+    }
+
+    await conn.query(`DELETE FROM bookings WHERE booking_id IN (?)`, [ids]);
+    for (const b of rows) {
+      await logPaymentEvent(conn, {
+        actor: req.user,
+        action: "checkout_abandoned",
+        bookingId: b.booking_id,
+        reason: "Passenger left the payment step before paying; seat released",
+        details: { tripId: b.trip_id, seatNumber: b.seat_number },
+      });
+    }
+    await conn.commit();
+    res.json({ released: rows.map((b) => b.booking_id) });
+  } catch (err) {
+    await conn.rollback().catch(() => {});
+    console.error(err);
+    res.status(500).json({ error: "Couldn't release the seats. Try again." });
+  } finally {
+    conn.release();
   }
 });
 

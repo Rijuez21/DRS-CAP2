@@ -2,6 +2,7 @@ import { Link, Navigate, useLocation } from "react-router-dom";
 import { ShieldAlert } from "lucide-react";
 import { useAuth, AUTH_NOTICE_KEY } from "../../context/AuthContext";
 import { LOGIN_PATH, HOME_PATH, logoutPath } from "../../lib/rolePaths";
+import PageLoader from "../common/PageLoader";
 
 const ROLE_LABEL = { passenger: "passengers", driver: "drivers", staff: "terminal staff", admin: "administrators", owner: "bus owners" };
 
@@ -13,8 +14,12 @@ const ROLE_LABEL = { passenger: "passengers", driver: "drivers", staff: "termina
  * landing page with no idea why.
  */
 export default function RequireRole({ role, children }) {
-  const { user, signOut, signOutReason } = useAuth();
+  const { user, restoring, signOut, signOutReason } = useAuth();
   const location = useLocation();
+
+  // A new tab is still asking the other open tabs for their session
+  // (AuthContext) — wait a moment instead of bouncing to the login page.
+  if (!user && restoring) return <PageLoader />;
 
   // They just tapped Log Out: no "please log in" nag. Passengers go home;
   // driver/staff/admin go back to their own login page.

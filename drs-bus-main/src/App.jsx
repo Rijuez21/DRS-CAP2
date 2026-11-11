@@ -1,4 +1,4 @@
-import { BrowserRouter, useLocation } from 'react-router-dom'
+import { createBrowserRouter, RouterProvider, useLocation } from 'react-router-dom'
 import AppRoutes from './routes/AppRoutes'
 import { AuthProvider } from './context/AuthContext'
 import { useReloadOnNewVersion } from './hooks/useReloadOnNewVersion'
@@ -15,19 +15,25 @@ function VersionWatcher() {
 function GuardedRoutes() {
   const { pathname } = useLocation()
   return (
-    <ErrorBoundary resetKey={pathname}>
-      <AppRoutes />
-    </ErrorBoundary>
+    <>
+      <VersionWatcher />
+      <ErrorBoundary resetKey={pathname}>
+        <AppRoutes />
+      </ErrorBoundary>
+    </>
   )
 }
+
+// A data router (instead of <BrowserRouter>) so pages can use useBlocker —
+// the Book Ahead payment step asks before the back button abandons unpaid
+// seats (BookingConfirmed.jsx). The routes themselves still live in
+// AppRoutes' <Routes>, under this one catch-all.
+const router = createBrowserRouter([{ path: '*', element: <GuardedRoutes /> }])
 
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <VersionWatcher />
-        <GuardedRoutes />
-      </BrowserRouter>
+      <RouterProvider router={router} />
     </AuthProvider>
   )
 }

@@ -7,7 +7,8 @@ import BookingSteps from "../../components/passenger/BookingSteps";
 import InlineAlert from "../../components/common/InlineAlert";
 import { useAuth } from "../../context/AuthContext";
 import * as api from "../../lib/api";
-import { customSeatLayout, mapTrip, formatDate, stillSelectable } from "../../lib/format";
+import { customSeatLayout, mapTrip, formatDate, formatDateTime, stillSelectable } from "../../lib/format";
+import { groupBy } from "../../lib/groupBy";
 import { LAST_BOOKING_KEY } from "../../lib/storageKeys";
 
 const SEAT_REFRESH_MS = 30000; // pick up seats other people just bought while this page is open
@@ -69,6 +70,23 @@ export default function TripDetail() {
     };
   }, [tripId, refreshSeats]);
 
+  // One unpaid reservation at a time: while an earlier seat still waits for
+  // payment the server refuses a new booking, so say so before they pick
+  // seats. A failure here just skips the notice (the server still checks).
+  const [unpaid, setUnpaid] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getUnpaidBookings()
+      .then((d) => {
+        if (!cancelled) setUnpaid(d.unpaid ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Verified student / PWD / senior: one seat on this trip (theirs) is 20% off,
   // unless they already have a discounted seat on it. Display only — the
   // server applies it. A failure just means the full fare is shown.
@@ -106,6 +124,12 @@ export default function TripDetail() {
       sessionStorage.setItem(LAST_BOOKING_KEY, JSON.stringify(confirmation));
       navigate("/passenger/booking-confirmed", { replace: true, state: confirmation });
     } catch (err) {
+      // An earlier reservation is still unpaid (e.g. paid from another tab
+      // went the other way): swap the seat map for the explanation card.
+      if (err.status === 409 && err.data?.code === "UNPAID_BOOKING") {
+        setUnpaid(err.data.unpaid ?? []);
+        return;
+      }
       setSubmitError(err.message);
       // Someone took a seat first: nothing was booked. Refresh the map so
       // the taken seat greys out and is removed from the selection.
@@ -168,6 +192,8 @@ export default function TripDetail() {
             {trip.status === "In Transit" ? "Flag this bus instead" : "See other trips"}
           </Link>
         </div>
+      ) : unpaid.length > 0 ? (
+        <UnpaidHoldCard unpaid={unpaid} />
       ) : (
         <div className="lg:grid lg:grid-cols-[1fr_360px] lg:gap-6 lg:items-start space-y-5 lg:space-y-0">
           <div className="space-y-3">
@@ -201,6 +227,56 @@ export default function TripDetail() {
           />
         </div>
       )}
+    </div>
+  );
+}
+
+// Shown instead of the seat map while an earlier reservation is unpaid
+// (server rule: one unpaid reservation at a time).
+function UnpaidHoldCard({ unpaid }) {
+  const trips = groupBy(unpaid, (u) => u.trip_id);
+  const first = unpaid[0];
+  return (
+    <div role="alert" className="card p-5 space-y-4">
+      <div className="space-y-1">
+        <p className="font-display font-semibold flex items-center gap-2">
+          <span className="w-9 h-9 rounded-xl bg-brand-sunrise-400/20 flex items-center justify-center shrink-0">
+            <Info className="w-5 h-5 text-amber-700" />
+          </span>
+          Pay for your other reservation first
+        </p>
+        <p className="text-sm text-ink-600">
+          You can only hold one unpaid reservation at a time. Pay for it, or cancel it if you no longer need it, then come back to
+          book this trip. Already sent your payment? Once it's submitted you can book again.
+        </p>
+      </div>
+      <ul className="space-y-2">
+        {trips.map(([tripId, items]) => (
+          <li key={tripId} className="rounded-2xl bg-slate-50 border border-slate-100 px-4 py-3 text-sm">
+            <p className="font-semibold">
+              {items[0].origin} → {items[0].destination}
+            </p>
+            <p className="text-ink-600">
+              {formatDateTime(items[0].departure_time)} · Seat{items.length === 1 ? "" : "s"} {items.map((i) => i.seat_number).join(", ")}
+            </p>
+            <p className="text-[11px] font-mono text-ink-600">{items.map((i) => i.booking_reference).join(", ")}</p>
+          </li>
+        ))}
+      </ul>
+      <div className="flex flex-col sm:flex-row gap-2">
+        <Link
+          to={`/passenger/my-bookings/${first.booking_id}`}
+          className="text-center bg-brand-green-600 hover:bg-brand-green-500 text-white font-display font-semibold rounded-xl px-4 py-2.5 shadow-md shadow-brand-green-600/25 transition-colors"
+        >
+          Pay or cancel it
+        </Link>
+        <Link
+          to="/passenger/my-bookings"
+          className="text-center bg-white border border-slate-200 text-ink-900 font-display font-semibold rounded-xl px-4 py-2.5 hover:bg-slate-50 transition-colors"
+        >
+          My Bookings
+        </Link>
+      </div>
     </div>
   );
 }

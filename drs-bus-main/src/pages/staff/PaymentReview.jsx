@@ -38,6 +38,7 @@ const ACTIVITY_LABELS = {
   refund_confirmed: "confirmed a refund",
   refund_cancelled: "cancelled a refund",
   seat_released: "released an unpaid seat",
+  checkout_abandoned: "left before paying (seat released)",
 };
 
 // Payment Verification — shared by terminal staff (/staff/payments) and

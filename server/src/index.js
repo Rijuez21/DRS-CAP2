@@ -9,7 +9,8 @@ import { pool, pingDatabase } from "./db/pool.js";
 import { redis } from "./cache/redis.js";
 import { buildTripsRouter } from "./routes/trips.js";
 import { bookingsRouter, buildFlagRequestsRouter, attachBookingsIo } from "./routes/bookings.js";
-import { verifyToken, isDeployed } from "./middleware/auth.js";
+import { verifyToken, isDeployed, SIGNED_IN_ELSEWHERE } from "./middleware/auth.js";
+import { attachSessionsIo, sessionRoom, ensureSessionsTable } from "./services/sessions.js";
 import { busRoutesRouter } from "./routes/routes.js";
 import { authRouter } from "./routes/auth.js";
 import { busesRouter } from "./routes/fleet.js";
@@ -63,13 +64,23 @@ io.use(async (socket, next) => {
     // not suspended, password unchanged.
     const result = await verifyToken(token).catch(() => ({ error: true }));
     socket.data.user = result.user ?? null;
+    socket.data.sid = result.sid ?? null;
+    socket.data.authError = result.error ?? null;
   }
   next();
 });
 
 attachBookingsIo(io);
+attachSessionsIo(io);
 
 io.on("connection", (socket) => {
+  // One device per account (services/sessions.js): a login elsewhere finds
+  // this socket through its session room and signs it out. A device that
+  // reconnects with a token that was already replaced is told the same.
+  const signedIn = socket.data.user;
+  if (signedIn) socket.join(sessionRoom(signedIn.role, signedIn.id));
+  else if (socket.data.authError === SIGNED_IN_ELSEWHERE) socket.emit("session:revoked", { message: SIGNED_IN_ELSEWHERE });
+
   // A passenger viewing LiveTracking.jsx for bus #7 does:
   //   const socket = io(VITE_API_URL);
   //   socket.emit("subscribe:bus", tripBusId);
@@ -254,6 +265,10 @@ const departureReminders = startDepartureReminders(io);
 // SinoTrack GPS tracker(s) connect straight to this TCP port (GPS_TCP_PORT,
 // default 5013) — see services/gpsGateway.js.
 const gpsServer = startGpsGateway(io);
+
+// Sign-in needs the auth_sessions table (one device per account); make sure
+// it exists even if `npm run db:migrate` wasn't run after this deploy.
+await ensureSessionsTable().catch((err) => console.error("Couldn't create the auth_sessions table — logins will fail until `npm run db:migrate` runs:", err.message));
 
 const port = process.env.PORT || 4000;
 httpServer.listen(port, () => {

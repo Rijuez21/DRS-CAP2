@@ -58,8 +58,11 @@ async function request(path, { method = "GET", body, params } = {}) {
 
   if (!response.ok) {
     if (response.status === 401 && authToken) {
-      unauthorizedHandler?.();
-      throw Object.assign(new Error("Your session has expired. Please log in again."), { status: 401 });
+      // The server says why (expired, password changed, signed in on
+      // another device…); the login page shows that reason.
+      const reason = data?.error || "Your session has expired. Please log in again.";
+      unauthorizedHandler?.(reason);
+      throw Object.assign(new Error(reason), { status: 401 });
     }
     // .status and .data let a page react to specifics (e.g. conflictSeat)
     // while err.message stays the human-readable text to show.
@@ -96,6 +99,11 @@ export const resendVerification = (email) => request("/api/auth/resend-verificat
 export const changePassword = ({ currentPassword, newPassword }) =>
   request("/api/auth/change-password", { method: "POST", body: { currentPassword, newPassword } });
 export const updateMyProfile = ({ name, phoneno }) => request("/api/auth/me", { method: "PATCH", body: { name, phoneno } });
+// Ends this device's session on the server (AuthContext signOut).
+export const logout = () => request("/api/auth/logout", { method: "POST" });
+// Still signed in? A 401 signs the user out through onUnauthorized with the
+// server's reason (e.g. the account was signed in on another device).
+export const checkSession = () => request("/api/auth/session");
 export const closeMyAccount = (password) => request("/api/auth/me", { method: "DELETE", body: { password } });
 
 // ---- Passengers (admin) -------------------------------------------------
@@ -123,6 +131,14 @@ export const updateTripStatus = (tripId, status) =>
 // The passenger is taken from the login token, not sent from here.
 export const createBooking = ({ tripId, seatNumbers, passengerName }) =>
   request("/api/bookings", { method: "POST", body: { tripId, seatNumbers, passengerName } });
+
+// The passenger backed out of the payment step without paying: puts the
+// seats back on sale. Refused (409) once any payment exists for them.
+export const abandonBookings = (bookingIds) => request("/api/bookings/abandon", { method: "POST", body: { bookingIds } });
+
+// The passenger's seats still waiting for payment ({ unpaid: [...] }). While
+// any exist, createBooking is refused (409, code "UNPAID_BOOKING").
+export const getUnpaidBookings = () => request("/api/bookings/unpaid");
 
 // cashReceived = the counter's payment confirmation; the server refuses a
 // sale when it doesn't cover the fare.
@@ -171,8 +187,8 @@ export async function fetchReceiptObjectUrl(submissionId) {
     throw new Error("Can't reach the server. Check your connection and try again.");
   }
   if (!response.ok) {
-    if (response.status === 401 && authToken) unauthorizedHandler?.();
     const data = await response.json().catch(() => null);
+    if (response.status === 401 && authToken) unauthorizedHandler?.(data?.error);
     throw new Error(data?.error || `Couldn't load the receipt (${response.status})`);
   }
   return URL.createObjectURL(await response.blob());
@@ -226,8 +242,8 @@ export async function fetchDiscountIdObjectUrl(applicationId) {
     throw new Error("Can't reach the server. Check your connection and try again.");
   }
   if (!response.ok) {
-    if (response.status === 401 && authToken) unauthorizedHandler?.();
     const data = await response.json().catch(() => null);
+    if (response.status === 401 && authToken) unauthorizedHandler?.(data?.error);
     throw new Error(data?.error || `Couldn't load the ID photo (${response.status})`);
   }
   return URL.createObjectURL(await response.blob());
@@ -359,8 +375,8 @@ export async function downloadReportCsv(type, params) {
     throw new Error("Can't reach the server. Check your connection and try again.");
   }
   if (!response.ok) {
-    if (response.status === 401 && authToken) unauthorizedHandler?.();
     const data = await response.json().catch(() => null);
+    if (response.status === 401 && authToken) unauthorizedHandler?.(data?.error);
     throw new Error(data?.error || `Export failed (${response.status})`);
   }
   const blob = await response.blob();

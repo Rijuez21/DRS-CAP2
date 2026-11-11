@@ -729,9 +729,10 @@ describe("staff queue & dashboard", () => {
     const p = await createPassenger("Zed Searchable");
     const soon = await createTrip({ hours: 2 });
     const later = await createTrip({ hours: 48 });
+    // Each paid before the next booking: one unpaid reservation at a time.
     const [bLater] = await book(p, later.tripId);
-    const [bSoon] = await book(p, soon.tripId);
     const rLater = await submit(p, proof({ bookingIds: [bLater], methodId: gcash }));
+    const [bSoon] = await book(p, soon.tripId);
     const rSoon = await submit(p, proof({ bookingIds: [bSoon], methodId: bank, reference: "BANKREF9" + Date.now() }));
     const prio = await api("GET", "/api/payments/queue?status=open&sort=priority", { token: staff.token });
     const order = prio.data.map((s) => s.submission_id);
@@ -775,6 +776,85 @@ describe("staff queue & dashboard", () => {
     const list = await api("GET", "/api/notifications", { token: staff.token });
     assert.equal(list.status, 200);
     assert.ok(list.data.some((n) => n.type === "payment_review_new"));
+  });
+});
+
+describe("leaving the payment step before paying", () => {
+  test("releases the passenger's unpaid seats so others can book them", async () => {
+    const p = await createPassenger("Changed Mind");
+    const { tripId } = await createTrip();
+    const ids = await book(p, tripId, ["31", "32"]);
+    const r = await api("POST", "/api/bookings/abandon", { token: p.token, body: { bookingIds: ids } });
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    assert.deepEqual(r.data.released.sort(), [...ids].sort());
+    for (const id of ids) assert.equal(await bookingRow(id), undefined, "no Reserved (or Cancelled) row is left behind");
+    const [logs] = await db.query(`SELECT booking_id FROM payment_audit_logs WHERE action = 'checkout_abandoned' AND booking_id IN (?)`, [ids]);
+    assert.equal(logs.length, 2);
+    const other = await createPassenger("Next In Line");
+    await book(other, tripId, ["31"]);
+  });
+
+  test("is refused once a payment exists, and for someone else's booking", async () => {
+    const p = await createPassenger("Already Sent");
+    const { tripId } = await createTrip();
+    const [paidId] = await book(p, tripId);
+    assert.equal((await submit(p, proof({ bookingIds: [paidId], methodId: gcash }))).status, 201);
+    const paid = await api("POST", "/api/bookings/abandon", { token: p.token, body: { bookingIds: [paidId] } });
+    assert.equal(paid.status, 409);
+    assert.equal((await bookingRow(paidId)).status, "Reserved");
+
+    const [unpaidId] = await book(p, tripId);
+    const stranger = await createPassenger("Not Mine");
+    assert.equal((await api("POST", "/api/bookings/abandon", { token: stranger.token, body: { bookingIds: [unpaidId] } })).status, 404);
+    assert.equal((await api("POST", "/api/bookings/abandon", { token: staff.token, body: { bookingIds: [unpaidId] } })).status, 403);
+    assert.equal((await api("POST", "/api/bookings/abandon", { token: p.token, body: { bookingIds: [] } })).status, 400);
+    assert.equal((await bookingRow(unpaidId)).status, "Reserved");
+  });
+});
+
+describe("one unpaid reservation at a time", () => {
+  test("a second booking waits until the first is paid for or cancelled", async () => {
+    const p = await createPassenger("One At A Time");
+    const first = await createTrip();
+    const second = await createTrip();
+    const [held] = await book(p, first.tripId);
+
+    const listed = await api("GET", "/api/bookings/unpaid", { token: p.token });
+    assert.equal(listed.status, 200);
+    assert.deepEqual(listed.data.unpaid.map((u) => u.booking_id), [held]);
+    assert.match(listed.data.unpaid[0].booking_reference, /^DRS-\d{4}-\d{5}$/);
+
+    const refused = await api("POST", "/api/bookings", { token: p.token, body: { tripId: second.tripId, seatNumbers: ["1"] } });
+    assert.equal(refused.status, 409);
+    assert.equal(refused.data.code, "UNPAID_BOOKING");
+    assert.equal(refused.data.unpaid[0].booking_id, held);
+    assert.match(refused.data.error, /unpaid reservation/);
+    assert.equal((await api("GET", `/api/trips/${second.tripId}/seats`)).data.bookedSeats.length, 0, "nothing was booked");
+
+    // Proof sent = the passenger's part is done.
+    assert.equal((await submit(p, proof({ bookingIds: [held], methodId: gcash }))).status, 201);
+    assert.deepEqual((await api("GET", "/api/bookings/unpaid", { token: p.token })).data.unpaid, []);
+    const [next] = await book(p, second.tripId, ["1"]);
+
+    // That one is unpaid now; cancelling it frees the passenger again.
+    assert.equal((await api("POST", "/api/bookings", { token: p.token, body: { tripId: second.tripId, seatNumbers: ["2"] } })).status, 409);
+    assert.equal((await api("PATCH", `/api/bookings/${next}/status`, { token: p.token, body: { status: "Cancelled" } })).status, 200);
+    await book(p, second.tripId, ["2"]);
+  });
+
+  test("a rejected proof still counts as unpaid; once the hold lapses they can book again", async () => {
+    const p = await createPassenger("Rejected Once");
+    const { tripId } = await createTrip();
+    const [held] = await book(p, tripId, ["9"]);
+    const r = await submit(p, proof({ bookingIds: [held], methodId: gcash }));
+    const rej = await api("PATCH", `/api/payments/submissions/${r.data.submission_id}/reject`, { token: staff.token, body: { reason: "Receipt unreadable" } });
+    assert.equal(rej.status, 200, JSON.stringify(rej.data));
+    assert.equal((await api("POST", "/api/bookings", { token: p.token, body: { tripId, seatNumbers: ["10"] } })).status, 409);
+
+    await db.query(`UPDATE bookings SET payment_deadline = NOW() - INTERVAL 1 MINUTE WHERE booking_id = ?`, [held]);
+    await sleep(1200); // the sweeper releases it
+    assert.equal((await bookingRow(held)).status, "Cancelled");
+    await book(p, tripId, ["10"]);
   });
 });
 

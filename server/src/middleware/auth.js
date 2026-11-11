@@ -50,9 +50,17 @@ export function tokenVersion(passwordHash) {
   return createHmac("sha256", JWT_SECRET).update(String(passwordHash ?? "")).digest("base64url").slice(0, 16);
 }
 
-export function signToken({ id, role, passwordHash }) {
-  return jwt.sign({ id, role, ver: tokenVersion(passwordHash) }, JWT_SECRET, { algorithm: JWT_ALGORITHM, expiresIn: TOKEN_TTL });
+// sid = the login session the token belongs to (services/sessions.js). Only
+// the account's current session is accepted, so one device at a time.
+export function signToken({ id, role, passwordHash, sid }) {
+  return jwt.sign({ id, role, ver: tokenVersion(passwordHash), sid }, JWT_SECRET, { algorithm: JWT_ALGORITHM, expiresIn: TOKEN_TTL });
 }
+
+// Staff and admins share staff_accounts (one id space), so they share one
+// session row per account.
+export const accountKind = (role) => (role === "admin" ? "staff" : role);
+
+export const SIGNED_IN_ELSEWHERE = "You were signed out because your account was signed in on another device.";
 
 // Short cache so every API call doesn't cost an extra query; account
 // changes (role, suspension, deletion, password) take effect within this
@@ -68,16 +76,25 @@ export function invalidateAccount(role, id) {
 async function checkAccount(payload) {
   const config = ACCOUNTS[payload.role];
   if (!config || !Number.isInteger(payload.id)) return "Invalid token";
-  const key = `${payload.role}:${payload.id}:${payload.ver}`;
+  // Tokens from before one-device sessions existed have no sid.
+  if (typeof payload.sid !== "string" || !payload.sid) return "Your session has ended. Please log in again.";
+  const key = `${payload.role}:${payload.id}:${payload.ver}:${payload.sid}`;
   const hit = accountCache.get(key);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.reason;
   const [[row]] = await pool.query(config.sql, [payload.id]);
+  const [[session]] = await pool.query(`SELECT session_id FROM auth_sessions WHERE account_kind = ? AND account_id = ?`, [
+    accountKind(payload.role),
+    payload.id,
+  ]);
   let reason = null;
   if (!row) reason = "This account no longer exists";
   else if (config.staffRole && row.role !== config.staffRole) reason = "Your account's role has changed. Please log in again.";
   else if (payload.role === "driver" && row.duty_status === "Suspended") reason = "This driver account is suspended";
   else if (payload.role === "passenger" && row.suspended_at) reason = "This account is suspended. Contact the terminal office.";
   else if (!row.password_hash || payload.ver !== tokenVersion(row.password_hash)) reason = "Your password was changed. Please log in again.";
+  // No row: they logged out (or never logged in since this was added).
+  else if (!session) reason = "Your session has ended. Please log in again.";
+  else if (session.session_id !== payload.sid) reason = SIGNED_IN_ELSEWHERE;
   if (accountCache.size > 5000) accountCache.clear();
   accountCache.set(key, { at: Date.now(), reason });
   return reason;
@@ -101,7 +118,9 @@ export async function verifyToken(token) {
     console.error("Account check failed:", err.message);
     return { error: "Couldn't verify your session. Try again.", status: 503 };
   }
-  return { user: { id: payload.id, role: payload.role } };
+  // sid is kept beside user, not in it: req.user is passed around as an
+  // audit "actor" and the session id has no business in those logs.
+  return { user: { id: payload.id, role: payload.role }, sid: payload.sid };
 }
 
 // Verifies the `Authorization: Bearer <token>` header and attaches
@@ -116,6 +135,7 @@ export function authenticate(req, res, next) {
   verifyToken(token).then((result) => {
     if (result.error) return res.status(result.status ?? 401).json({ error: result.error });
     req.user = result.user;
+    req.sessionId = result.sid;
     next();
   }, next);
 }
