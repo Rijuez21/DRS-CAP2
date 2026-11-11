@@ -45,9 +45,18 @@ export function decimal(value, { label, min, max, nullable = true }) {
   return { value: n };
 }
 
+// A date-time with no zone ("2026-11-11 22:00:00" or "2026-11-11T22:00",
+// what the admin's datetime-local input sends) is Philippine time — the
+// same meaning every DATETIME in the database has (db/pool.js). Before,
+// new Date() read it in the SERVER's zone: on Railway (UTC) a 10:00 PM
+// departure became 6:00 AM the next morning. Values with a Z or an offset
+// keep their own meaning.
+const NAIVE_DATE_TIME = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(:\d{2}(\.\d+)?)?$/;
+
 export function dateTime(value, { label }) {
   if (typeof value !== "string" && !(value instanceof Date)) return { error: `${label} must be a date and time` };
-  const d = new Date(value);
+  const naive = typeof value === "string" ? NAIVE_DATE_TIME.exec(value.trim()) : null;
+  const d = naive ? new Date(`${naive[1]}T${naive[2]}${naive[3] ?? ":00"}+08:00`) : new Date(value);
   if (Number.isNaN(d.getTime())) return { error: `${label} must be a valid date and time` };
   const year = d.getFullYear();
   if (year < 2000 || year > 2100) return { error: `${label} is out of range` };

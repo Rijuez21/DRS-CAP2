@@ -4,7 +4,7 @@ import { test, before, after, describe } from "node:test";
 import assert from "node:assert/strict";
 import { io as ioClient } from "socket.io-client";
 import { setup, teardown, api, db, createStaff, createPassenger, createDriver, createTrip, BASE, PASSWORD, sleep } from "./helpers.js";
-import { csvCell, likeEscape } from "../src/services/validate.js";
+import { csvCell, likeEscape, dateTime } from "../src/services/validate.js";
 import { whyPasswordWeak } from "../src/services/passwordPolicy.js";
 import { describeDevice, cleanDeviceId } from "../src/services/device.js";
 import { driverFirstName, passengerDriverName } from "../src/services/driverDisplay.js";
@@ -329,6 +329,54 @@ describe("input validation on admin data", () => {
       body: { busId: 999999, driverId: 999999, routeId: 999999, departureTime: "2030-01-01T08:00:00Z", arrivalTime: "2030-01-01T12:00:00Z" },
     });
     assert.equal(missing.status, 400);
+  });
+});
+
+describe("trip times", () => {
+  test("a time typed in the admin form means Philippine time, whatever zone the server runs in", () => {
+    const manila = (v) => dateTime(v, { label: "t" }).value.toLocaleString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" });
+    assert.equal(manila("2026-11-11 22:00:00"), "10:00 PM");
+    assert.equal(manila("2026-11-11T14:30"), "2:30 PM");
+    assert.equal(dateTime("2026-11-11 22:00:00", { label: "t" }).value.toISOString(), "2026-11-11T14:00:00.000Z");
+    assert.equal(manila("2026-11-11T14:30:00.000Z"), "10:30 PM", "an explicit zone keeps its meaning");
+  });
+
+  test("a trip scheduled for 10:00 PM is stored and shown as 10:00 PM", async () => {
+    const [bus] = await db.query(`INSERT INTO buses (plate_num, capacity) VALUES (?, 40)`, [`TZ${Date.now() % 100000}`]);
+    const [route] = await db.query(`INSERT INTO routes (origin, destination, distance, base_fare) VALUES ('Baguio', 'Bontoc', 140, '350.00')`);
+    const driver = await createDriver();
+    const day = new Date(Date.now() + 3 * 86400000).toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
+    const r = await api("POST", "/api/trips", {
+      token: admin.token,
+      body: { busId: bus.insertId, driverId: driver.id, routeId: route.insertId, departureTime: `${day} 22:00:00`, arrivalTime: `${day} 23:30:00` },
+    });
+    assert.equal(r.status, 201, JSON.stringify(r.data));
+    const [[row]] = await db.query(`SELECT DATE_FORMAT(departure_time, '%H:%i') AS dep FROM trips WHERE trip_id = ?`, [r.data.trip_id]);
+    assert.equal(row.dep, "22:00");
+
+    const moved = await api("PATCH", `/api/trips/${r.data.trip_id}`, { token: admin.token, body: { departureTime: `${day} 21:15:00` } });
+    assert.equal(moved.status, 200, JSON.stringify(moved.data));
+    const [[after]] = await db.query(`SELECT DATE_FORMAT(departure_time, '%H:%i') AS dep FROM trips WHERE trip_id = ?`, [r.data.trip_id]);
+    assert.equal(after.dep, "21:15");
+
+    // A clash names the trip in the way, in Philippine time.
+    const otherDriver = await createDriver();
+    const clash = await api("POST", "/api/trips", {
+      token: admin.token,
+      body: { busId: bus.insertId, driverId: otherDriver.id, routeId: route.insertId, departureTime: `${day} 22:00:00`, arrivalTime: `${day} 22:30:00` },
+    });
+    assert.equal(clash.status, 409);
+    assert.match(clash.data.error, new RegExp(`Bus TZ\\d+ is already on Baguio → Bontoc, .*9:15.*\\(trip #${r.data.trip_id}\\)`));
+    assert.deepEqual(clash.data.conflictTripIds, [r.data.trip_id]);
+
+    // Once that trip is Completed it no longer blocks the bus, even though its
+    // scheduled arrival is still in the way.
+    await db.query(`UPDATE trips SET status = 'Completed' WHERE trip_id = ?`, [r.data.trip_id]);
+    const free = await api("POST", "/api/trips", {
+      token: admin.token,
+      body: { busId: bus.insertId, driverId: otherDriver.id, routeId: route.insertId, departureTime: `${day} 22:00:00`, arrivalTime: `${day} 22:30:00` },
+    });
+    assert.equal(free.status, 201, JSON.stringify(free.data));
   });
 });
 

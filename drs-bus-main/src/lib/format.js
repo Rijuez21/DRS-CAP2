@@ -131,7 +131,7 @@ export function paymentStatusLabel(status) {
 // online payment or cash at the counter. Live tracking is for these only.
 export const PAID_BOOKING_STATUSES = ["Confirmed", "Boarded"];
 
-export const PAYMENT_METHOD_LABELS ={ gcash: "GCash", bank_transfer: "Bank transfer", qr_ph: "QR Ph" };
+export const PAYMENT_METHOD_LABELS = { gcash: "GCash", bank_transfer: "Bank transfer", qr_ph: "QR Ph" };
 
 // "2026-10-12T15:05" in the browser's local time, for <input type="datetime-local">.
 export function toDateTimeLocal(date = new Date()) {

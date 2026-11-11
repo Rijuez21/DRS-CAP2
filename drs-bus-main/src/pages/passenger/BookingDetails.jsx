@@ -104,14 +104,13 @@ export default function BookingDetails() {
     );
   }
 
-  const holdsSeat = ["Reserved", "Confirmed", "Boarded"].includes(booking.status);
   const busNotLeft = ["Scheduled", "Boarding"].includes(booking.trip_status);
   // Same rule the server enforces (bookingRules.whyStatusChangeNotAllowed).
   const canCancel = ["Reserved", "Confirmed"].includes(booking.status) && busNotLeft;
   // A position only exists once the driver is sharing GPS (Boarding onward),
   // and live tracking is for PAID seats only (Confirmed = payment verified
   // or cash taken) — same rule as LiveTracking.jsx.
-  const trackingTime = holdsSeat && ["Boarding", "In Transit"].includes(booking.trip_status);
+  const trackingTime = ["Reserved", "Confirmed", "Boarded"].includes(booking.status) && ["Boarding", "In Transit"].includes(booking.trip_status);
   const canTrack = trackingTime && PAID_BOOKING_STATUSES.includes(booking.status);
   const trackingLocked = trackingTime && !canTrack;
 

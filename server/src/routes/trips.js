@@ -32,6 +32,40 @@ function parseTripBody(body, { partial }) {
   return { fields: out };
 }
 
+// The schedule-conflict message, naming what's in the way so the admin can
+// find it: "Bus AYV 583 is already on ABATAN → Baguio, Nov 12, 6:00 AM –
+// 10:00 AM (trip #45)." Before, it only said "conflicts with another trip".
+const manilaShort = (d) =>
+  new Date(d).toLocaleString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const manilaClock = (d) => new Date(d).toLocaleString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" });
+
+async function describeConflicts(conflicts, { busId, driverId }) {
+  const [rows] = await pool.query(
+    `SELECT tr.trip_id, tr.bus_id, tr.driver_id, tr.departure_time, tr.arrival_time,
+            rt.origin, rt.destination, b.plate_num, d.name AS driver_name
+     FROM trips tr
+     JOIN routes rt ON rt.route_id = tr.route_id
+     JOIN buses b ON b.bus_id = tr.bus_id
+     JOIN drivers d ON d.driver_id = tr.driver_id
+     WHERE tr.trip_id IN (?)
+     ORDER BY tr.departure_time
+     LIMIT 3`,
+    [conflicts.map((c) => c.trip_id)]
+  );
+  const lines = rows.map((t) => {
+    const who =
+      t.bus_id === Number(busId) && t.driver_id === Number(driverId)
+        ? `Bus ${t.plate_num} and driver ${t.driver_name} are`
+        : t.bus_id === Number(busId)
+          ? `Bus ${t.plate_num} is`
+          : `Driver ${t.driver_name} is`;
+    const until = t.arrival_time ? ` – ${manilaClock(t.arrival_time)}` : "";
+    return `${who} already on ${t.origin} → ${t.destination}, ${manilaShort(t.departure_time)}${until} (trip #${t.trip_id}).`;
+  });
+  const more = conflicts.length > rows.length ? ` …and ${conflicts.length - rows.length} more.` : "";
+  return `Schedule conflict: ${lines.join(" ")}${more} Pick another time, bus or driver.`;
+}
+
 // A departure earlier than now (with a minute's grace for the time spent
 // filling in the form) can't be scheduled.
 function isPast(departure) {
@@ -210,25 +244,19 @@ export function buildTripsRouter(io) {
     try {
       // Overlap: existing.departure < new.arrival AND existing.arrival > new.departure
       // (falls back to treating a NULL arrival_time as "unbounded" so an
-      // open-ended trip still blocks the bus/driver).
+      // open-ended trip still blocks the bus/driver). Completed trips never
+      // block: the bus and driver are free once a trip has finished, even if
+      // its scheduled arrival (e.g. a mistyped 24-hour trip) runs later.
       const [conflicts] = await pool.query(
         `SELECT trip_id, bus_id, driver_id FROM trips
-         WHERE status != 'Cancelled'
+         WHERE status NOT IN ('Cancelled', 'Completed')
            AND (bus_id = ? OR driver_id = ?)
            AND departure_time < ?
            AND COALESCE(arrival_time, DATE_ADD(departure_time, INTERVAL 12 HOUR)) > ?`,
         [busId, driverId, arrivalTime, departureTime]
       );
       if (conflicts.length > 0) {
-        const busConflict = conflicts.find((c) => c.bus_id === Number(busId));
-        const driverConflict = conflicts.find((c) => c.driver_id === Number(driverId));
-        return res.status(409).json({
-          error: busConflict && driverConflict
-            ? "Both the bus and driver are already scheduled during this time window"
-            : busConflict
-              ? "This bus is already scheduled during this time window"
-              : "This driver is already scheduled during this time window",
-        });
+        return res.status(409).json({ error: await describeConflicts(conflicts, { busId, driverId }), conflictTripIds: conflicts.map((c) => c.trip_id) });
       }
 
       const [result] = await pool.query(
@@ -391,14 +419,17 @@ export function buildTripsRouter(io) {
 
       const [conflicts] = await pool.query(
         `SELECT trip_id, bus_id, driver_id FROM trips
-         WHERE status != 'Cancelled' AND trip_id != ?
+         WHERE status NOT IN ('Cancelled', 'Completed') AND trip_id != ?
            AND (bus_id = ? OR driver_id = ?)
            AND departure_time < ?
            AND COALESCE(arrival_time, DATE_ADD(departure_time, INTERVAL 12 HOUR)) > ?`,
         [req.params.id, nextBusId, nextDriverId, nextArrival, nextDeparture]
       );
       if (conflicts.length > 0) {
-        return res.status(409).json({ error: "The updated schedule conflicts with another trip for this bus or driver" });
+        return res.status(409).json({
+          error: await describeConflicts(conflicts, { busId: nextBusId, driverId: nextDriverId }),
+          conflictTripIds: conflicts.map((c) => c.trip_id),
+        });
       }
 
       const fields = [];
