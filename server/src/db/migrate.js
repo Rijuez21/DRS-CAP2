@@ -339,9 +339,18 @@ const STATEMENTS = [
     account_kind VARCHAR(12) NOT NULL,
     account_id INT NOT NULL,
     session_id CHAR(32) NOT NULL,
+    device_id VARCHAR(64) NULL,
+    device_label VARCHAR(60) NULL,
+    token_ver VARCHAR(16) NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TIMESTAMP NULL DEFAULT NULL,
     PRIMARY KEY (account_kind, account_id)
   )`,
+  // "Signed in on another device" warning at login (routes/auth.js).
+  `ALTER TABLE auth_sessions ADD COLUMN device_id VARCHAR(64) NULL`,
+  `ALTER TABLE auth_sessions ADD COLUMN device_label VARCHAR(60) NULL`,
+  `ALTER TABLE auth_sessions ADD COLUMN token_ver VARCHAR(16) NULL`,
+  `ALTER TABLE auth_sessions ADD COLUMN last_seen_at TIMESTAMP NULL DEFAULT NULL`,
 ];
 
 // ---- One passenger account per mobile number (routes/auth.js) -----------

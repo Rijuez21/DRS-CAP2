@@ -86,7 +86,8 @@ describe("POST /api/auth/register", () => {
     assert.equal(verified.status, 200);
     assert.ok(verified.data.token);
 
-    const login = await api("POST", "/api/auth/login", { body: { email: ok.data.email, password: PASSWORD, role: "passenger" } });
+    // force: confirming the email already signed them in (another "device" here).
+    const login = await api("POST", "/api/auth/login", { body: { email: ok.data.email, password: PASSWORD, role: "passenger", force: true } });
     assert.equal(login.status, 200);
     assert.equal(login.data.user.phoneno, "+639171234567");
   });

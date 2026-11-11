@@ -77,8 +77,32 @@ async function request(path, { method = "GET", body, params } = {}) {
 }
 
 // ---- Auth -------------------------------------------------------------
-export const login = ({ email, password, role }) =>
-  request("/api/auth/login", { method: "POST", body: { email, password, role } });
+// A random id this browser keeps (localStorage: it outlives closing the tab,
+// unlike the session itself). The server uses it only to tell "you, again"
+// from "another device" for the signed-in-elsewhere warning. Not a secret,
+// and it proves nothing — the password does that.
+const DEVICE_KEY = "drs_device_id";
+function deviceId() {
+  try {
+    let id = localStorage.getItem(DEVICE_KEY);
+    if (!id) {
+      // getRandomValues, not randomUUID: the latter needs HTTPS, and the app
+      // is also opened over plain http on the local network.
+      const bytes = crypto.getRandomValues(new Uint8Array(16));
+      id = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+      localStorage.setItem(DEVICE_KEY, id);
+    }
+    return id;
+  } catch {
+    return undefined; // storage blocked: the server just can't recognise this browser
+  }
+}
+
+// force: true = "sign in here anyway" after the server answered 409
+// SIGNED_IN_ELSEWHERE (the account is signed in on another device, which
+// this login will sign out).
+export const login = ({ email, password, role, force }) =>
+  request("/api/auth/login", { method: "POST", body: { email, password, role, deviceId: deviceId(), force: force || undefined } });
 
 export const register = ({ name, email, phoneno, password, acceptedTerms }) =>
   request("/api/auth/register", { method: "POST", body: { name, email, phoneno, password, acceptedTerms } });
@@ -92,7 +116,7 @@ export const resetPassword = ({ resetToken, password }) =>
   request("/api/auth/reset-password", { method: "POST", body: { resetToken, password } });
 
 // Email confirmation after sign-up: the code signs the passenger in ({ user, token }).
-export const verifyEmail = ({ email, code }) => request("/api/auth/verify-email", { method: "POST", body: { email, code } });
+export const verifyEmail = ({ email, code }) => request("/api/auth/verify-email", { method: "POST", body: { email, code, deviceId: deviceId() } });
 export const resendVerification = (email) => request("/api/auth/resend-verification", { method: "POST", body: { email } });
 
 // Your own account (AccountSettings.jsx). changePassword returns a fresh token.

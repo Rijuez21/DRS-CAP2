@@ -520,11 +520,20 @@ CREATE TABLE IF NOT EXISTS trip_remittances (
 -- deletes it. account_kind is the table the id belongs to: 'passenger'
 -- (commuters), 'driver', 'staff' (staff_accounts, terminal staff AND admins,
 -- who share one id space) or 'owner' (bus_owners) — no FK because it points
--- at a different table per kind.
+-- at a different table per kind. device_id (a random id the browser keeps)
+-- and device_label ("Chrome on Android") let the login page warn "this
+-- account is signed in on another device" without warning someone about
+-- their own browser; last_seen_at is when that device last used its token,
+-- and token_ver the password version it signed in under (after a password
+-- change that device is already signed out, so no warning).
 CREATE TABLE IF NOT EXISTS auth_sessions (
   account_kind VARCHAR(12) NOT NULL,
   account_id INT NOT NULL,
   session_id CHAR(32) NOT NULL,
+  device_id VARCHAR(64) NULL,
+  device_label VARCHAR(60) NULL,
+  token_ver VARCHAR(16) NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  last_seen_at TIMESTAMP NULL DEFAULT NULL,
   PRIMARY KEY (account_kind, account_id)
 );

@@ -6,6 +6,10 @@ import { io as ioClient } from "socket.io-client";
 import { setup, teardown, api, db, createStaff, createPassenger, createDriver, createTrip, BASE, PASSWORD, sleep } from "./helpers.js";
 import { csvCell, likeEscape } from "../src/services/validate.js";
 import { whyPasswordWeak } from "../src/services/passwordPolicy.js";
+import { describeDevice, cleanDeviceId } from "../src/services/device.js";
+import bcrypt from "bcryptjs";
+
+const bcryptHash = (password) => bcrypt.hash(password, 4);
 
 let admin;
 
@@ -15,19 +19,64 @@ before(async () => {
 });
 after(teardown);
 
-const login = (email, password, role) => api("POST", "/api/auth/login", { body: { email, password, role } });
+// force: skips the "signed in on another device" warning, which most tests
+// here aren't about (createPassenger etc. already signed the account in).
+const login = (email, password, role) => api("POST", "/api/auth/login", { body: { email, password, role, force: true } });
+const loginFrom = (deviceId, email, extra = {}) =>
+  api("POST", "/api/auth/login", { body: { email, password: PASSWORD, role: "passenger", deviceId, ...extra } });
 
 describe("one signed-in device per account", () => {
-  test("signing in on a second device signs the first one out, with a reason", async () => {
+  test("logging in while another device is signed in warns first; continuing signs that device out", async () => {
     const p = await createPassenger("Two Phones");
-    assert.equal((await api("GET", "/api/payments/mine", { token: p.token })).status, 200);
-    const second = await login(p.email, PASSWORD, "passenger");
+    const phoneA = await loginFrom("device-aaaa-1111", p.email, { force: true });
+    assert.equal(phoneA.status, 200);
+    // Last used just now, from an Android phone.
+    await db.query(`UPDATE auth_sessions SET device_label = 'Chrome on Android' WHERE account_kind = 'passenger' AND account_id = ?`, [p.id]);
+
+    const warned = await loginFrom("device-bbbb-2222", p.email);
+    assert.equal(warned.status, 409);
+    assert.equal(warned.data.code, "SIGNED_IN_ELSEWHERE");
+    assert.equal(warned.data.device, "Chrome on Android");
+    assert.ok(warned.data.lastActiveAt);
+    assert.ok(!warned.data.token, "no session is started until they confirm");
+    assert.equal((await api("GET", "/api/payments/mine", { token: phoneA.data.token })).status, 200, "the first device is untouched");
+
+    // The same browser logging in again (e.g. after closing the tab) isn't warned about itself.
+    assert.equal((await loginFrom("device-aaaa-1111", p.email)).status, 200);
+
+    // A wrong password never reveals the warning.
+    assert.equal((await api("POST", "/api/auth/login", { body: { email: p.email, password: "Wrong-pass-1", role: "passenger", deviceId: "device-bbbb-2222" } })).status, 401);
+
+    const second = await loginFrom("device-bbbb-2222", p.email, { force: true });
     assert.equal(second.status, 200);
     const old = await api("GET", "/api/payments/mine", { token: p.token });
     assert.equal(old.status, 401);
     assert.match(old.data.error, /another device/);
     assert.equal((await api("GET", "/api/payments/mine", { token: second.data.token })).status, 200);
     assert.equal((await api("GET", "/api/auth/session", { token: second.data.token })).status, 204);
+  });
+
+  test("no warning once the other device was signed out by a password reset or log out", async () => {
+    const p = await createPassenger("Reset Elsewhere");
+    await db.query(`UPDATE commuters SET password_hash = ? WHERE commuter_id = ?`, [await bcryptHash(PASSWORD), p.id]); // new hash = new token version
+    assert.equal((await loginFrom("device-cccc-3333", p.email)).status, 200);
+
+    const q = await createPassenger("Logged Out Elsewhere");
+    assert.equal((await api("POST", "/api/auth/logout", { token: q.token })).status, 204);
+    assert.equal((await loginFrom("device-dddd-4444", q.email)).status, 200);
+  });
+
+  test("the warning names the other browser; device ids are validated", () => {
+    const android = "Mozilla/5.0 (Linux; Android 14; SM-A546E) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36";
+    const edge = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0";
+    const iphone = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+    assert.equal(describeDevice(android), "Chrome on Android");
+    assert.equal(describeDevice(edge), "Edge on Windows");
+    assert.equal(describeDevice(iphone), "Safari on iPhone");
+    assert.equal(describeDevice(""), "another device");
+    assert.equal(cleanDeviceId("0f3a9c2e5b7d4e1f8a6c3b2d1e0f9a8b"), "0f3a9c2e5b7d4e1f8a6c3b2d1e0f9a8b");
+    assert.equal(cleanDeviceId("<script>"), null);
+    assert.equal(cleanDeviceId(42), null);
   });
 
   test("staff and admin accounts are limited the same way", async () => {

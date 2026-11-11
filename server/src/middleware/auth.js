@@ -32,7 +32,8 @@ if (!configured || configured === DEV_FALLBACK_SECRET) {
 
 export const JWT_SECRET = configured || DEV_FALLBACK_SECRET;
 const JWT_ALGORITHM = "HS256";
-export const TOKEN_TTL = "12h";
+export const TOKEN_TTL_HOURS = 12;
+export const TOKEN_TTL = `${TOKEN_TTL_HOURS}h`;
 
 // Which table/row a token's role points at, and what makes it still valid.
 const ACCOUNTS = {
@@ -82,10 +83,11 @@ async function checkAccount(payload) {
   const hit = accountCache.get(key);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.reason;
   const [[row]] = await pool.query(config.sql, [payload.id]);
-  const [[session]] = await pool.query(`SELECT session_id FROM auth_sessions WHERE account_kind = ? AND account_id = ?`, [
-    accountKind(payload.role),
-    payload.id,
-  ]);
+  const [[session]] = await pool.query(
+    `SELECT session_id, last_seen_at < NOW() - INTERVAL 1 MINUTE OR last_seen_at IS NULL AS seen_stale
+     FROM auth_sessions WHERE account_kind = ? AND account_id = ?`,
+    [accountKind(payload.role), payload.id]
+  );
   let reason = null;
   if (!row) reason = "This account no longer exists";
   else if (config.staffRole && row.role !== config.staffRole) reason = "Your account's role has changed. Please log in again.";
@@ -95,6 +97,17 @@ async function checkAccount(payload) {
   // No row: they logged out (or never logged in since this was added).
   else if (!session) reason = "Your session has ended. Please log in again.";
   else if (session.session_id !== payload.sid) reason = SIGNED_IN_ELSEWHERE;
+  // "Last active" for the login page's other-device warning. At most one
+  // write a minute per signed-in device (and only on a cache miss).
+  if (!reason && session.seen_stale) {
+    pool
+      .query(`UPDATE auth_sessions SET last_seen_at = NOW() WHERE account_kind = ? AND account_id = ? AND session_id = ?`, [
+        accountKind(payload.role),
+        payload.id,
+        payload.sid,
+      ])
+      .catch((err) => console.error("Couldn't record session activity (non-fatal):", err.message));
+  }
   if (accountCache.size > 5000) accountCache.clear();
   accountCache.set(key, { at: Date.now(), reason });
   return reason;

@@ -3,7 +3,8 @@ import bcrypt from "bcryptjs";
 import { createHash, randomBytes, randomInt } from "node:crypto";
 import { pool } from "../db/pool.js";
 import { signToken, authenticate, requireRole, invalidateAccount } from "../middleware/auth.js";
-import { startSession, endSession } from "../services/sessions.js";
+import { startSession, endSession, renewSessionVersion, findOtherSignedInDevice } from "../services/sessions.js";
+import { cleanDeviceId, describeDevice } from "../services/device.js";
 import { isReservedEmail } from "../services/bookingRules.js";
 import { rateLimit, failureLimiter } from "../services/rateLimit.js";
 import { whyPasswordWeak, cleanEmail, cleanName, cleanPhMobile, PASSWORD_MAX } from "../services/passwordPolicy.js";
@@ -123,8 +124,29 @@ authRouter.post("/login", loginRequestsPerIp, async (req, res) => {
       return res.status(403).json({ error: `Confirm your email first. Enter the 6-digit code we sent to ${account.email}.`, code: "EMAIL_NOT_VERIFIED" });
     }
 
+    // One device per account: if it's signed in on another browser, warn
+    // first (the login page asks, then resends with force: true). Only after
+    // the right password, so this doesn't reveal anything to a guesser.
+    // Only for clients that send a device id: without one this browser can't
+    // be told apart from another, and an older cached build of the app has
+    // no "sign in anyway" button — those sign in as before.
+    const deviceId = cleanDeviceId(req.body.deviceId);
+    if (req.body.force !== true && deviceId) {
+      const other = await findOtherSignedInDevice(role, account.id, { deviceId, passwordHash: account.password_hash });
+      if (other) {
+        return res.status(409).json({
+          error: "This account is already signed in on another device. If you continue, that device will be signed out.",
+          code: "SIGNED_IN_ELSEWHERE",
+          ...other,
+        });
+      }
+    }
     // A new session signs out any other device on this account.
-    const sid = await startSession(role, account.id);
+    const sid = await startSession(role, account.id, {
+      passwordHash: account.password_hash,
+      deviceId,
+      deviceLabel: describeDevice(req.headers["user-agent"]),
+    });
     const token = signToken({ id: account.id, role, passwordHash: account.password_hash, sid });
     const user = { id: account.id, name: account.name, email: account.email, role };
     // Shown on the passenger Profile page.
@@ -257,7 +279,11 @@ authRouter.post("/verify-email", verifyPerIp, async (req, res) => {
     );
     if (result.affectedRows !== 1) return res.status(400).json({ error: VERIFY_CODE_INVALID });
     await pool.query(`UPDATE commuters SET email_verified = TRUE WHERE commuter_id = ?`, [account.id]);
-    const sid = await startSession("passenger", account.id);
+    const sid = await startSession("passenger", account.id, {
+      passwordHash: account.password_hash,
+      deviceId: cleanDeviceId(req.body?.deviceId),
+      deviceLabel: describeDevice(req.headers["user-agent"]),
+    });
     const token = signToken({ id: account.id, role: "passenger", passwordHash: account.password_hash, sid });
     res.json({ token, user: { id: account.id, name: account.name, email: account.email, role: "passenger", phoneno: account.phoneno ?? null } });
   } catch (err) {
@@ -504,6 +530,7 @@ authRouter.post("/change-password", authenticate, async (req, res) => {
     // Any outstanding reset code for the account is now pointless.
     await pool.query(`UPDATE password_resets SET used_at = NOW() WHERE account_role = ? AND account_id = ? AND used_at IS NULL`, [req.user.role, row.id]);
     await wrongCurrentPassword.reset(key);
+    await renewSessionVersion(req.user.role, row.id, req.sessionId, passwordHash);
     invalidateAccount(req.user.role, row.id);
     sendMail({ to: row.email, ...passwordChangedEmail({ name: row.name, when: new Date() }) }); // not awaited; never throws
     res.json({ message: "Password changed. You've been signed out on your other devices.", token: signToken({ id: row.id, role: req.user.role, passwordHash, sid: req.sessionId }) });

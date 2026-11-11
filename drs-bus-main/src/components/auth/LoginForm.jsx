@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { AlertCircle, Eye, EyeOff } from "lucide-react";
+import { AlertCircle, AlertTriangle, Eye, EyeOff } from "lucide-react";
 import { useAuth, AUTH_NOTICE_KEY } from "../../context/AuthContext";
 import * as api from "../../lib/api";
 import { readIdImage } from "../../lib/discounts";
 import { normalizePhMobile } from "../../lib/phone";
+import { timeAgo } from "../../lib/geo";
 import DiscountIdFields from "../passenger/DiscountIdFields";
 import ForgotPasswordForm from "./ForgotPasswordForm";
 import EmailCodeForm from "./EmailCodeForm";
@@ -96,11 +97,16 @@ export default function LoginForm({
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({}); // { field: message }, shown under each field (sign in and sign up)
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // The server's 409 SIGNED_IN_ELSEWHERE ({ device, lastActiveAt, activeNow }):
+  // the account is signed in on another device. Shown as a warning; signing
+  // in anyway (force) signs that device out — one device per account.
+  const [elsewhere, setElsewhere] = useState(null);
   const isSignup = mode === "signup";
 
   // onChange for a field: clears that field's error once it's edited.
   const edit = (field, setter) => (e) => {
     setter(e.target.value);
+    setElsewhere(null);
     if (fieldErrors[field]) setFieldErrors((prev) => ({ ...prev, [field]: undefined }));
   };
   const errorProps = (field) =>
@@ -110,12 +116,30 @@ export default function LoginForm({
     setMode(next);
     setError("");
     setFieldErrors({});
+    setElsewhere(null);
+  }
+
+  // "Sign in here anyway" on the signed-in-elsewhere warning.
+  async function signInHereAnyway() {
+    setError("");
+    setIsSubmitting(true);
+    try {
+      const result = await api.login({ email: email.trim(), password, role, force: true });
+      setElsewhere(null);
+      await finishSignIn(result, null);
+    } catch (err) {
+      setElsewhere(null);
+      setError(err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
     setFieldErrors({});
+    setElsewhere(null);
 
     let fullName = name;
     let loginEmail; // set below: trimmed (and lowercased for sign-up)
@@ -161,6 +185,10 @@ export default function LoginForm({
       if (err.data?.code === "EMAIL_NOT_VERIFIED") {
         setVerifyNotice(err.message);
         setMode("verify");
+        return;
+      }
+      if (err.data?.code === "SIGNED_IN_ELSEWHERE") {
+        setElsewhere(err.data);
         return;
       }
       setError(err.message);
@@ -378,13 +406,22 @@ export default function LoginForm({
 
       <FormAlert message={error} />
 
-      <button
-        type="submit"
-        disabled={isSubmitting || (isSignup && !acceptedTerms)}
-        className="w-full bg-brand-forest-900 hover:bg-brand-forest-800 disabled:opacity-60 disabled:cursor-not-allowed transition-colors text-white font-display font-semibold rounded-xl py-3 shadow-sm"
-      >
-        {isSubmitting ? (isSignup ? "Creating account…" : "Signing in…") : isSignup ? "Create Account" : "Sign In"}
-      </button>
+      {elsewhere ? (
+        <SignedInElsewhereWarning
+          info={elsewhere}
+          isSubmitting={isSubmitting}
+          onContinue={signInHereAnyway}
+          onCancel={() => setElsewhere(null)}
+        />
+      ) : (
+        <button
+          type="submit"
+          disabled={isSubmitting || (isSignup && !acceptedTerms)}
+          className="w-full bg-brand-forest-900 hover:bg-brand-forest-800 disabled:opacity-60 disabled:cursor-not-allowed transition-colors text-white font-display font-semibold rounded-xl py-3 shadow-sm"
+        >
+          {isSubmitting ? (isSignup ? "Creating account…" : "Signing in…") : isSignup ? "Create Account" : "Sign In"}
+        </button>
+      )}
 
       {mode === "login" && (
         <div className="text-center text-sm">
@@ -430,6 +467,47 @@ export default function LoginForm({
         </p>
       )}
     </form>
+  );
+}
+
+// Shown instead of the Sign In button when the account is already signed
+// in on another device (only one at a time). The safe choice — Cancel —
+// does nothing; continuing signs the other device out.
+function SignedInElsewhereWarning({ info, isSubmitting, onContinue, onCancel }) {
+  const when = info.activeNow ? "Active right now" : info.lastActiveAt ? `Last active ${timeAgo(info.lastActiveAt)}` : null;
+  return (
+    <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3.5 text-sm text-amber-950 space-y-3">
+      <p className="flex items-start gap-2.5 font-semibold">
+        <AlertTriangle className="w-5 h-5 shrink-0 text-amber-600" aria-hidden="true" />
+        This account is already signed in on another device
+      </p>
+      <div className="pl-7 space-y-1.5">
+        <p>
+          <span className="font-medium">{info.device || "Another device"}</span>
+          {when ? ` · ${when}` : ""}
+        </p>
+        <p className="text-amber-900/90">Only one device can be signed in at a time. If you continue, that device will be signed out.</p>
+        <p className="text-amber-900/90">Don't recognise it? Sign in and change your password right away.</p>
+      </div>
+      <div className="flex flex-col sm:flex-row gap-2 pt-1">
+        <button
+          type="button"
+          onClick={onContinue}
+          disabled={isSubmitting}
+          className="flex-1 bg-brand-forest-900 hover:bg-brand-forest-800 disabled:opacity-60 text-white font-display font-semibold rounded-xl py-2.5"
+        >
+          {isSubmitting ? "Signing in…" : "Sign in here anyway"}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={isSubmitting}
+          className="flex-1 bg-white border border-slate-300 text-ink-900 font-display font-semibold rounded-xl py-2.5 hover:bg-slate-50 disabled:opacity-60"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
   );
 }
 

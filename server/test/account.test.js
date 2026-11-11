@@ -25,7 +25,9 @@ async function service(name) {
   return mod;
 }
 
-const login = (email, password, role = "passenger") => api("POST", "/api/auth/login", { body: { email, password, role } });
+// force: these accounts are often already signed in (createPassenger), and
+// the "signed in on another device" warning isn't what's tested here.
+const login = (email, password, role = "passenger") => api("POST", "/api/auth/login", { body: { email, password, role, force: true } });
 let phoneCounter = 0;
 const signup = (email, extra = {}) => {
   phoneCounter += 1;
