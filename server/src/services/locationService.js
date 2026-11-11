@@ -69,3 +69,52 @@ export async function ingestLocation(io, { busId, latitude, longitude, timestamp
 
   return point;
 }
+
+const MAX_HISTORY_POINTS = 20000;
+const MAX_HISTORY_RANGE_MS = 7 * 24 * 3600 * 1000;
+
+// Validates ?from=&to= for a playback request.
+// Returns { from, to } or { error }.
+export function parseHistoryRange(query) {
+  const from = new Date(query.from);
+  const to = new Date(query.to);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from >= to) return { error: "from and to must be valid dates, from before to" };
+  if (to - from > MAX_HISTORY_RANGE_MS) return { error: "Pick a range of 7 days or less" };
+  return { from, to };
+}
+
+// Validates ?busId=&from=&to= for a one-bus playback request.
+// Returns { busId, from, to } or { error }.
+export function parseHistoryQuery(query) {
+  const busId = Number(query.busId);
+  if (!Number.isInteger(busId) || busId <= 0) return { error: "busId is required" };
+  const range = parseHistoryRange(query);
+  return range.error ? range : { busId, ...range };
+}
+
+// The path a bus took between from and to, oldest first (route playback:
+// admin GpsTracker.jsx and owner/OwnerPlayback.jsx). Tracker points only,
+// unless the bus had none, then the phone's. maxPoints: lower it when
+// loading several buses at once so the total stays near one bus's worth.
+export async function getRouteHistory({ busId, from, to, maxPoints = MAX_HISTORY_POINTS }) {
+  const [rows] = await pool.query(
+    `SELECT latitude, longitude, timestamp, source, sync_status AS syncStatus
+     FROM location_tracking
+     WHERE bus_id = ? AND timestamp BETWEEN ? AND ?
+     ORDER BY timestamp ASC LIMIT ?`,
+    [busId, from, to, maxPoints + 1]
+  );
+  const hasDevice = rows.some((r) => r.source === "device");
+  const points = (hasDevice ? rows.filter((r) => r.source === "device") : rows)
+    .slice(0, maxPoints)
+    .map((r) => ({ latitude: Number(r.latitude), longitude: Number(r.longitude), timestamp: r.timestamp, source: r.source, syncStatus: r.syncStatus }));
+  return { busId, points, truncated: rows.length > maxPoints };
+}
+
+// Every bus in the list over the same range, for playing them back
+// together. Shares one bus's point budget, but never less than 2,000 each.
+export async function getFleetRouteHistory(buses, { from, to }) {
+  const maxPoints = Math.max(2000, Math.floor(MAX_HISTORY_POINTS / Math.max(1, buses.length)));
+  const histories = await Promise.all(buses.map((b) => getRouteHistory({ busId: b.busId, from, to, maxPoints })));
+  return buses.map((b, i) => ({ ...b, points: histories[i].points, truncated: histories[i].truncated }));
+}

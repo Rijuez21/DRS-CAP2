@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { distanceKm } from "../lib/geo";
 
 // Turns a recorded GPS trace into the roads it was driven on, so Playback
@@ -19,8 +19,9 @@ const GAP_MS = 20 * 60 * 1000; // silent this long: unknown road taken, don't in
 const REQUEST_SPACING_MS = 1100; // the demo server asks for at most ~1 request/second
 
 // Stable objects, so a component's effects on `segments` don't re-run every render.
-const IDLE = { segments: [], status: "idle", done: 0, total: 0 };
-const LOADING = { segments: [], status: "loading", done: 0, total: 0 };
+const NO_SEGMENTS = [];
+const IDLE = { segments: NO_SEGMENTS, byTrace: [], status: "idle", done: 0, total: 0 };
+const LOADING = { segments: NO_SEGMENTS, byTrace: [], status: "loading", done: 0, total: 0 };
 
 // Split at long silences, then keep fixes at least MIN_SPACING_KM apart.
 function waypointRuns(points) {
@@ -60,64 +61,88 @@ const wait = (ms, signal) =>
   });
 
 /**
- * @param {Array<{latitude, longitude, timestamp}>|null} points recorded trace, oldest first
- * @returns {{ segments: Array<Array<[lat, lng]>>, status, done, total }}
- *   segments: road-following pieces; status: "idle" | "loading" | "ok" |
- *   "partial" (some pieces couldn't be routed) | "failed" (router unreachable) |
- *   "none" (the bus barely moved: nothing to route)
+ * Several traces at once (Owner portal "All buses" playback). Their
+ * requests go out one after another, so together they still keep to the
+ * demo server's ~1 request/second, and share the same request budget.
+ *
+ * @param {Array<Array<{latitude, longitude, timestamp}>>|null} traces recorded traces, each oldest first
+ * @returns {{ byTrace: Array<Array<Array<[lat, lng]>>>, status, done, total }}
+ *   byTrace[i]: road-following pieces of traces[i], in order; status: "idle" |
+ *   "loading" | "ok" | "partial" (some pieces couldn't be routed) | "failed"
+ *   (router unreachable) | "none" (no bus moved: nothing to route)
  */
-export function useMatchedRoute(points) {
+export function useMatchedRoutes(traces) {
   const [state, setState] = useState({ for: null, ...IDLE });
+  const hasTrace = Boolean(traces?.some((t) => t?.length >= 2));
 
   useEffect(() => {
-    if (!points || points.length < 2) return undefined;
+    if (!hasTrace) return undefined;
     const controller = new AbortController();
     const { signal } = controller;
 
     // Requests: each run cut into overlapping 100-waypoint pieces (they share
-    // an end point, so consecutive pieces meet).
-    const runs = waypointRuns(points);
-    const totalWaypoints = runs.reduce((n, r) => n + r.length, 0);
+    // an end point, so consecutive pieces meet), tagged with their trace.
+    const runsByTrace = traces.map((t) => (t?.length >= 2 ? waypointRuns(t) : []));
+    const totalWaypoints = runsByTrace.flat().reduce((n, r) => n + r.length, 0);
     const budget = PER_REQUEST * MAX_REQUESTS;
     const requests = [];
-    for (const run of runs) {
-      const wps = totalWaypoints > budget ? thin(run, Math.max(2, Math.floor((run.length * budget) / totalWaypoints))) : run;
-      for (let i = 0; i < wps.length - 1; i += PER_REQUEST - 1) requests.push(wps.slice(i, i + PER_REQUEST));
-    }
+    runsByTrace.forEach((runs, trace) => {
+      for (const run of runs) {
+        const wps = totalWaypoints > budget ? thin(run, Math.max(2, Math.floor((run.length * budget) / totalWaypoints))) : run;
+        for (let i = 0; i < wps.length - 1; i += PER_REQUEST - 1) requests.push({ trace, waypoints: wps.slice(i, i + PER_REQUEST) });
+      }
+    });
+    const gapped = runsByTrace.some((runs) => runs.length > 1);
 
     (async () => {
       if (requests.length === 0) {
         // Parked the whole time (no two fixes 150 m apart): nothing to route.
         await Promise.resolve();
-        if (!signal.aborted) setState({ for: points, segments: [], status: "none", done: 0, total: 0 });
+        if (!signal.aborted) setState({ for: traces, segments: NO_SEGMENTS, byTrace: traces.map(() => []), status: "none", done: 0, total: 0 });
         return;
       }
-      const segments = [];
+      const byTrace = traces.map(() => []);
+      const snapshot = () => byTrace.map((segs) => [...segs]);
       let unrouted = 0;
       for (let i = 0; i < requests.length; i += 1) {
         if (i > 0) await wait(REQUEST_SPACING_MS, signal);
         if (signal.aborted) return;
         try {
-          const path = await routeThrough(requests[i], signal);
-          if (path) segments.push(path);
+          const path = await routeThrough(requests[i].waypoints, signal);
+          if (path) byTrace[requests[i].trace].push(path);
           else unrouted += 1;
         } catch (err) {
           if (signal.aborted) return;
           // Router down or rate-limited: stop asking; what's routed so far stays.
-          setState({ for: points, segments, status: segments.length ? "partial" : "failed", done: i, total: requests.length, error: err.message });
+          const routed = byTrace.some((segs) => segs.length);
+          setState({ for: traces, segments: NO_SEGMENTS, byTrace: snapshot(), status: routed ? "partial" : "failed", done: i, total: requests.length, error: err.message });
           return;
         }
         if (signal.aborted) return;
-        setState({ for: points, segments: [...segments], status: "loading", done: i + 1, total: requests.length });
+        setState({ for: traces, segments: NO_SEGMENTS, byTrace: snapshot(), status: "loading", done: i + 1, total: requests.length });
       }
-      setState({ for: points, segments, status: unrouted || runs.length > 1 ? "partial" : "ok", done: requests.length, total: requests.length });
+      setState({ for: traces, segments: NO_SEGMENTS, byTrace, status: unrouted || gapped ? "partial" : "ok", done: requests.length, total: requests.length });
     })();
 
     return () => controller.abort();
-  }, [points]);
+  }, [traces, hasTrace]);
 
-  // Results belong to the trace they were computed for; a new trace starts clean.
-  if (!points || points.length < 2) return IDLE;
-  if (state.for !== points) return LOADING;
+  // Results belong to the traces they were computed for; new traces start clean.
+  if (!hasTrace) return IDLE;
+  if (state.for !== traces) return LOADING;
   return state;
+}
+
+/**
+ * One trace (single-bus playback).
+ * @param {Array<{latitude, longitude, timestamp}>|null} points recorded trace, oldest first
+ * @returns {{ segments: Array<Array<[lat, lng]>>, status, done, total }}
+ *   segments: road-following pieces; status as for useMatchedRoutes
+ *   ("none" = the bus barely moved)
+ */
+export function useMatchedRoute(points) {
+  const traces = useMemo(() => (points ? [points] : null), [points]);
+  const result = useMatchedRoutes(traces);
+  const segments = result.byTrace[0] ?? NO_SEGMENTS;
+  return useMemo(() => ({ ...result, segments }), [result, segments]);
 }

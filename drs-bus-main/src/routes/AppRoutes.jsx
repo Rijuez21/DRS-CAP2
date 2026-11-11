@@ -53,6 +53,9 @@ const AdminDashboard = lazy(() => import('../pages/admin/Dashboard'))
 const FleetManagement = lazy(() => import('../pages/admin/FleetManagement'))
 const FleetTracking = lazy(() => import('../pages/admin/FleetTracking'))
 const GpsTracker = lazy(() => import('../pages/admin/GpsTracker'))
+
+// Owner pages
+const OwnerPlayback = lazy(() => import('../pages/owner/OwnerPlayback'))
 const RouteManagement = lazy(() => import('../pages/admin/RouteManagement'))
 const DriverManagement = lazy(() => import('../pages/admin/DriverManagement'))
 const TripScheduling = lazy(() => import('../pages/admin/TripScheduling'))
@@ -184,7 +187,8 @@ export default function AppRoutes() {
       </Route>
 
       {/* Bus Owner — the same live map as admin/staff, limited to the
-          owner's own buses (FleetTracking reads the /owner path). */}
+          owner's own buses (FleetTracking reads the /owner path), plus
+          route playback of those buses. */}
       <Route
         path="/owner"
         element={
@@ -195,6 +199,7 @@ export default function AppRoutes() {
       >
         <Route index element={<Navigate to="tracking" replace />} />
         <Route path="tracking" element={<FleetTracking />} />
+        <Route path="playback" element={<OwnerPlayback />} />
         <Route path="account" element={<AccountSettings />} />
       </Route>
 

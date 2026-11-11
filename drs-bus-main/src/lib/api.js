@@ -347,6 +347,8 @@ export const createOwner = (payload) => request("/api/owners", { method: "POST",
 export const updateOwner = (ownerId, payload) => request(`/api/owners/${ownerId}`, { method: "PATCH", body: payload });
 export const deleteOwner = (ownerId) => request(`/api/owners/${ownerId}`, { method: "DELETE" });
 export const getMyFleet = () => request("/api/owners/me/fleet"); // same row shape as getFleetLocations
+export const getMyBusHistory = ({ busId, from, to }) => request("/api/owners/me/history", { params: { busId, from, to } }); // same shape as getGpsHistory
+export const getMyFleetHistory = ({ from, to }) => request("/api/owners/me/history/all", { params: { from, to } }); // { buses: [{ busId, plateNum, points, ... }] }
 
 // ---- Trip scheduling (admin + terminal staff) -------------------------------------------------------------
 export const createTrip = (payload) => request("/api/trips", { method: "POST", body: payload });

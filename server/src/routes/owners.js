@@ -4,11 +4,13 @@ import { pool } from "../db/pool.js";
 import { requireRole, invalidateAccount } from "../middleware/auth.js";
 import { whyPasswordWeak, cleanEmail, cleanName, cleanPhone } from "../services/passwordPolicy.js";
 import { logAudit } from "../services/audit.js";
+import { parseHistoryQuery, parseHistoryRange, getRouteHistory, getFleetRouteHistory } from "../services/locationService.js";
 
 // Bus owners: operators whose buses run out of the terminal. An admin
 // creates their accounts and links their buses (admin/UserManagement.jsx);
-// the owner's only access is the Owner portal's live map of those buses
-// (GET /me/fleet, owner/OwnerTracking via admin/FleetTracking.jsx).
+// the owner's access is the Owner portal's live map of those buses
+// (GET /me/fleet, via admin/FleetTracking.jsx) and the playback of where
+// they've been (GET /me/history, owner/OwnerPlayback.jsx).
 export const ownersRouter = Router();
 
 // Returns { value } (text or null) or { error }.
@@ -75,6 +77,41 @@ ownersRouter.get("/me/fleet", requireRole("owner"), async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to load your buses" });
+  }
+});
+
+// GET /api/owners/me/history/all?from=&to= — Owner portal playback of
+// every bus this owner has at once: { buses: [{ busId, busNumber,
+// plateNum, points, truncated }] }, each bus's points as in /me/history.
+ownersRouter.get("/me/history/all", requireRole("owner"), async (req, res) => {
+  const range = parseHistoryRange(req.query);
+  if (range.error) return res.status(400).json({ error: range.error });
+  try {
+    const [buses] = await pool.query(
+      `SELECT bus_id AS busId, bus_number AS busNumber, plate_num AS plateNum FROM buses WHERE owner_id = ? ORDER BY plate_num`,
+      [req.user.id]
+    );
+    res.json({ buses: await getFleetRouteHistory(buses, range) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to load the route history" });
+  }
+});
+
+// GET /api/owners/me/history?busId=&from=&to= — Owner portal playback:
+// the same route history as the admin's GET /api/gps/history, but only for
+// a bus this owner has. Someone else's bus gets the same 404 as a missing
+// one, so an owner can't probe which bus ids exist.
+ownersRouter.get("/me/history", requireRole("owner"), async (req, res) => {
+  const range = parseHistoryQuery(req.query);
+  if (range.error) return res.status(400).json({ error: range.error });
+  try {
+    const [[bus]] = await pool.query(`SELECT bus_id FROM buses WHERE bus_id = ? AND owner_id = ?`, [range.busId, req.user.id]);
+    if (!bus) return res.status(404).json({ error: "Bus not found" });
+    res.json(await getRouteHistory(range));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to load the route history" });
   }
 });
 

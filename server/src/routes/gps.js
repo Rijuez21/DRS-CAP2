@@ -3,6 +3,7 @@ import { pool } from "../db/pool.js";
 import { requireRole } from "../middleware/auth.js";
 import { logAudit } from "../services/audit.js";
 import { getListener, getDevice, listDevices, GPS_ONLINE_MS } from "../services/gpsGateway.js";
+import { parseHistoryQuery, getRouteHistory } from "../services/locationService.js";
 
 // Admin "GPS Tracker" page (admin/GpsTracker.jsx) — the SinoTrack-style
 // device view: is the tracker connected, what did it last send, where has
@@ -11,7 +12,6 @@ export const gpsRouter = Router();
 gpsRouter.use(requireRole("admin"));
 
 const DEVICE_ID = /^[0-9A-Za-z]{1,32}$/;
-const MAX_HISTORY_POINTS = 20000;
 
 // Where the tracker must be pointed (SMS "8040000 <host> <port>"). Only the
 // deployment knows its public address, so it comes from env.
@@ -190,27 +190,13 @@ gpsRouter.post("/devices/:deviceId/assign", async (req, res) => {
 });
 
 // GET /api/gps/history?busId=&from=&to= — the path a bus took (playback).
-// Tracker points only, unless the bus had none, then the phone's.
+// Same data the Owner portal's playback reads for its own buses
+// (GET /api/owners/me/history).
 gpsRouter.get("/history", async (req, res) => {
-  const busId = Number(req.query.busId);
-  const from = new Date(req.query.from);
-  const to = new Date(req.query.to);
-  if (!Number.isInteger(busId) || busId <= 0) return res.status(400).json({ error: "busId is required" });
-  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from >= to) return res.status(400).json({ error: "from and to must be valid dates, from before to" });
-  if (to - from > 7 * 24 * 3600 * 1000) return res.status(400).json({ error: "Pick a range of 7 days or less" });
+  const range = parseHistoryQuery(req.query);
+  if (range.error) return res.status(400).json({ error: range.error });
   try {
-    const [rows] = await pool.query(
-      `SELECT latitude, longitude, timestamp, source, sync_status AS syncStatus
-       FROM location_tracking
-       WHERE bus_id = ? AND timestamp BETWEEN ? AND ?
-       ORDER BY timestamp ASC LIMIT ?`,
-      [busId, from, to, MAX_HISTORY_POINTS + 1]
-    );
-    const hasDevice = rows.some((r) => r.source === "device");
-    const points = (hasDevice ? rows.filter((r) => r.source === "device") : rows)
-      .slice(0, MAX_HISTORY_POINTS)
-      .map((r) => ({ latitude: Number(r.latitude), longitude: Number(r.longitude), timestamp: r.timestamp, source: r.source, syncStatus: r.syncStatus }));
-    res.json({ busId, points, truncated: rows.length > MAX_HISTORY_POINTS });
+    res.json(await getRouteHistory(range));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to load the route history" });

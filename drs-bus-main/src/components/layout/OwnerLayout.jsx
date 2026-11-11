@@ -1,9 +1,13 @@
-import { Map } from "lucide-react";
+import { Map, History } from "lucide-react";
 import RoleLayout from "./RoleLayout";
 import sunLogo from "../../assets/logo-sun.svg";
 
-// Bus owners only track their own buses, so the portal has one page.
-const links = [{ to: "tracking", label: "Live Tracking", short: "Tracking", icon: Map, tab: true }];
+// Bus owners only see their own buses: where they are now, and where
+// they've been.
+const links = [
+  { to: "tracking", label: "Live Tracking", short: "Tracking", icon: Map, tab: true },
+  { to: "playback", label: "Route Playback", short: "Playback", icon: History, tab: true },
+];
 
 const theme = {
   sidebar: "bg-linear-to-b from-sky-900 to-slate-950",
