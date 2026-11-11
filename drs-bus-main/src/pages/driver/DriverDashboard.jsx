@@ -19,6 +19,24 @@ const NEXT = {
   "In Transit": { to: "Completed", label: "Arrived — complete trip" },
 };
 
+// Same timing as the server (services/tripLifecycle.js): boarding opens 3
+// hours before departure. The server has the final say; this only greys the
+// button out with a time instead of letting the driver tap into an error.
+const BOARDING_OPENS_HOURS_BEFORE = 3;
+const boardingOpensAt = (t) => new Date(new Date(t.departure_time).getTime() - BOARDING_OPENS_HOURS_BEFORE * 3600 * 1000);
+
+// Why the button for this trip can't be used yet, or null when it can.
+function waitReason(trip, activeTrip, now) {
+  if (trip.status !== "Scheduled") return null;
+  if (activeTrip && activeTrip.trip_id !== trip.trip_id) return "Finish your current trip first";
+  const opens = boardingOpensAt(trip);
+  if (now < opens) {
+    const sameDay = opens.toDateString() === new Date(now).toDateString();
+    return `Boarding opens ${sameDay ? "at" : formatDate(opens.toISOString())?.replace(/, \d{4}$/, "") + ","} ${formatTime(opens.toISOString())}`;
+  }
+  return null;
+}
+
 export default function DriverDashboard() {
   const { user } = useAuth();
   const [trips, setTrips] = useState([]);
@@ -41,7 +59,16 @@ export default function DriverDashboard() {
   // GPS is shared from Boarding onward — that's when passengers can open
   // live tracking. Starting it right after the driver taps "Start boarding"
   // means the browser's permission prompt appears in context.
-  const activeTrip = trips.find((t) => t.status === "In Transit") ?? trips.find((t) => t.status === "Boarding");
+  // Missed trips (never departed, past the boarding window) wait for the
+  // admin to close them — they're not the driver's to move any more.
+  const liveTrips = trips.filter((t) => !t.missed_at);
+  const activeTrip = liveTrips.find((t) => t.status === "In Transit") ?? liveTrips.find((t) => t.status === "Boarding");
+  // Re-render every minute so "Boarding opens at …" turns into a button on time.
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setClock(Date.now()), 60000);
+    return () => clearInterval(id);
+  }, []);
   const gps = useDriverLocation(activeTrip?.bus_id ?? null);
   // A bus fitted with a GPS tracker reports by itself; the phone is backup.
   const tracker = useBusTracker(activeTrip?.bus_id ?? null);
@@ -49,6 +76,18 @@ export default function DriverDashboard() {
   async function advance(trip) {
     const next = NEXT[trip.status];
     if (!next) return;
+    // Leaving before the scheduled time: everyone booked must be on board
+    // (the server refuses otherwise and names who's missing).
+    if (next.to === "In Transit" && new Date() < new Date(trip.departure_time)) {
+      const ok = await confirm({
+        title: "Leave before the scheduled time?",
+        body: `This trip is scheduled for ${formatTime(trip.departure_time)}. You can leave early only if every booked passenger is marked Boarded on the passenger list.`,
+        confirmLabel: "Depart now",
+        cancelLabel: "Not yet",
+        tone: "primary",
+      });
+      if (!ok) return;
+    }
     if (next.to === "Completed") {
       const ok = await confirm({
         title: "Complete this trip?",
@@ -79,9 +118,11 @@ export default function DriverDashboard() {
     }
   }
 
-  const now = trips.filter((t) => t.status === "Boarding" || t.status === "In Transit");
-  const upcoming = trips.filter((t) => t.status === "Scheduled");
+  const now = liveTrips.filter((t) => t.status === "Boarding" || t.status === "In Transit");
+  const upcoming = liveTrips.filter((t) => t.status === "Scheduled");
+  const missed = trips.filter((t) => t.missed_at && (t.status === "Scheduled" || t.status === "Boarding"));
   const past = trips.filter((t) => t.status === "Completed").slice(-5).reverse();
+  const reasonFor = (t) => waitReason(t, activeTrip, clock);
 
   return (
     <div className="p-4 lg:p-6 space-y-4 max-w-3xl">
@@ -113,7 +154,15 @@ export default function DriverDashboard() {
       ) : (
         <>
           <TripGroup title="Now" trips={now} onAdvance={advance} updatingId={updatingId} empty={null} />
-          <TripGroup title="Upcoming" trips={upcoming} onAdvance={advance} updatingId={updatingId} empty="No upcoming trips." />
+          <TripGroup title="Upcoming" trips={upcoming} onAdvance={advance} updatingId={updatingId} waitReason={reasonFor} empty="No upcoming trips." />
+          {missed.length > 0 && (
+            <TripGroup
+              title="Waiting for the office"
+              note="These never departed and their time has passed. The terminal office will close them — nothing for you to do."
+              trips={missed}
+              muted
+            />
+          )}
           {past.length > 0 && <TripGroup title="Recently completed" trips={past} muted />}
         </>
       )}
@@ -122,11 +171,12 @@ export default function DriverDashboard() {
   );
 }
 
-function TripGroup({ title, trips, onAdvance, updatingId, empty, muted = false }) {
+function TripGroup({ title, note, trips, onAdvance, updatingId, waitReason, empty, muted = false }) {
   if (trips.length === 0 && !empty) return null;
   return (
     <section className="space-y-2">
       <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">{title}</h2>
+      {note && <p className="text-sm text-gray-500">{note}</p>}
       {trips.length === 0 ? (
         <p className="text-sm text-gray-500">{empty}</p>
       ) : (
@@ -146,16 +196,19 @@ function TripGroup({ title, trips, onAdvance, updatingId, empty, muted = false }
                 <Link to={`/driver/manifest?tripId=${t.trip_id}`} className="text-emerald-700 font-medium underline">
                   Passenger list
                 </Link>
-                {NEXT[t.status] && (
-                  <button
-                    type="button"
-                    onClick={() => onAdvance(t)}
-                    disabled={updatingId === t.trip_id}
-                    className="ml-auto bg-emerald-700 hover:bg-emerald-600 disabled:opacity-60 text-white text-sm font-semibold px-4 py-2 rounded"
-                  >
-                    {updatingId === t.trip_id ? "Saving…" : NEXT[t.status].label}
-                  </button>
-                )}
+                {NEXT[t.status] &&
+                  (waitReason?.(t) ? (
+                    <span className="ml-auto text-sm font-medium text-gray-500 bg-gray-100 px-3 py-2 rounded">{waitReason(t)}</span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onAdvance(t)}
+                      disabled={updatingId === t.trip_id}
+                      className="ml-auto bg-emerald-700 hover:bg-emerald-600 disabled:opacity-60 text-white text-sm font-semibold px-4 py-2 rounded"
+                    >
+                      {updatingId === t.trip_id ? "Saving…" : NEXT[t.status].label}
+                    </button>
+                  ))}
               </div>
             )}
           </div>

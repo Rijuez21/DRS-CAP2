@@ -346,6 +346,9 @@ const STATEMENTS = [
     last_seen_at TIMESTAMP NULL DEFAULT NULL,
     PRIMARY KEY (account_kind, account_id)
   )`,
+  // A trip that never departed, flagged for an admin (services/tripLifecycle.js).
+  `ALTER TABLE trips ADD COLUMN missed_at DATETIME NULL`,
+
   // "Signed in on another device" warning at login (routes/auth.js).
   `ALTER TABLE auth_sessions ADD COLUMN device_id VARCHAR(64) NULL`,
   `ALTER TABLE auth_sessions ADD COLUMN device_label VARCHAR(60) NULL`,

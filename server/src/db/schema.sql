@@ -116,6 +116,7 @@ CREATE TABLE IF NOT EXISTS trips (
   departure_time DATETIME NOT NULL,
   arrival_time DATETIME, -- addition: narrative text mentions it (needed for TripDetail's ETA) though Figure 10's box only shows departure_time
   status ENUM('Scheduled', 'Boarding', 'In Transit', 'Completed', 'Cancelled') NOT NULL DEFAULT 'Scheduled',
+  missed_at DATETIME NULL, -- addition: set when a Scheduled/Boarding trip passed its boarding window without departing (services/tripLifecycle.js); off the driver's list and off sale until an admin completes, cancels or reschedules it
   completed_at TIMESTAMP NULL DEFAULT NULL, -- addition: on-time-performance reporting (Phase 5) needs an *actual* completion timestamp to compare against the *scheduled* arrival_time; set when status transitions to 'Completed'
   bus_id INT NOT NULL,
   driver_id INT NOT NULL,

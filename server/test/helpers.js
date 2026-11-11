@@ -55,6 +55,9 @@ export async function setup({ env = {} } = {}) {
       PAYMENT_HOLD_MINUTES: "60",
       PAYMENT_SUBMIT_RATE_LIMIT: "20",
       LOGIN_IP_RATE_LIMIT: "100000", // the suite logs in hundreds of accounts from 127.0.0.1
+      // Fixtures include trips in the past; don't let the trip sweeper close
+      // them mid-test. tripLifecycle.test.js turns it on.
+      TRIP_SWEEP_INTERVAL_MS: "86400000",
       ...env,
     },
     stdio: ["ignore", "pipe", "pipe"],

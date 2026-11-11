@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CalendarClock, Plus, Pencil, XCircle, Bus, UserRound } from "lucide-react";
+import { CalendarClock, Plus, Pencil, XCircle, Bus, UserRound, CheckCircle2, AlertTriangle } from "lucide-react";
 import * as api from "../../lib/api";
 import ListFrame from "../../components/common/ListFrame";
 import { SkeletonList } from "../../components/common/Skeletons";
@@ -219,8 +219,49 @@ export default function AdminTripScheduling() {
     },
   ];
 
+  // A missed trip (never departed, past its boarding window — flagged by the
+  // server's trip sweeper): the admin says what happened. It ran -> Completed
+  // (the driver just forgot to tap Depart); it didn't -> Cancel trip; or
+  // Edit it to a new time.
+  async function handleMarkCompleted(t) {
+    const ok = await confirm({
+      title: "Mark this trip as completed?",
+      body: (
+        <>
+          <p className="text-ink-900">
+            {t.origin} → {t.destination} · {formatDate(t.departure_time)} {formatTime(t.departure_time)}
+          </p>
+          <p>Use this if the bus really ran and the driver didn&apos;t update the app. Booked passengers not marked Boarded are recorded as No-Show.</p>
+        </>
+      ),
+      confirmLabel: "Mark completed",
+      cancelLabel: "Go back",
+      tone: "primary",
+    });
+    if (!ok) return;
+    setBusyTripId(t.trip_id);
+    setError("");
+    try {
+      await api.updateTripStatus(t.trip_id, "Completed");
+      setSuccess("Trip marked as completed.");
+      load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyTripId(null);
+    }
+  }
+
   function tripActions(t) {
     const canCancel = isAdmin && (t.status === "Scheduled" || t.status === "Boarding");
+    const busy = busyTripId === t.trip_id;
+    const items = [];
+    if (isAdmin && t.missed_at && canCancel) {
+      items.push({ label: busy ? "Saving…" : "Mark as completed (it ran)", icon: CheckCircle2, disabled: busy, onClick: () => handleMarkCompleted(t) });
+    }
+    if (canCancel) {
+      items.push({ label: busy ? "Cancelling…" : "Cancel trip", icon: XCircle, tone: "danger", disabled: busy, onClick: () => handleCancelTrip(t) });
+    }
     return (
       <>
         {t.status === "Scheduled" && (
@@ -228,12 +269,7 @@ export default function AdminTripScheduling() {
             <Pencil className="w-3.5 h-3.5" aria-hidden="true" /> Edit
           </TextAction>
         )}
-        {canCancel && (
-          <OverflowMenu
-            label={`More actions for ${routeLabel(t)} at ${formatTime(t.departure_time)}`}
-            items={[{ label: busyTripId === t.trip_id ? "Cancelling…" : "Cancel trip", icon: XCircle, tone: "danger", disabled: busyTripId === t.trip_id, onClick: () => handleCancelTrip(t) }]}
-          />
-        )}
+        {items.length > 0 && <OverflowMenu label={`More actions for ${routeLabel(t)} at ${formatTime(t.departure_time)}`} items={items} />}
       </>
     );
   }
@@ -306,6 +342,14 @@ export default function AdminTripScheduling() {
                             </span>
                             <StatusBadge status={t.status} />
                             {full && !done && <StatusBadge status="Full" />}
+                            {t.missed_at && !done && (
+                              <span
+                                className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-xs font-semibold"
+                                title="Never marked as departed and its time has passed. Mark it completed if it ran, cancel it, or edit it to a new time."
+                              >
+                                <AlertTriangle className="w-3 h-3" aria-hidden="true" /> Needs review
+                              </span>
+                            )}
                           </p>
                           <p className="text-sm text-gray-600 flex flex-wrap gap-x-3">
                             <span className="inline-flex items-center gap-1">

@@ -73,7 +73,7 @@ export function unpaidHoldMessage(holds) {
 // Load the trip + bus facts every sale decision needs.
 export async function loadTripForSale(conn, tripId) {
   const [[trip]] = await conn.query(
-    `SELECT tr.trip_id, tr.status, tr.departure_time, tr.driver_id, b.capacity, b.seat_layout, b.plate_num
+    `SELECT tr.trip_id, tr.status, tr.departure_time, tr.missed_at, tr.driver_id, b.capacity, b.seat_layout, b.plate_num
      FROM trips tr JOIN buses b ON b.bus_id = tr.bus_id
      WHERE tr.trip_id = ?`,
     [tripId]
@@ -88,6 +88,8 @@ export function whyTripNotBookable(trip) {
   if (trip.status === "Completed") return "This trip has already finished";
   if (trip.status === "In Transit") return "This bus has already left the terminal. Use Flag a Bus to catch it on the road.";
   if (!BOOKABLE_TRIP_STATUSES.includes(trip.status)) return "This trip isn't open for booking";
+  // Past its boarding window without departing (services/tripLifecycle.js).
+  if (trip.missed_at) return "This trip's departure time has passed";
   if (trip.status === "Scheduled" && new Date(trip.departure_time) <= new Date()) {
     return "This trip's departure time has passed";
   }

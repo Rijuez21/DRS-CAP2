@@ -3,6 +3,15 @@ import { pool } from "../db/pool.js";
 import { redis, CACHE_TTL_SECONDS } from "../cache/redis.js";
 import { requireRole, authenticate, identifyIfSignedIn } from "../middleware/auth.js";
 import { publicTripRow, SEES_FULL_DRIVER_NAME } from "../services/driverDisplay.js";
+import {
+  BOARDING_OPENS_HOURS_BEFORE,
+  boardingOpensAt,
+  boardingClosesAt,
+  findOtherActiveTrip,
+  otherActiveTripMessage,
+  passengersNotBoarded,
+  earlyDepartureMessage,
+} from "../services/tripLifecycle.js";
 
 const seesFullDriverName = (req) => SEES_FULL_DRIVER_NAME.includes(req.user?.role);
 import { logAudit } from "../services/audit.js";
@@ -101,9 +110,12 @@ async function attachBookedCounts(rows) {
 // at a time; an admin can also cancel a trip that hasn't left yet. Before,
 // anyone could set any status (Completed -> Scheduled included) with no login.
 const DRIVER_NEXT = { Scheduled: "Boarding", Boarding: "In Transit", "In Transit": "Completed" };
-const BOARDING_OPENS_HOURS_BEFORE = 3; // a driver can't start boarding a trip that leaves tomorrow
 
-function whyTripStatusChangeNotAllowed({ user, trip, next, otherActiveTrip }) {
+// The timing rules (services/tripLifecycle.js) bind drivers; an admin can
+// override them, and is the one who closes a missed trip (Completed if it
+// ran — straight from Scheduled/Boarding — or Cancelled).
+// otherActiveTrip / notBoarded are looked up by the route for drivers only.
+function whyTripStatusChangeNotAllowed({ user, trip, next, otherActiveTrip, notBoarded }) {
   if (trip.status === next) return `This trip is already ${next}`;
   if (trip.status === "Completed" || trip.status === "Cancelled") return `This trip is ${trip.status.toLowerCase()} and can't be changed`;
 
@@ -112,13 +124,24 @@ function whyTripStatusChangeNotAllowed({ user, trip, next, otherActiveTrip }) {
     if (trip.status === "In Transit") return "This bus is already on the road — it can't be cancelled now";
     return null;
   }
+  if (user.role === "admin" && trip.missed_at && next === "Completed") return null; // "it did run"
   if (user.role === "driver" && trip.driver_id !== user.id) return "This trip isn't assigned to you";
   if (DRIVER_NEXT[trip.status] !== next) return `A ${trip.status} trip can only move to ${DRIVER_NEXT[trip.status]}`;
+  if (user.role !== "driver") return null;
+
+  const now = new Date();
+  if (trip.missed_at) return "This trip's departure time has passed and it was sent to the admin to close. Ask the terminal office.";
   if (next === "Boarding") {
-    const opensAt = new Date(new Date(trip.departure_time).getTime() - BOARDING_OPENS_HOURS_BEFORE * 3600 * 1000);
-    if (new Date() < opensAt) return `Boarding opens ${BOARDING_OPENS_HOURS_BEFORE} hours before departure`;
+    const opens = boardingOpensAt(trip.departure_time);
+    if (now < opens) return `Boarding opens ${BOARDING_OPENS_HOURS_BEFORE} hours before departure, at ${manilaShort(opens)}`;
+    if (now > boardingClosesAt(trip.departure_time)) {
+      return `This trip was due to leave at ${manilaShort(trip.departure_time)} — too late to start it from the app. Ask the terminal office.`;
+    }
   }
-  if (next === "In Transit" && otherActiveTrip) return "You already have a trip in transit. Complete it first.";
+  if ((next === "Boarding" || next === "In Transit") && otherActiveTrip) return otherActiveTripMessage(otherActiveTrip, trip);
+  if (next === "In Transit" && now < new Date(trip.departure_time) && notBoarded?.length > 0) {
+    return earlyDepartureMessage(notBoarded, trip.departure_time);
+  }
   return null;
 }
 
@@ -153,7 +176,7 @@ export function buildTripsRouter(io) {
       }
       try {
         const [rows] = await pool.query(
-          `SELECT tr.trip_id, tr.departure_time, tr.arrival_time, tr.status,
+          `SELECT tr.trip_id, tr.departure_time, tr.arrival_time, tr.status, tr.missed_at,
                   rt.origin, rt.destination, rt.base_fare,
                   b.bus_id, b.plate_num, b.capacity, b.type AS bus_type,
                   d.name AS driver_name,
@@ -187,7 +210,7 @@ export function buildTripsRouter(io) {
         // whose departure time passed during the 15 s cache window) still runs
         // below, so this is only a coarser first cut of the same rule.
         [rows] = await pool.query(
-          `SELECT tr.trip_id, tr.departure_time, tr.arrival_time, tr.status,
+          `SELECT tr.trip_id, tr.departure_time, tr.arrival_time, tr.status, tr.missed_at,
                   rt.origin, rt.destination, rt.distance, rt.base_fare,
                   b.bus_id, b.plate_num, b.bus_number, b.capacity, b.type AS bus_type,
                   tr.driver_id, tr.route_id, d.name AS driver_name
@@ -195,7 +218,7 @@ export function buildTripsRouter(io) {
            JOIN routes rt ON rt.route_id = tr.route_id
            JOIN buses b ON b.bus_id = tr.bus_id
            JOIN drivers d ON d.driver_id = tr.driver_id
-           ${bookableOnly ? "WHERE tr.status = 'Boarding' OR (tr.status = 'Scheduled' AND tr.departure_time > NOW())" : ""}
+           ${bookableOnly ? "WHERE (tr.status = 'Boarding' OR (tr.status = 'Scheduled' AND tr.departure_time > NOW())) AND tr.missed_at IS NULL" : ""}
            ORDER BY tr.departure_time ASC`
         );
         redis.set(cacheKey, JSON.stringify(rows), "EX", CACHE_TTL_SECONDS.activeTrips).catch((err) =>
@@ -208,7 +231,7 @@ export function buildTripsRouter(io) {
         // so a listed trip is always one you can actually book.
         const now = Date.now();
         rows = rows.filter(
-          (t) => t.capacity != null && (t.status === "Boarding" || (t.status === "Scheduled" && new Date(t.departure_time).getTime() > now))
+          (t) => t.capacity != null && !t.missed_at && (t.status === "Boarding" || (t.status === "Scheduled" && new Date(t.departure_time).getTime() > now))
         );
       }
 
@@ -282,7 +305,7 @@ export function buildTripsRouter(io) {
   tripsRouter.get("/:id", identifyIfSignedIn, async (req, res) => {
     try {
       const [rows] = await pool.query(
-        `SELECT tr.trip_id, tr.departure_time, tr.arrival_time, tr.status,
+        `SELECT tr.trip_id, tr.departure_time, tr.arrival_time, tr.status, tr.missed_at,
                 rt.origin, rt.destination, rt.distance, rt.base_fare,
                 tr.route_id, rt.latitude AS stop_latitude, rt.longitude AS stop_longitude,
                 b.bus_id, b.plate_num, b.bus_number, b.capacity, b.type AS bus_type,
@@ -437,7 +460,12 @@ export function buildTripsRouter(io) {
       if (busId !== undefined) { fields.push("bus_id = ?"); params.push(busId); }
       if (driverId !== undefined) { fields.push("driver_id = ?"); params.push(driverId); }
       if (routeId !== undefined) { fields.push("route_id = ?"); params.push(routeId); }
-      if (departureTime !== undefined) { fields.push("departure_time = ?"); params.push(departureTime); }
+      if (departureTime !== undefined) {
+        fields.push("departure_time = ?");
+        params.push(departureTime);
+        // A missed trip moved to a new (future) time is back in service.
+        if (new Date(departureTime).getTime() !== new Date(existing.departure_time).getTime()) fields.push("missed_at = NULL");
+      }
       if (arrivalTime !== undefined) { fields.push("arrival_time = ?"); params.push(arrivalTime); }
 
       if (fields.length === 0) return res.status(400).json({ error: "No editable fields provided" });
@@ -480,17 +508,21 @@ export function buildTripsRouter(io) {
     }
 
     try {
-      const [[trip]] = await pool.query(`SELECT trip_id, status, driver_id, departure_time FROM trips WHERE trip_id = ?`, [req.params.id]);
+      const [[trip]] = await pool.query(
+        `SELECT trip_id, status, driver_id, bus_id, departure_time, missed_at FROM trips WHERE trip_id = ?`,
+        [req.params.id]
+      );
       if (!trip) return res.status(404).json({ error: "Trip not found" });
 
+      // Drivers: one active trip per driver and per bus; no leaving early
+      // while a booked passenger hasn't boarded (services/tripLifecycle.js).
       let otherActiveTrip = null;
-      if (next === "In Transit") {
-        [[otherActiveTrip]] = await pool.query(
-          `SELECT trip_id FROM trips WHERE driver_id = ? AND status = 'In Transit' AND trip_id != ? LIMIT 1`,
-          [trip.driver_id, trip.trip_id]
-        );
+      let notBoarded = [];
+      if (req.user.role === "driver" && (next === "Boarding" || next === "In Transit")) {
+        otherActiveTrip = await findOtherActiveTrip(pool, trip);
+        if (next === "In Transit") notBoarded = await passengersNotBoarded(pool, trip.trip_id);
       }
-      const refusal = whyTripStatusChangeNotAllowed({ user: req.user, trip, next, otherActiveTrip });
+      const refusal = whyTripStatusChangeNotAllowed({ user: req.user, trip, next, otherActiveTrip, notBoarded });
       if (refusal) return res.status(409).json({ error: refusal });
 
       const [result] = await pool.query(

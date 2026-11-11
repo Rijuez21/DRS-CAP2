@@ -7,7 +7,8 @@ import "dotenv/config";
 
 import { pool, pingDatabase } from "./db/pool.js";
 import { redis } from "./cache/redis.js";
-import { buildTripsRouter } from "./routes/trips.js";
+import { buildTripsRouter, clearTripsCache } from "./routes/trips.js";
+import { ensureTripLifecycleColumns, startTripSweeper } from "./services/tripLifecycle.js";
 import { bookingsRouter, buildFlagRequestsRouter, attachBookingsIo } from "./routes/bookings.js";
 import { verifyToken, isDeployed, SIGNED_IN_ELSEWHERE } from "./middleware/auth.js";
 import { attachSessionsIo, sessionRoom, ensureSessionsTable } from "./services/sessions.js";
@@ -269,6 +270,12 @@ const gpsServer = startGpsGateway(io);
 // Sign-in needs the auth_sessions table (one device per account); make sure
 // it exists even if `npm run db:migrate` wasn't run after this deploy.
 await ensureSessionsTable().catch((err) => console.error("Couldn't create the auth_sessions table — logins will fail until `npm run db:migrate` runs:", err.message));
+// Every trip query reads trips.missed_at — same safety net.
+await ensureTripLifecycleColumns().catch((err) => console.error("Couldn't add trips.missed_at — run `npm run db:migrate`:", err.message));
+
+// Trips nobody moved forward: completes forgotten arrivals, flags missed
+// departures for the admins (services/tripLifecycle.js).
+const tripSweeper = startTripSweeper(io, { clearTripsCache });
 
 const port = process.env.PORT || 4000;
 httpServer.listen(port, () => {
@@ -288,6 +295,7 @@ function shutdown(signal) {
   clearInterval(paymentSweeper);
   clearInterval(retentionSweeper);
   clearInterval(departureReminders);
+  clearInterval(tripSweeper);
   gpsServer?.close();
   // httpServer first: its callback waits for running requests. io.close()
   // then drops the live sockets (it also calls httpServer.close, harmlessly).
