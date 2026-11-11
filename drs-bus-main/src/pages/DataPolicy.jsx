@@ -7,7 +7,7 @@ import { ChevronLeft } from "lucide-react";
 // changes. Retention periods below are promises: if the app's behaviour
 // changes, change this page too.
 const PRIVACY_EMAIL = "drisingsuntranspo@gmail.com"; // the Data Protection Officer's address — the business inbox until a dedicated one exists
-const LAST_UPDATED = "November 1, 2026";
+const LAST_UPDATED = "November 11, 2026";
 
 // Each section: a heading, an opening paragraph, and optional bullet points.
 const SECTIONS = [
@@ -51,6 +51,7 @@ const SECTIONS = [
     body: "We do not sell your personal information or share it for advertising. It is shared only as follows:",
     items: [
       "Within D' Rising Sun: drivers see the names and seats on their trip and any flag-down pickup points; terminal staff see bookings, payment submissions and discount applications; administrators manage accounts. Bus owners see information about their own buses and trips.",
+      "With passengers: on the day of travel, passengers see the first name of the driver assigned to their bus (on their ticket, live tracking and departure reminder) so they can find the right bus. No other driver details are shown to passengers.",
       "Service providers that host the platform (cloud servers and database). Some of these may store data outside the Philippines; we use providers with appropriate security safeguards, as the Data Privacy Act requires.",
       "Maps: the live map loads map images from OpenStreetMap, and \"Directions\" links open Google Maps. These services receive your IP address and the map area you view, under their own privacy policies.",
       "Emails: delivered through an email service (Brevo), which receives only your email address and the message itself.",

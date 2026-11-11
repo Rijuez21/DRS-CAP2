@@ -153,6 +153,25 @@ export function authenticate(req, res, next) {
   }, next);
 }
 
+// For public endpoints that show more to some signed-in roles (the trip
+// timetable gives staff the driver's full name). Sets req.user when a valid
+// token comes with the request; anything else just carries on as anonymous
+// — never a 401 on a public page.
+export function identifyIfSignedIn(req, res, next) {
+  const header = req.headers.authorization || "";
+  if (!header.startsWith("Bearer ")) return next();
+  verifyToken(header.slice(7)).then(
+    (result) => {
+      if (result.user) {
+        req.user = result.user;
+        req.sessionId = result.sid;
+      }
+      next();
+    },
+    () => next()
+  );
+}
+
 // requireRole('admin'), requireRole('admin', 'staff'), etc. — authenticates
 // first, then rejects if the token's role isn't one of the allowed roles.
 export function requireRole(...roles) {

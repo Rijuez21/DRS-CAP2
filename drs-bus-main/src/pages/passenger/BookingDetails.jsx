@@ -168,6 +168,7 @@ export default function BookingDetails() {
           <Field label="Date" value={formatDate(booking.departure_time)} />
           <Field label="Departs" value={formatTime(booking.departure_time)} />
           <Field label="Bus" value={booking.plate_num} />
+          <Field label="Driver" value={driverLabel(booking)} />
           <Field
             label={booking.discount_category ? `Fare · ${CATEGORY_LABELS[booking.discount_category]} ${DISCOUNT_PERCENT}% off` : "Fare · Regular"}
             value={booking.fare_due != null ? `₱${Number(booking.fare_due).toLocaleString("en-PH")}` : null}
@@ -274,6 +275,14 @@ function CancelDialog({ booking, payment, busy, onConfirm, onCancel }) {
       <p>{flagged ? "This can't be undone." : "Your seat will be released and this can't be undone."}</p>
     </ConfirmDialog>
   );
+}
+
+// The server sends the driver's first name only from the day of travel
+// (assignments can change before then); until then, say when it'll appear.
+function driverLabel(booking) {
+  if (booking.driver_first_name) return booking.driver_first_name;
+  const live = !["Cancelled", "No-Show"].includes(booking.status) && !["Cancelled", "Completed"].includes(booking.trip_status);
+  return live ? "Shown on the day of travel" : null;
 }
 
 function Field({ label, value }) {

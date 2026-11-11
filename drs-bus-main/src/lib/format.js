@@ -67,7 +67,8 @@ export function mapTrip(row) {
     status: row.status,
     distanceKm: row.distance != null ? Number(row.distance) : null,
     departureIso: row.departure_time,
-    driverName: row.driver_name,
+    driverName: row.driver_name, // full name: staff/admin/driver responses only
+    driverFirstName: row.driver_first_name ?? null, // passengers: first name, from the day of travel
     busId: row.bus_id,
     // Where this trip's stop is on the map (the admin's pin on the route),
     // or null when it hasn't been pinned — never a guessed position.

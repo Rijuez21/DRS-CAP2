@@ -1,5 +1,6 @@
 import { pool } from "../db/pool.js";
 import { notifyRecipient } from "./notify.js";
+import { driverFirstName } from "./driverDisplay.js";
 
 // "Your bus leaves soon" — about an hour before departure, every passenger
 // with a Confirmed online seat gets one reminder per trip (bell and email;
@@ -14,17 +15,18 @@ const manilaTime = (d) => new Date(d).toLocaleString("en-PH", { timeZone: "Asia/
 
 export async function sendDepartureReminders(io) {
   const [due] = await pool.query(
-    `SELECT bk.passenger_id, t.trip_id, t.departure_time, rt.origin, rt.destination, b.plate_num, b.bus_number,
+    `SELECT bk.passenger_id, t.trip_id, t.departure_time, rt.origin, rt.destination, b.plate_num, b.bus_number, d.name AS driver_name,
             GROUP_CONCAT(bk.seat_number ORDER BY bk.seat_number SEPARATOR ', ') AS seats,
             GROUP_CONCAT(bk.booking_id) AS booking_ids
      FROM bookings bk
      JOIN trips t ON t.trip_id = bk.trip_id
      JOIN routes rt ON rt.route_id = t.route_id
      JOIN buses b ON b.bus_id = t.bus_id
+     LEFT JOIN drivers d ON d.driver_id = t.driver_id
      WHERE bk.status = 'Confirmed' AND bk.channel = 'online' AND bk.reminder_sent_at IS NULL
        AND t.status IN ('Scheduled', 'Boarding')
        AND t.departure_time BETWEEN NOW() AND NOW() + INTERVAL ? MINUTE
-     GROUP BY bk.passenger_id, t.trip_id, t.departure_time, rt.origin, rt.destination, b.plate_num, b.bus_number
+     GROUP BY bk.passenger_id, t.trip_id, t.departure_time, rt.origin, rt.destination, b.plate_num, b.bus_number, d.name
      LIMIT 500`,
     [REMIND_WITHIN_MINUTES]
   );
@@ -38,10 +40,12 @@ export async function sendDepartureReminders(io) {
     if (claim.affectedRows === 0) continue; // another instance got it
     const seatWord = ids.length === 1 ? "seat" : "seats";
     const bus = r.bus_number ? `Bus ${r.bus_number} (${r.plate_num})` : r.plate_num;
+    // First name only (services/driverDisplay.js); it's the day of travel.
+    const driver = driverFirstName(r.driver_name);
     await notifyRecipient(
       io,
       { type: "passenger", id: r.passenger_id },
-      `Reminder: your bus from ${r.origin} to ${r.destination} leaves at ${manilaTime(r.departure_time)} — ${bus}, ${seatWord} ${r.seats}. Please be at the terminal at least 15 minutes early.`,
+      `Reminder: your bus from ${r.origin} to ${r.destination} leaves at ${manilaTime(r.departure_time)} — ${bus}${driver ? `, driver ${driver}` : ""}, ${seatWord} ${r.seats}. Please be at the terminal at least 15 minutes early.`,
       "departure_reminder"
     );
     sent += 1;

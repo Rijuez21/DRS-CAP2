@@ -18,6 +18,7 @@ import { initialPaymentDeadline, bookingReference, toCentavos } from "../service
 import { openRefundsForCancelledBooking } from "../services/paymentSweeper.js";
 import { logAudit } from "../services/audit.js";
 import { logPaymentEvent } from "../services/paymentAudit.js";
+import { passengerDriverName } from "../services/driverDisplay.js";
 import { activeDiscount, FARE_DUE_SQL } from "../services/discounts.js";
 
 export const bookingsRouter = Router();
@@ -193,6 +194,15 @@ bookingsRouter.get("/:id", authenticate, async (req, res) => {
     }
     if (req.user.role === "driver" && booking.driver_id !== req.user.id) {
       return res.status(403).json({ error: "This booking isn't on your trip" });
+    }
+    // The ticket shows the driver's first name from the day of travel
+    // (services/driverDisplay.js); null before then or for a dead booking.
+    if (req.user.role === "passenger") {
+      const [[driver]] = await pool.query(`SELECT name FROM drivers WHERE driver_id = ?`, [booking.driver_id]);
+      const live = !["Cancelled", "No-Show"].includes(booking.status);
+      booking.driver_first_name = live
+        ? passengerDriverName({ driverName: driver?.name, departureTime: booking.departure_time, tripStatus: booking.trip_status })
+        : null;
     }
     res.json(booking);
   } catch (err) {

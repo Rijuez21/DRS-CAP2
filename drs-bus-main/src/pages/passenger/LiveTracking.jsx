@@ -207,7 +207,7 @@ export default function LiveTracking() {
         title="Track your bus"
         subtitle={
           trip
-            ? `${trip.origin} → ${trip.destination} · ${trip.plateNumber ?? `Trip ${tripId}`}${trip.status ? ` · ${trip.status}` : ""}`
+            ? `${trip.origin} → ${trip.destination} · ${trip.plateNumber ?? `Trip ${tripId}`}${trip.driverFirstName ? ` · Driver ${trip.driverFirstName}` : ""}${trip.status ? ` · ${trip.status}` : ""}`
             : null
         }
       />

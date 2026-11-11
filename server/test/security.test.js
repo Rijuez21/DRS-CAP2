@@ -7,6 +7,7 @@ import { setup, teardown, api, db, createStaff, createPassenger, createDriver, c
 import { csvCell, likeEscape } from "../src/services/validate.js";
 import { whyPasswordWeak } from "../src/services/passwordPolicy.js";
 import { describeDevice, cleanDeviceId } from "../src/services/device.js";
+import { driverFirstName, passengerDriverName } from "../src/services/driverDisplay.js";
 import bcrypt from "bcryptjs";
 
 const bcryptHash = (password) => bcrypt.hash(password, 4);
@@ -108,6 +109,50 @@ describe("one signed-in device per account", () => {
     const changed = await api("POST", "/api/auth/change-password", { token: again.data.token, body: { currentPassword: PASSWORD, newPassword: "Other-pass-8812" } });
     assert.equal(changed.status, 200, JSON.stringify(changed.data));
     assert.equal((await api("GET", "/api/payments/mine", { token: changed.data.token })).status, 200);
+  });
+});
+
+describe("driver names shown to passengers", () => {
+  test("first name only, and only from the day of travel; staff keep the full name", async () => {
+    const later = await createTrip({ hours: 72 });
+    const anonLater = await api("GET", `/api/trips/${later.tripId}`);
+    assert.equal(anonLater.status, 200);
+    assert.equal(anonLater.data.driver_name, undefined, "the public view never has the full name");
+    assert.equal(anonLater.data.driver_first_name, null, "not shown days ahead");
+
+    const today = await createTrip({ hours: 72 });
+    await db.query(`UPDATE trips SET status = 'Boarding' WHERE trip_id = ?`, [today.tripId]);
+    assert.equal((await api("GET", `/api/trips/${today.tripId}`)).data.driver_first_name, "Fixture");
+
+    // (The list is cached for a few seconds, so check every row rather than these trips.)
+    const list = await api("GET", "/api/trips");
+    assert.ok(list.data.every((t) => t.driver_name === undefined));
+
+    const staffView = await api("GET", `/api/trips/${later.tripId}`, { token: admin.token });
+    assert.equal(staffView.data.driver_name, "Fixture Driver");
+    assert.ok((await api("GET", "/api/trips", { token: admin.token })).data.every((t) => typeof t.driver_name === "string"));
+  });
+
+  test("the passenger's ticket gets the first name on the day of travel", async () => {
+    const p = await createPassenger("Ticket Holder");
+    const { tripId } = await createTrip({ hours: 72 });
+    const r = await api("POST", "/api/bookings", { token: p.token, body: { tripId, seatNumbers: ["4"] } });
+    assert.equal(r.status, 201, JSON.stringify(r.data));
+    const id = r.data.bookings[0].booking_id;
+    assert.equal((await api("GET", `/api/bookings/${id}`, { token: p.token })).data.driver_first_name, null);
+    await db.query(`UPDATE trips SET status = 'Boarding' WHERE trip_id = ?`, [tripId]);
+    assert.equal((await api("GET", `/api/bookings/${id}`, { token: p.token })).data.driver_first_name, "Fixture");
+  });
+
+  test("first-name rules", () => {
+    assert.equal(driverFirstName("Boyet Marzan"), "Boyet");
+    assert.equal(driverFirstName("Cyril"), "Cyril");
+    assert.equal(driverFirstName("Ma. Lourdes Santos"), "Ma. Lourdes");
+    assert.equal(driverFirstName("  "), null);
+    const tomorrow = new Date(Date.now() + 48 * 3600 * 1000);
+    assert.equal(passengerDriverName({ driverName: "Boyet Marzan", departureTime: tomorrow, tripStatus: "Scheduled" }), null);
+    assert.equal(passengerDriverName({ driverName: "Boyet Marzan", departureTime: new Date(), tripStatus: "Scheduled" }), "Boyet");
+    assert.equal(passengerDriverName({ driverName: "Boyet Marzan", departureTime: new Date(), tripStatus: "Cancelled" }), null);
   });
 });
 

@@ -1,7 +1,10 @@
 import { Router } from "express";
 import { pool } from "../db/pool.js";
 import { redis, CACHE_TTL_SECONDS } from "../cache/redis.js";
-import { requireRole, authenticate } from "../middleware/auth.js";
+import { requireRole, authenticate, identifyIfSignedIn } from "../middleware/auth.js";
+import { publicTripRow, SEES_FULL_DRIVER_NAME } from "../services/driverDisplay.js";
+
+const seesFullDriverName = (req) => SEES_FULL_DRIVER_NAME.includes(req.user?.role);
 import { logAudit } from "../services/audit.js";
 import { notifyTripChange } from "../services/notify.js";
 import { openRefundsForCancelledTrip } from "../services/paymentSweeper.js";
@@ -104,7 +107,9 @@ export function buildTripsRouter(io) {
   // seat can still be sold on), or no params (admin: everything).
   // Only the ?driverId= view needs a login (it's a person's work schedule);
   // the timetable itself is public.
-  const authIfDriverQuery = (req, res, next) => (req.query.driverId ? authenticate(req, res, next) : next());
+  // Signed-in staff still get the driver's full name on the public view
+  // (TripScheduling uses it); everyone else gets driverDisplay.publicTripRow.
+  const authIfDriverQuery = (req, res, next) => (req.query.driverId ? authenticate(req, res, next) : identifyIfSignedIn(req, res, next));
   tripsRouter.get("/", authIfDriverQuery, async (req, res) => {
     const { driverId, scope } = req.query;
 
@@ -173,7 +178,8 @@ export function buildTripsRouter(io) {
         );
       }
 
-      res.json(await attachBookedCounts(rows));
+      const withCounts = await attachBookedCounts(rows);
+      res.json(seesFullDriverName(req) ? withCounts : withCounts.map(publicTripRow));
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: "Failed to load trips" });
@@ -243,7 +249,9 @@ export function buildTripsRouter(io) {
   // GET /api/trips/:id — powers TripDetail.jsx and LiveTracking.jsx. The
   // route's pin (stop_latitude/longitude, null when not pinned) is where
   // this trip's stop actually is, so LiveTracking can show the bus relative to it.
-  tripsRouter.get("/:id", async (req, res) => {
+  // Passengers/visitors get driver_first_name (from the day of travel), not
+  // the full name — see services/driverDisplay.js.
+  tripsRouter.get("/:id", identifyIfSignedIn, async (req, res) => {
     try {
       const [rows] = await pool.query(
         `SELECT tr.trip_id, tr.departure_time, tr.arrival_time, tr.status,
@@ -260,7 +268,7 @@ export function buildTripsRouter(io) {
       );
       if (rows.length === 0) return res.status(404).json({ error: "Trip not found" });
       const [withCount] = await attachBookedCounts(rows);
-      res.json(withCount);
+      res.json(seesFullDriverName(req) ? withCount : publicTripRow(withCount));
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: "Failed to load trip" });
