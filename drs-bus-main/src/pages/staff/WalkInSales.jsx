@@ -58,7 +58,9 @@ export default function WalkInSales() {
 
   const loadTrips = useCallback(() => {
     api
-      .getTrips({ scope: "bookable" })
+      // "counter": every trip until its bus leaves — ahead of time, or a
+      // delayed one still at the terminal after its departure time.
+      .getTrips({ scope: "counter" })
       .then((rows) => {
         setTrips(rows);
         setTripsError("");
@@ -206,7 +208,11 @@ export default function WalkInSales() {
           searchPlaceholder="Search route or bus…"
           filters={TRIP_FILTERS}
           skeleton={<SkeletonList count={4} />}
-          emptyState={{ icon: Ticket, title: "No trips open for sale", description: "Trips appear here once they're scheduled." }}
+          emptyState={{
+            icon: Ticket,
+            title: "No trips open for sale",
+            description: "Every trip that hasn't left yet appears here — schedule one in Trips. A late trip stays on sale until 3 hours past its departure time.",
+          }}
         >
           {(pageRows) => (
             <ul className="space-y-2" aria-label="Trips open for sale">
@@ -226,7 +232,16 @@ export default function WalkInSales() {
                         <span className="block text-xs text-gray-500">{formatDate(t.departure_time)?.replace(/, \d{4}$/, "").replace(/^\w+, /, "")}</span>
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block font-semibold text-ink-900 truncate">{tripLabel(t)}</span>
+                        <span className="flex items-center gap-2 min-w-0">
+                          <span className="font-semibold text-ink-900 truncate">{tripLabel(t)}</span>
+                          {/* Still Scheduled after its time: the bus is late but hasn't left. */}
+                          {t.status === "Scheduled" && new Date(t.departure_time) < new Date() && (
+                            <span className="shrink-0 rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-xs font-semibold">Delayed</span>
+                          )}
+                          {t.status === "Boarding" && (
+                            <span className="shrink-0 rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 text-xs font-semibold">Boarding</span>
+                          )}
+                        </span>
                         <span className="inline-flex items-center gap-1 text-sm text-gray-600">
                           <Bus className="w-3.5 h-3.5" aria-hidden="true" /> {t.plate_num}
                         </span>

@@ -82,7 +82,12 @@ export async function loadTripForSale(conn, tripId) {
 }
 
 // Returns an error string (human-readable, shown as-is in the UI) or null.
-export function whyTripNotBookable(trip) {
+// counter: a walk-in sale at the terminal. The counter sells any trip until
+// the bus actually leaves — ahead of time, or a DELAYED one still Scheduled
+// after its departure time (until it's flagged missed, 3 hours after; see
+// services/tripLifecycle.js). Online Book Ahead stops at the departure time:
+// a reservation gets a payment deadline, and a late trip leaves no time to pay.
+export function whyTripNotBookable(trip, { counter = false } = {}) {
   if (!trip) return "Trip not found";
   if (trip.status === "Cancelled") return "This trip has been cancelled";
   if (trip.status === "Completed") return "This trip has already finished";
@@ -90,7 +95,7 @@ export function whyTripNotBookable(trip) {
   if (!BOOKABLE_TRIP_STATUSES.includes(trip.status)) return "This trip isn't open for booking";
   // Past its boarding window without departing (services/tripLifecycle.js).
   if (trip.missed_at) return "This trip's departure time has passed";
-  if (trip.status === "Scheduled" && new Date(trip.departure_time) <= new Date()) {
+  if (!counter && trip.status === "Scheduled" && new Date(trip.departure_time) <= new Date()) {
     return "This trip's departure time has passed";
   }
   if (trip.capacity == null) return "This bus's seating capacity isn't on file yet, so seats can't be sold";

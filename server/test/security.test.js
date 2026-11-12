@@ -67,6 +67,32 @@ describe("one signed-in device per account", () => {
     assert.equal((await loginFrom("device-dddd-4444", q.email)).status, 200);
   });
 
+  test("an idle session is signed out, and doesn't trigger the warning", async () => {
+    const p = await createPassenger("Walked Away");
+    const phone = await loginFrom("device-eeee-5555", p.email, { force: true });
+    assert.equal(phone.status, 200);
+    // Last used 2 hours ago (the passenger limit is 60 minutes).
+    await db.query(`UPDATE auth_sessions SET last_seen_at = NOW() - INTERVAL 2 HOUR WHERE account_kind = 'passenger' AND account_id = ?`, [p.id]);
+
+    const stale = await api("GET", "/api/payments/mine", { token: phone.data.token });
+    assert.equal(stale.status, 401);
+    assert.match(stale.data.error, /60 minutes of inactivity/);
+    // Logging in elsewhere just takes over — no "signed in on another device" warning.
+    assert.equal((await loginFrom("device-ffff-6666", p.email)).status, 200);
+  });
+
+  test("a driver on a trip isn't signed out for inactivity", async () => {
+    const d = await createDriver();
+    const { tripId } = await createTrip({ hours: 1, driverId: d.id });
+    await db.query(`UPDATE auth_sessions SET last_seen_at = NOW() - INTERVAL 5 HOUR WHERE account_kind = 'driver' AND account_id = ?`, [d.id]);
+    assert.equal((await api("GET", "/api/auth/session", { token: d.token })).status, 401, "no trip running: signed out");
+
+    const again = await login((await db.query(`SELECT email FROM drivers WHERE driver_id = ?`, [d.id]))[0][0].email, PASSWORD, "driver");
+    await db.query(`UPDATE trips SET status = 'In Transit' WHERE trip_id = ?`, [tripId]);
+    await db.query(`UPDATE auth_sessions SET last_seen_at = NOW() - INTERVAL 5 HOUR WHERE account_kind = 'driver' AND account_id = ?`, [d.id]);
+    assert.equal((await api("GET", "/api/auth/session", { token: again.data.token })).status, 204, "on a trip: still signed in");
+  });
+
   test("the warning names the other browser; device ids are validated", () => {
     const android = "Mozilla/5.0 (Linux; Android 14; SM-A546E) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36";
     const edge = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0";

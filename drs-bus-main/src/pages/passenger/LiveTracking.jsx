@@ -9,6 +9,7 @@ import PageHeader from "../../components/passenger/PageHeader";
 import LocationPermissionCard from "../../components/common/LocationPermissionCard";
 import { useGeolocation } from "../../hooks/useGeolocation";
 import * as api from "../../lib/api";
+import { useKeepAlive } from "../../hooks/useKeepAlive";
 import { getSocket } from "../../lib/socket";
 import { mapTrip, formatTime, PAID_BOOKING_STATUSES } from "../../lib/format";
 import { distanceKm, formatDistance, timeAgo } from "../../lib/geo";
@@ -43,6 +44,8 @@ export default function LiveTracking() {
   // still checking; { bookingId } = locked (points them at that booking).
   const [locked, setLocked] = useState(null);
   const [allowed, setAllowed] = useState(false);
+  // Watching the bus on screen isn't "inactive" (no idle sign-out while visible).
+  useKeepAlive(allowed);
 
   // 1. Resolve the trip -> bus_id, check the passenger paid, then get the
   // last known point.

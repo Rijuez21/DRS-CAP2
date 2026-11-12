@@ -63,6 +63,27 @@ describe("leaving early", () => {
   });
 });
 
+describe("walk-in sales", () => {
+  test("the counter sells a delayed trip until the bus leaves; online booking stops at the departure time", async () => {
+    const staff = await createStaff("Counter Seller", "terminal_staff");
+    const { tripId } = await createTrip({ hours: -0.5 }); // 30 min late, still Scheduled
+    const listed = await api("GET", "/api/trips?scope=counter", { token: staff.token });
+    assert.ok(listed.data.some((t) => t.trip_id === tripId), "on the counter's list");
+    const sale = await api("POST", "/api/bookings/walk-in", { token: staff.token, body: { tripId, passengerName: "Late Walk-in", seatNumbers: ["1"], cashReceived: 350 } });
+    assert.equal(sale.status, 201, JSON.stringify(sale.data));
+
+    const p = await createPassenger();
+    const online = await api("POST", "/api/bookings", { token: p.token, body: { tripId, seatNumbers: ["2"] } });
+    assert.equal(online.status, 409);
+    assert.ok(!(await api("GET", "/api/trips?scope=bookable")).data.some((t) => t.trip_id === tripId));
+
+    // Ahead of time works at the counter too.
+    const later = await createTrip({ hours: 48 });
+    const ahead = await api("POST", "/api/bookings/walk-in", { token: staff.token, body: { tripId: later.tripId, passengerName: "Early Bird", seatNumbers: ["1"], cashReceived: 350 } });
+    assert.equal(ahead.status, 201, JSON.stringify(ahead.data));
+  });
+});
+
 describe("trip sweeper", () => {
   test("a trip that never departed is flagged for the admins and taken off the driver's hands and off sale", async () => {
     const d = await createDriver();
@@ -79,8 +100,21 @@ describe("trip sweeper", () => {
     const [[told]] = await db.query(`SELECT COUNT(*) AS n FROM notifications WHERE recipient_type = 'staff' AND type = 'trip_missed' AND message LIKE ?`, [`Trip #${tripId} %`]);
     assert.ok(Number(told.n) >= 1);
 
-    // The admin closes it: it did run.
-    assert.equal((await move(admin.token, tripId, "Completed")).status, 200);
+    // Terminal staff close it: it did run. (They can't run trips, though.)
+    const staff = await createStaff("Desk Closer", "terminal_staff");
+    const other = await createTrip({ hours: 1 });
+    const notAllowed = await move(staff.token, other.tripId, "Boarding");
+    assert.equal(notAllowed.status, 409);
+    assert.match(notAllowed.data.error, /can only mark a trip as completed/);
+    assert.equal((await move(staff.token, tripId, "Completed")).status, 200);
+    assert.equal((await tripRow(tripId)).status, "Completed");
+  });
+
+  test("terminal staff can complete a trip the driver left In Transit", async () => {
+    const staff = await createStaff("Desk Finisher", "terminal_staff");
+    const { tripId } = await createTrip({ hours: 1 });
+    await db.query(`UPDATE trips SET status = 'In Transit' WHERE trip_id = ?`, [tripId]);
+    assert.equal((await move(staff.token, tripId, "Completed")).status, 200);
     assert.equal((await tripRow(tripId)).status, "Completed");
   });
 

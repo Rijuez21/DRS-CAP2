@@ -90,7 +90,8 @@ const TRIPS_CACHE_KEY = "cache:trips:active";
 const TRIPS_BOOKABLE_CACHE_KEY = "cache:trips:bookable";
 // Any change to a trip must clear both cached lists — and so must a bus edit
 // (fleet.js), since the lists carry each bus's capacity.
-export const clearTripsCache = () => redis.del(TRIPS_CACHE_KEY, TRIPS_BOOKABLE_CACHE_KEY).catch(() => {});
+const TRIPS_COUNTER_CACHE_KEY = "cache:trips:counter"; // Walk-in Sales (scope=counter)
+export const clearTripsCache = () => redis.del(TRIPS_CACHE_KEY, TRIPS_BOOKABLE_CACHE_KEY, TRIPS_COUNTER_CACHE_KEY).catch(() => {});
 
 // Fresh (never cached) seat counts, overlaid on the cached trip list — the
 // list itself changes rarely, but "seats left" changes with every booking,
@@ -124,7 +125,12 @@ function whyTripStatusChangeNotAllowed({ user, trip, next, otherActiveTrip, notB
     if (trip.status === "In Transit") return "This bus is already on the road — it can't be cancelled now";
     return null;
   }
-  if (user.role === "admin" && trip.missed_at && next === "Completed") return null; // "it did run"
+  if (["admin", "staff"].includes(user.role) && trip.missed_at && next === "Completed") return null; // "it did run"
+  // Terminal staff close trips out (a missed one above, or one the driver
+  // left In Transit) but don't run them — no boarding/departing for staff.
+  if (user.role === "staff") {
+    return next === "Completed" && trip.status === "In Transit" ? null : "Terminal staff can only mark a trip as completed";
+  }
   if (user.role === "driver" && trip.driver_id !== user.id) return "This trip isn't assigned to you";
   if (DRIVER_NEXT[trip.status] !== next) return `A ${trip.status} trip can only move to ${DRIVER_NEXT[trip.status]}`;
   if (user.role !== "driver") return null;
@@ -198,8 +204,13 @@ export function buildTripsRouter(io) {
 
     try {
       let rows;
+      // scope=bookable: online Book Ahead (stops at the departure time).
+      // scope=counter: Walk-in Sales — any trip until the bus leaves, so a
+      // delayed one still Scheduled after its time stays on sale until it's
+      // flagged missed (bookingRules.whyTripNotBookable, counter: true).
+      const counterOnly = scope === "counter";
       const bookableOnly = scope === "bookable";
-      const cacheKey = bookableOnly ? TRIPS_BOOKABLE_CACHE_KEY : TRIPS_CACHE_KEY;
+      const cacheKey = counterOnly ? TRIPS_COUNTER_CACHE_KEY : bookableOnly ? TRIPS_BOOKABLE_CACHE_KEY : TRIPS_CACHE_KEY;
       const cached = await redis.get(cacheKey).catch(() => null);
       if (cached) {
         rows = JSON.parse(cached);
@@ -218,7 +229,13 @@ export function buildTripsRouter(io) {
            JOIN routes rt ON rt.route_id = tr.route_id
            JOIN buses b ON b.bus_id = tr.bus_id
            JOIN drivers d ON d.driver_id = tr.driver_id
-           ${bookableOnly ? "WHERE (tr.status = 'Boarding' OR (tr.status = 'Scheduled' AND tr.departure_time > NOW())) AND tr.missed_at IS NULL" : ""}
+           ${
+             counterOnly
+               ? "WHERE tr.status IN ('Scheduled', 'Boarding') AND tr.missed_at IS NULL"
+               : bookableOnly
+                 ? "WHERE (tr.status = 'Boarding' OR (tr.status = 'Scheduled' AND tr.departure_time > NOW())) AND tr.missed_at IS NULL"
+                 : ""
+           }
            ORDER BY tr.departure_time ASC`
         );
         redis.set(cacheKey, JSON.stringify(rows), "EX", CACHE_TTL_SECONDS.activeTrips).catch((err) =>
@@ -232,6 +249,13 @@ export function buildTripsRouter(io) {
         const now = Date.now();
         rows = rows.filter(
           (t) => t.capacity != null && !t.missed_at && (t.status === "Boarding" || (t.status === "Scheduled" && new Date(t.departure_time).getTime() > now))
+        );
+      } else if (counterOnly) {
+        // Until the bus leaves; a Scheduled trip past its boarding window is
+        // dropped even before the sweeper flags it missed.
+        const now = Date.now();
+        rows = rows.filter(
+          (t) => t.capacity != null && !t.missed_at && (t.status === "Boarding" || boardingClosesAt(t.departure_time).getTime() > now)
         );
       }
 
@@ -500,7 +524,7 @@ export function buildTripsRouter(io) {
   //              first, since notify targets still-active bookings).
   //   Completed: bookings nobody boarded become No-Show, so they stop
   //              showing as upcoming "Reserved" tickets forever.
-  tripsRouter.patch("/:id/status", requireRole("driver", "admin"), async (req, res) => {
+  tripsRouter.patch("/:id/status", requireRole("driver", "admin", "staff"), async (req, res) => {
     const { status: next } = req.body;
     const allowed = ["Scheduled", "Boarding", "In Transit", "Completed", "Cancelled"];
     if (!allowed.includes(next)) {
@@ -544,7 +568,7 @@ export function buildTripsRouter(io) {
         await pool.query(`UPDATE bookings SET status = 'No-Show' WHERE trip_id = ? AND status IN ('Reserved', 'Confirmed')`, [trip.trip_id]);
       }
       await clearTripsCache();
-      if (req.user.role === "admin") {
+      if (req.user.role === "admin" || req.user.role === "staff") {
         await logAudit({ staffId: req.user.id, action: "update", entityType: "trip", entityId: trip.trip_id, details: { status: next } });
       }
 

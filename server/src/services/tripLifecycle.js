@@ -15,8 +15,9 @@ import { notifyStaff } from "./notify.js";
 //                     reserved a seat is left at the terminal.
 //   Missed trips      Scheduled/Boarding and past the boarding window without
 //                     departing: flagged (missed_at), taken off the driver's
-//                     list and off sale, and the admins are asked to close it
-//                     — Completed if it really ran, Cancelled if it didn't.
+//                     list and off sale, and the terminal staff and admins are
+//                     asked to close it — Completed if it really ran (staff
+//                     or admin), Cancelled if it didn't (admin).
 //                     Never cancelled automatically: the bus may well have
 //                     left with the driver forgetting to tap Depart, and a
 //                     cancel would refund passengers who rode.
@@ -130,9 +131,8 @@ export async function sweepTrips(io, { clearTripsCache }) {
     out.missed.push(t.trip_id);
     await notifyStaff(
       io,
-      `Trip #${t.trip_id} (${t.origin} → ${t.destination}, ${manila(t.departure_time)}, bus ${t.plate_num}, driver ${t.driver_name}) was never marked as departed. In Trip Scheduling, mark it Completed if it ran, or cancel it.`,
-      "trip_missed",
-      { adminsOnly: true }
+      `Trip #${t.trip_id} (${t.origin} → ${t.destination}, ${manila(t.departure_time)}, bus ${t.plate_num}, driver ${t.driver_name}) was never marked as departed. In Trips, mark it completed if it ran, or ask an admin to cancel it.`,
+      "trip_missed"
     );
   }
 

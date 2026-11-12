@@ -5,6 +5,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useConfirm } from "../../hooks/useConfirm";
 import { useDriverLocation } from "../../hooks/useDriverLocation";
 import { useBusTracker } from "../../hooks/useBusTracker";
+import { useKeepAlive } from "../../hooks/useKeepAlive";
 import FlagRequestsPanel from "../../components/driver/FlagRequestsPanel";
 import StatusBadge from "../../components/common/StatusBadge";
 import InlineAlert from "../../components/common/InlineAlert";
@@ -72,6 +73,9 @@ export default function DriverDashboard() {
   const gps = useDriverLocation(activeTrip?.bus_id ?? null);
   // A bus fitted with a GPS tracker reports by itself; the phone is backup.
   const tracker = useBusTracker(activeTrip?.bus_id ?? null);
+  // Never signed out for inactivity during a trip — even with the phone in a
+  // pocket (the server exempts a driver on a trip too).
+  useKeepAlive(Boolean(activeTrip), { evenWhenHidden: true });
 
   async function advance(trip) {
     const next = NEXT[trip.status];

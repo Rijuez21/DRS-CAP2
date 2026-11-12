@@ -349,7 +349,8 @@ bookingsRouter.post("/walk-in", requireRole("staff", "admin"), async (req, res) 
 
   try {
     const trip = await loadTripForSale(pool, tripId);
-    const notBookable = whyTripNotBookable(trip);
+    // The counter sells until the bus leaves, delayed trips included.
+    const notBookable = whyTripNotBookable(trip, { counter: true });
     if (notBookable) return res.status(trip ? 409 : 404).json({ error: notBookable });
 
     const parsed = parseSeatRequest(req.body, trip, MAX_WALK_IN_SEATS);

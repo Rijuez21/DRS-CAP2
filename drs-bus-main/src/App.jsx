@@ -3,6 +3,7 @@ import AppRoutes from './routes/AppRoutes'
 import { AuthProvider } from './context/AuthContext'
 import { useReloadOnNewVersion } from './hooks/useReloadOnNewVersion'
 import ErrorBoundary from './components/common/ErrorBoundary'
+import IdleSignOut from './components/auth/IdleSignOut'
 
 // Picks up a new deploy in tabs that were already open (see the hook).
 function VersionWatcher() {
@@ -34,6 +35,7 @@ export default function App() {
   return (
     <AuthProvider>
       <RouterProvider router={router} />
+      <IdleSignOut />
     </AuthProvider>
   )
 }

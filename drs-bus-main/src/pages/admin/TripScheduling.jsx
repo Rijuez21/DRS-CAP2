@@ -231,7 +231,12 @@ export default function AdminTripScheduling() {
           <p className="text-ink-900">
             {t.origin} → {t.destination} · {formatDate(t.departure_time)} {formatTime(t.departure_time)}
           </p>
-          <p>Use this if the bus really ran and the driver didn&apos;t update the app. Booked passengers not marked Boarded are recorded as No-Show.</p>
+          <p>
+            {t.status === "In Transit"
+              ? "Use this if the bus has arrived and the driver didn't update the app."
+              : "Use this if the bus really ran and the driver didn't update the app."}{" "}
+            Booked passengers not marked Boarded are recorded as No-Show.
+          </p>
         </>
       ),
       confirmLabel: "Mark completed",
@@ -253,11 +258,20 @@ export default function AdminTripScheduling() {
   }
 
   function tripActions(t) {
-    const canCancel = isAdmin && (t.status === "Scheduled" || t.status === "Boarding");
+    const notStarted = t.status === "Scheduled" || t.status === "Boarding";
+    const canCancel = isAdmin && notStarted;
+    // Admins AND terminal staff close trips out: a missed one that really
+    // ran, or one the driver left In Transit after arriving.
+    const canComplete = (t.missed_at && notStarted) || t.status === "In Transit";
     const busy = busyTripId === t.trip_id;
     const items = [];
-    if (isAdmin && t.missed_at && canCancel) {
-      items.push({ label: busy ? "Saving…" : "Mark as completed (it ran)", icon: CheckCircle2, disabled: busy, onClick: () => handleMarkCompleted(t) });
+    if (canComplete) {
+      items.push({
+        label: busy ? "Saving…" : t.status === "In Transit" ? "Mark as completed (arrived)" : "Mark as completed (it ran)",
+        icon: CheckCircle2,
+        disabled: busy,
+        onClick: () => handleMarkCompleted(t),
+      });
     }
     if (canCancel) {
       items.push({ label: busy ? "Cancelling…" : "Cancel trip", icon: XCircle, tone: "danger", disabled: busy, onClick: () => handleCancelTrip(t) });

@@ -1,6 +1,14 @@
 import { randomBytes } from "node:crypto";
 import { pool } from "../db/pool.js";
-import { accountKind, invalidateAccount, tokenVersion, SIGNED_IN_ELSEWHERE, TOKEN_TTL_HOURS } from "../middleware/auth.js";
+import {
+  accountKind,
+  invalidateAccount,
+  tokenVersion,
+  driverOnTrip,
+  SIGNED_IN_ELSEWHERE,
+  TOKEN_TTL_HOURS,
+  IDLE_LIMIT_MINUTES,
+} from "../middleware/auth.js";
 
 // ============================================================================
 // One signed-in device per account.
@@ -63,13 +71,15 @@ export async function ensureSessionsTable() {
   }
 }
 
-// The account's current session if it's on a DIFFERENT browser and its token
-// may still work; null otherwise. { device, lastActiveAt, activeNow }.
-// token_ver: a password change (or reset) already signed that device out,
-// so it isn't worth a warning.
+// The account's current session if it's on a DIFFERENT browser and still
+// alive; null otherwise. { device, lastActiveAt, activeNow }.
+// Not alive = already signed out by inactivity (IDLE_LIMIT_MINUTES — e.g. a
+// tab closed hours ago), by a password change/reset (token_ver), or by the
+// 12-hour token expiry. Those just get replaced, with no warning.
 export async function findOtherSignedInDevice(role, id, { deviceId, passwordHash }) {
   const [[row]] = await pool.query(
-    `SELECT session_id, device_id, device_label, token_ver, created_at, last_seen_at
+    `SELECT session_id, device_id, device_label, token_ver, created_at, last_seen_at,
+            TIMESTAMPDIFF(SECOND, COALESCE(last_seen_at, created_at), NOW()) AS idle_seconds
      FROM auth_sessions
      WHERE account_kind = ? AND account_id = ? AND COALESCE(last_seen_at, created_at) > NOW() - INTERVAL ? HOUR`,
     [accountKind(role), id, TOKEN_TTL_HOURS]
@@ -77,6 +87,8 @@ export async function findOtherSignedInDevice(role, id, { deviceId, passwordHash
   if (!row) return null;
   if (deviceId && row.device_id === deviceId) return null;
   if (row.token_ver !== tokenVersion(passwordHash)) return null;
+  const idle = Number(row.idle_seconds) > (IDLE_LIMIT_MINUTES[role] ?? 30) * 60;
+  if (idle && !(role === "driver" && (await driverOnTrip(id)))) return null;
   // A live socket on that session = the app is open there right now.
   let activeNow = false;
   if (io) {

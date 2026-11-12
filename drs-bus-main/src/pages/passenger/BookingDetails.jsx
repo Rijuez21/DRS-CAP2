@@ -7,6 +7,7 @@ import ConfirmDialog from "../../components/common/ConfirmDialog";
 import PaymentPanel from "../../components/passenger/PaymentPanel";
 import PaymentStatusCard from "../../components/passenger/PaymentStatusCard";
 import * as api from "../../lib/api";
+import { useKeepAlive } from "../../hooks/useKeepAlive";
 import { formatDate, formatTime, formatPeso, receiptNumber, bookingReference, PAID_BOOKING_STATUSES } from "../../lib/format";
 import { CATEGORY_LABELS, DISCOUNT_PERCENT } from "../../lib/discounts";
 
@@ -20,6 +21,9 @@ export default function BookingDetails() {
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   // Latest payment state from PaymentPanel (null until it loads).
   const [paymentInfo, setPaymentInfo] = useState(null);
+  // Paying (an unpaid online seat) isn't "inactive": no idle sign-out while
+  // this page is on screen.
+  useKeepAlive(booking?.status === "Reserved" && booking?.channel === "online");
 
   // The panel re-reads the booking's status with its payment, so a booking
   // staff confirmed by verifying the payment updates here without a reload.

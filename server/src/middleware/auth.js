@@ -63,6 +63,25 @@ export const accountKind = (role) => (role === "admin" ? "staff" : role);
 
 export const SIGNED_IN_ELSEWHERE = "You were signed out because your account was signed in on another device.";
 
+// Inactivity sign-out, per role (minutes). A session nobody has used for
+// this long is over: its token stops working, and a login elsewhere takes
+// over without the "signed in on another device" warning. The browser signs
+// out at the same limit (drs-bus-main components/auth/IdleSignOut.jsx), with
+// a "Still there?" countdown first; this is the server's half, for tabs that
+// were simply closed. A driver with a trip Boarding / In Transit is never
+// signed out — that would stop GPS sharing and flag-down alerts mid-route.
+export const IDLE_LIMIT_MINUTES = { admin: 30, staff: 30, owner: 30, passenger: 60, driver: 120 };
+export const idleMessage = (role) => `You were signed out after ${IDLE_LIMIT_MINUTES[role] ?? 30} minutes of inactivity.`;
+
+// True when this driver has a trip running (no idle sign-out then).
+export async function driverOnTrip(driverId) {
+  const [[trip]] = await pool.query(
+    `SELECT 1 FROM trips WHERE driver_id = ? AND status IN ('Boarding', 'In Transit') AND missed_at IS NULL LIMIT 1`,
+    [driverId]
+  );
+  return Boolean(trip);
+}
+
 // Short cache so every API call doesn't cost an extra query; account
 // changes (role, suspension, deletion, password) take effect within this
 // window, and immediately on the instance that made the change.
@@ -84,7 +103,8 @@ async function checkAccount(payload) {
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.reason;
   const [[row]] = await pool.query(config.sql, [payload.id]);
   const [[session]] = await pool.query(
-    `SELECT session_id, last_seen_at < NOW() - INTERVAL 1 MINUTE OR last_seen_at IS NULL AS seen_stale
+    `SELECT session_id, last_seen_at < NOW() - INTERVAL 1 MINUTE OR last_seen_at IS NULL AS seen_stale,
+            TIMESTAMPDIFF(SECOND, COALESCE(last_seen_at, created_at), NOW()) AS idle_seconds
      FROM auth_sessions WHERE account_kind = ? AND account_id = ?`,
     [accountKind(payload.role), payload.id]
   );
@@ -97,6 +117,9 @@ async function checkAccount(payload) {
   // No row: they logged out (or never logged in since this was added).
   else if (!session) reason = "Your session has ended. Please log in again.";
   else if (session.session_id !== payload.sid) reason = SIGNED_IN_ELSEWHERE;
+  else if (Number(session.idle_seconds) > (IDLE_LIMIT_MINUTES[payload.role] ?? 30) * 60) {
+    if (!(payload.role === "driver" && (await driverOnTrip(payload.id)))) reason = idleMessage(payload.role);
+  }
   // "Last active" for the login page's other-device warning. At most one
   // write a minute per signed-in device (and only on a cache miss).
   if (!reason && session.seen_stale) {

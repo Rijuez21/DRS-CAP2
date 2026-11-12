@@ -7,6 +7,7 @@ import InlineAlert from "../../components/common/InlineAlert";
 import BookingSteps from "../../components/passenger/BookingSteps";
 import PaymentPanel from "../../components/passenger/PaymentPanel";
 import * as api from "../../lib/api";
+import { useKeepAlive } from "../../hooks/useKeepAlive";
 import { LAST_BOOKING_KEY } from "../../lib/storageKeys";
 import { bookingReference } from "../../lib/format";
 import { discountedFare, CATEGORY_LABELS, DISCOUNT_PERCENT } from "../../lib/discounts";
@@ -51,6 +52,8 @@ export default function BookingConfirmed() {
       ? paymentItems.every((i) => i.booking_status === "Reserved" && !i.payment)
       : bookings.every((b) => b.status === "Reserved"));
   const leavingRef = useRef(false);
+  // Paying isn't "inactive" (no idle sign-out while this step is on screen).
+  useKeepAlive(unpaidHold);
   const blocker = useBlocker(
     ({ currentLocation, nextLocation, historyAction }) =>
       unpaidHold &&

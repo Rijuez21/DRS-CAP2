@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { setAuthToken, onUnauthorized, logout as logoutOnServer, checkSession } from "../lib/api";
 import { setSocketToken, getSocket } from "../lib/socket";
+import { idleMessage } from "../lib/idle";
 
 // Shown once on the login page after an automatic sign-out.
 export const AUTH_NOTICE_KEY = "drs_auth_notice";
@@ -132,10 +133,15 @@ export function AuthProvider({ children }) {
         setRestoring(false);
       } else if (data.type === "signed-out") {
         // Logged out in another tab: the server session is gone, so this
-        // tab's copy of the token is dead too.
+        // tab's copy of the token is dead too. A notice (inactivity) is
+        // shown on the login page here as well.
         if (sameAccount(current, data)) {
-          setSignOutReason("manual");
-          setAuth(null);
+          if (typeof data.notice === "string" && data.notice) {
+            endSession(data.notice);
+          } else {
+            setSignOutReason("manual");
+            setAuth(null);
+          }
         }
       }
     };
@@ -149,7 +155,7 @@ export function AuthProvider({ children }) {
       channel.close();
       channelRef.current = null;
     };
-  }, []);
+  }, [endSession]);
 
   // One device per account: signing in on another phone ends this session
   // on the server. A live socket is told at once ("session:revoked"); a tab
@@ -204,6 +210,18 @@ export function AuthProvider({ children }) {
     if (current?.user) broadcast({ type: "signed-out", user: { id: current.user.id, role: current.user.role } });
   }
 
+  // Inactivity sign-out (components/auth/IdleSignOut.jsx): ends the server
+  // session like Log Out, but sends the user to their login page with the
+  // reason — in every open tab.
+  const signOutForInactivity = useCallback(() => {
+    const current = authRef.current;
+    if (!current) return;
+    const notice = idleMessage(current.user?.role);
+    if (current.token) logoutOnServer().catch(() => {});
+    broadcast({ type: "signed-out", user: { id: current.user.id, role: current.user.role }, notice });
+    endSession(notice);
+  }, [broadcast, endSession]);
+
   // After the Account page changes something: new profile details and/or a
   // fresh token (a password change signs every other device out; this
   // browser's other tabs get the new token).
@@ -221,7 +239,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user: auth?.user ?? null, token, restoring, signIn, signOut, updateAccount, signOutReason }}>
+    <AuthContext.Provider value={{ user: auth?.user ?? null, token, restoring, signIn, signOut, signOutForInactivity, updateAccount, signOutReason }}>
       {children}
     </AuthContext.Provider>
   );
