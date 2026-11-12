@@ -14,9 +14,6 @@ Management System IT project (Saint Louis University).
 |---|---|
 | `drs-bus-main/` | The website (React + Vite + Tailwind CSS v4). See [drs-bus-main/README.md](drs-bus-main/README.md). |
 | `server/` | The API (Node.js + Express + Socket.io, MySQL, Redis). See [server/README.md](server/README.md) for setup, every setting and the API routes. |
-| `postman/` | Full API test collection, run by GitHub Actions with Newman. |
-| `jmeter/` | Load test (GitHub Actions, run by hand). |
-| `.github/workflows/` | CI: server tests + website checks, Postman API tests, load test, ZAP security scan. |
 
 ## Tech stack
 
@@ -224,15 +221,14 @@ Each base path redirects to that role's first page; unknown URLs go to `/`.
 
 ## Tests
 
-| What | How | Where it runs |
+| Tests | Where | Command |
 |---|---|---|
-| Server test suite (payments, security, sign-up, password reset, accounts, …) | `cd server && npm test` (needs a disposable MySQL 8 + Redis, see `server/test/helpers.js`) | GitHub Actions `Tests` workflow |
-| Website lint, unit tests and build | `cd drs-bus-main && npm run lint && npm test && npm run build` | GitHub Actions `Tests` workflow |
-| Full API collection | Newman, `postman/` | GitHub Actions `API tests (Postman)` workflow |
-| Load test | JMeter, `jmeter/` | GitHub Actions `Load test (JMeter)`, run by hand |
-| Security scan | OWASP ZAP | GitHub Actions `Security scan (ZAP)` workflow |
+| Backend unit, integration and security tests | `server/test/` | `cd server && npm test` |
+| Frontend unit tests (Vitest, React Testing Library) | `drs-bus-main/src/**/*.test.js(x)` | `cd drs-bus-main && npm test` |
 
-Turn on **Wait for CI** in each Railway service's settings so a failing run never deploys.
+The backend tests need a disposable MySQL 8 and Redis; they create and drop their own test database (see `server/test/helpers.js`). Never point them at the Railway database.
+
+Manual, end-to-end (Playwright) and performance (Artillery, Socket.IO) testing were also carried out; their results are reported in the project paper, and the scripts and reports are available from the researchers upon request.
 
 ## Deploying (Railway)
 
