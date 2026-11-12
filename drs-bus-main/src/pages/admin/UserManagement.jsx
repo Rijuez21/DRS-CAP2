@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ShieldCheck, Plus, Pencil, Trash2, UserRound, Bus, Phone, IdCard, Briefcase } from "lucide-react";
 import * as api from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
@@ -104,8 +104,23 @@ export default function AdminUserManagement() {
   const toggleBus = (busId) =>
     setForm((f) => ({ ...f, busIds: f.busIds.includes(busId) ? f.busIds.filter((id) => id !== busId) : [...f.busIds, busId] }));
 
+  // Errors from the Add/Edit dialog show INSIDE it (they used to appear on
+  // the page behind the dialog, where nobody could see them), scrolled into
+  // view since Save is at the bottom of a long form.
+  const [formError, setFormError] = useState("");
+  const formErrorRef = useRef(null);
+  function showFormError(message) {
+    setFormError(message);
+    requestAnimationFrame(() => formErrorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }));
+  }
+  function closeForm() {
+    setEditing(null);
+    setFormError("");
+  }
+
   function openNew() {
     setForm(emptyForm);
+    setFormError("");
     setEditing("new");
   }
 
@@ -121,15 +136,22 @@ export default function AdminUserManagement() {
       dutyStatus: u.duty_status ?? "Active",
       busIds: u.bus_ids ?? [],
     });
+    setFormError("");
     setEditing(u);
   }
 
   async function handleSave(e) {
     e.preventDefault();
     setError("");
+    setFormError("");
     setSuccess("");
     if (!form.name.trim() || !form.email.trim() || !form.phoneno.trim() || (isNew && !form.password) || (isDriver && !form.licenseNumber.trim())) {
-      setError(`Full name, email, phone${isNew ? ", a temporary password" : ""}${isDriver ? " and a license number" : ""} are required.`);
+      showFormError(`Full name, email, phone${isNew ? ", a temporary password" : ""}${isDriver ? " and a license number" : ""} are required.`);
+      return;
+    }
+    // Same rule as the hint under the field (the server re-checks).
+    if (form.password && (form.password.length < 8 || !/[A-Z]/.test(form.password) || !/[0-9]/.test(form.password))) {
+      showFormError("The password needs at least 8 characters, with a capital letter and a number.");
       return;
     }
 
@@ -162,7 +184,7 @@ export default function AdminUserManagement() {
       setEditing(null);
       load();
     } catch (err) {
-      setError(err.message);
+      showFormError(err.message); // inside the dialog, where they're looking
     } finally {
       setIsSaving(false);
     }
@@ -306,15 +328,18 @@ export default function AdminUserManagement() {
         <Modal
           size="lg"
           title={isNew ? "Add Account" : "Edit Account"}
-          onClose={() => setEditing(null)}
+          onClose={closeForm}
           footer={
             <>
-              <CancelButton onClick={() => setEditing(null)} />
+              <CancelButton onClick={closeForm} />
               <SubmitButton form="account-form" isSaving={isSaving} />
             </>
           }
         >
           <form id="account-form" onSubmit={handleSave} className="space-y-5">
+            <div ref={formErrorRef}>
+              <InlineAlert type="error" message={formError} onDismiss={() => setFormError("")} />
+            </div>
             <FormSection title="Account">
               <Field label="Role" required>
                 {/* Staff, drivers and owners are stored separately, so an existing account can't switch between them. */}

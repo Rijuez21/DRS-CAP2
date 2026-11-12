@@ -8,10 +8,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, "data");
 
 /**
- * WIPES the `routes` table and reloads it as one row per km post from the
- * fare chart — 161 routes, each "Baguio -> <stop>" (or "Baguio -> KM n"
- * where the chart didn't print a name), carrying that stop's own
- * distance/regular/special fare. Also seeds the driver/bus roster.
+ * WIPES the `routes` table and reloads it from the fare chart — one
+ * "Baguio -> <stop>" row per NAMED stop, carrying that stop's own
+ * distance/regular/special fare. Km posts the chart didn't name are skipped
+ * (no "Baguio -> KM n" routes). Also seeds the driver/bus roster.
  *
  * No data lives in this file — it's all read from:
  *   server/src/db/data/baguio-bontoc-roster.json      (drivers, buses)
@@ -89,7 +89,10 @@ async function main() {
   let pinsFromJson = 0;
   let pinsKept = 0;
   for (const row of fareMatrix) {
-    const destination = row.stopName || `KM ${row.km}`;
+    // Named stops only: plain "KM n" posts (no stop name on the chart) were
+    // removed from the route list and aren't recreated.
+    if (!row.stopName) continue;
+    const destination = row.stopName;
     const jsonPin = pinFromJson(row);
     const pin = jsonPin ?? existingPins.get(destination) ?? null;
     if (jsonPin) pinsFromJson += 1;
@@ -147,7 +150,7 @@ async function main() {
   }
 
   console.log("Baguio–Bontoc seed complete.");
-  console.log(`Routes reloaded: ${fareMatrix.length} (routes table was wiped first)`);
+  console.log(`Routes reloaded: ${fareMatrix.filter((r) => r.stopName).length} named stops (routes table was wiped first; unnamed km posts skipped)`);
   console.log(`Bus stop pins: ${pinsFromJson} from the fare-matrix JSON, ${pinsKept} kept from before the wipe.`);
   console.log(`Buses seeded: ${roster.buses.map((b) => b.busNumber).join(", ")}`);
   console.log("Edit server/src/db/data/baguio-bontoc-roster.json to fix placeholder license numbers/emails, then re-run.");

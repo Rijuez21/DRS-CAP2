@@ -34,7 +34,7 @@ const routeLabel = (b) => `${b.origin} → ${b.destination}`;
 
 // Table 4's Reservations Oversight: filterable, read-only except cancel.
 export default function AdminReservationsManagement() {
-  const table = useListState({ initialSort: { key: "booked_at", dir: "desc" }, filters: FILTERS, pageSize: 25, syncUrl: true });
+  const table = useListState({ initialSort: { key: "booked_at", dir: "desc" }, filters: FILTERS, pageSize: 24, syncUrl: true });
   const { status, channel } = table.filters;
   const [bookings, setBookings] = useState([]);
   // Which filter combination the rows on screen came from; loading until it

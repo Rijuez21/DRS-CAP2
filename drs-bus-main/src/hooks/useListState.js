@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
-export const PAGE_SIZES = [10, 25, 50];
+// Multiples of 12 fill a 2-, 3- or 4-column card grid evenly (no half-empty last row).
+export const PAGE_SIZES = [12, 24, 48];
 
 // Lifecycle order for type: "status" fields, so sorting by status groups
 // items the way staff read them (upcoming -> live -> done) instead of A–Z.
@@ -19,7 +20,7 @@ const STATUS_ORDER = [
 // otherwise plain state. A page that needs the state itself (e.g. to send a
 // filter to the server) calls this hook and hands the result to the list
 // component's `state` prop.
-export function useListState({ initialSort = null, pageSize = 10, filters = [], syncUrl = false } = {}) {
+export function useListState({ initialSort = null, pageSize = 12, filters = [], syncUrl = false } = {}) {
   const [params, setParams] = useSearchParams();
   const base = {
     search: "",

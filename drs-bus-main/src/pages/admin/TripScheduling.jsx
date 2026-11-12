@@ -313,7 +313,7 @@ export default function AdminTripScheduling() {
         isLoading={isLoading}
         syncUrl
         initialSort={{ key: "departure_time", dir: "asc" }}
-        pageSize={25}
+        pageSize={24}
         paging="pages"
         searchKeys={[routeLabel, "plate_num", "bus_number", "driver_name"]}
         searchPlaceholder="Search route, bus or driver…"

@@ -8,6 +8,8 @@ import { Spinner } from "../../components/common/Buttons";
 import PageHeading from "../../components/common/PageHeading";
 import StatusBadge from "../../components/common/StatusBadge";
 import CashPaymentModal from "../../components/staff/CashPaymentModal";
+import WalkInReceipt from "../../components/staff/WalkInReceipt";
+import { useAuth } from "../../context/AuthContext";
 import * as api from "../../lib/api";
 import { compareSeats, customSeatLayout, mapTrip, formatDate, formatPeso, formatTime, stillSelectable } from "../../lib/format";
 
@@ -40,6 +42,7 @@ const TRIP_FILTERS = [
 // Cancelled trips too), and a multi-seat sale is all-or-nothing — before,
 // seat 3 failing left seats 1–2 sold with only an error on screen.
 export default function WalkInSales() {
+  const { user } = useAuth(); // the cashier on the printed receipt
   const [trips, setTrips] = useState([]);
   const [tripsError, setTripsError] = useState("");
   const [tripId, setTripId] = useState("");
@@ -129,6 +132,7 @@ export default function WalkInSales() {
       setReceipt({
         ...result,
         trip,
+        issuedAt: new Date().toISOString(),
         total,
         cashReceived: result.payment?.cashReceived ?? cashReceived,
         change: result.payment?.change ?? (total != null ? cashReceived - total : null),
@@ -169,31 +173,32 @@ export default function WalkInSales() {
 
       {/* Peak-End: a clear finish — what was sold, and what to do next */}
       {receipt && (
-        <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 space-y-3">
-          <p className="font-display text-lg font-bold text-emerald-900 flex items-center gap-2">
-            <CheckCircle2 className="w-6 h-6" aria-hidden="true" /> Sold {receipt.bookings.length} seat{receipt.bookings.length === 1 ? "" : "s"} to {receipt.passengerName}
-          </p>
-          <p className="text-sm text-emerald-900">
-            {receipt.trip.origin} → {receipt.trip.destination} · {receipt.trip.departureTime} · Bus {receipt.trip.plateNumber}
-          </p>
-          <p className="text-sm text-emerald-900">{receipt.bookings.map((b) => `Seat ${b.seat_number} (#${b.booking_id})`).join(" · ")}</p>
-          {receipt.total != null && (
-            <p className="text-sm text-emerald-900 font-medium">
-              Paid in cash: {formatPeso(receipt.total)}
-              {receipt.cashReceived != null && ` · Received ${formatPeso(receipt.cashReceived)} · Change ${formatPeso(receipt.change ?? 0)}`}
+        <div className="space-y-4">
+          <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-3 print:hidden">
+            <p className="font-display text-lg font-bold text-emerald-900 flex items-center gap-2">
+              <CheckCircle2 className="w-6 h-6" aria-hidden="true" /> Sold {receipt.bookings.length} seat{receipt.bookings.length === 1 ? "" : "s"} to {receipt.passengerName}
+              {receipt.change != null && receipt.change > 0 && (
+                <span className="ml-auto text-base font-semibold">Give change: {formatPeso(receipt.change)}</span>
+              )}
             </p>
-          )}
-          <div className="flex flex-wrap gap-2 pt-1">
-            <button type="button" onClick={() => setReceipt(null)} className="min-h-11 px-4 rounded-lg bg-amber-700 hover:bg-amber-600 text-white text-sm font-semibold">
-              Sell another on this trip
-            </button>
-            <button type="button" onClick={() => chooseTrip("")} className="min-h-11 px-4 rounded-lg border border-emerald-300 bg-white text-sm font-semibold text-emerald-900 hover:bg-emerald-100">
-              Choose another trip
-            </button>
-            <button type="button" onClick={() => window.print()} className="inline-flex items-center gap-1.5 min-h-11 px-4 rounded-lg text-sm font-semibold text-emerald-900 hover:bg-emerald-100">
-              <Printer className="w-4 h-4" aria-hidden="true" /> Print receipt
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="inline-flex items-center gap-1.5 min-h-11 px-4 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-semibold"
+              >
+                <Printer className="w-4 h-4" aria-hidden="true" /> Print receipt
+              </button>
+              <button type="button" onClick={() => setReceipt(null)} className="min-h-11 px-4 rounded-lg bg-amber-700 hover:bg-amber-600 text-white text-sm font-semibold">
+                Sell another on this trip
+              </button>
+              <button type="button" onClick={() => chooseTrip("")} className="min-h-11 px-4 rounded-lg border border-emerald-300 bg-white text-sm font-semibold text-emerald-900 hover:bg-emerald-100">
+                Choose another trip
+              </button>
+            </div>
           </div>
+          {/* The actual receipt — the only thing that prints. */}
+          <WalkInReceipt sale={receipt} cashier={user?.name} />
         </div>
       )}
 

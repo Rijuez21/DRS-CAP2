@@ -214,7 +214,7 @@ export default function AdminRouteManagement() {
         fields={SORT_FIELDS}
         isLoading={isLoading}
         syncUrl
-        pageSize={25}
+        pageSize={24}
         paging="pages"
         searchKeys={["origin", "destination"]}
         searchPlaceholder="Search by origin or destination…"

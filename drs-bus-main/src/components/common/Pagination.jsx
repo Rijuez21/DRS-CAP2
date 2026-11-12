@@ -1,7 +1,7 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { PAGE_SIZES } from "../../hooks/useListState";
 
-// Bottom-right, like Gmail/Sheets (Jakob's Law): rows per page, where you
+// Bottom-right, like Gmail/Sheets (Jakob's Law): items per page, where you
 // are, previous/next. mode "more" is a "Load more" button instead (agenda).
 export default function Pagination({ mode = "pages", page, pageCount, pageSize, total, shown, onPage, onPageSize }) {
   if (mode === "more") {
@@ -19,7 +19,7 @@ export default function Pagination({ mode = "pages", page, pageCount, pageSize, 
   return (
     <nav className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 text-sm text-gray-600" aria-label="Pagination">
       <label className="flex items-center gap-2">
-        <span>Rows per page</span>
+        <span>Items per page</span>
         <select value={pageSize} onChange={(e) => onPageSize(Number(e.target.value))} className="input min-h-11 md:min-h-10 w-auto bg-white">
           {PAGE_SIZES.map((n) => (
             <option key={n} value={n}>

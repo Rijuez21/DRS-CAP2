@@ -28,7 +28,7 @@ export default function ListFrame({
   searchKeys = [],
   searchPlaceholder = "Search…",
   filters = [],
-  pageSize = 10,
+  pageSize = 12,
   paging = "pages",
   sortControl = "dropdown",
   emptyState,
