@@ -230,8 +230,9 @@ export function whyStatusChangeNotAllowed({ user, booking, trip, next }) {
     return null;
   }
 
+  // "driver" = a crew account: the trip's driver or its conductor.
   if (user.role === "driver") {
-    if (trip.driver_id !== user.id) return "This booking isn't on your trip";
+    if (trip.driver_id !== user.id && (trip.conductor_id == null || trip.conductor_id !== user.id)) return "This booking isn't on your trip";
     const allowed = {
       Reserved: ["Boarded", "No-Show"],
       Confirmed: ["Boarded", "No-Show"],

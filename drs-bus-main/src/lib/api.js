@@ -370,6 +370,8 @@ export const getDailyCollectionsReport = (params) => request("/api/reports/daily
 export const getTripCollections = (tripId) => request(`/api/collections/trips/${tripId}`);
 export const recordOnboardFare = (tripId, payload) => request(`/api/collections/trips/${tripId}/fares`, { method: "POST", body: payload });
 export const voidOnboardFare = (fareId, reason) => request(`/api/collections/fares/${fareId}/void`, { method: "POST", body: { reason } });
+// Walk-on riders got off (frees their seats); undo = put them back on after a mis-tap.
+export const markWalkOnsOff = (fareId, { undo = false } = {}) => request(`/api/collections/fares/${fareId}/alight`, { method: "POST", body: { undo } });
 export const getRemittances = (params) => request("/api/collections/remittances", { params });
 export const recordRemittance = (tripId, payload) => request(`/api/collections/trips/${tripId}/remittance`, { method: "POST", body: payload });
 export const correctRemittance = (remittanceId, payload) => request(`/api/collections/remittances/${remittanceId}`, { method: "PATCH", body: payload });

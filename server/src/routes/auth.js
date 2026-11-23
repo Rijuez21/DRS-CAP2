@@ -19,7 +19,8 @@ export const authRouter = Router();
 // (see schema.sql) instead of a table the document actually defines.
 const ACCOUNT_TABLES = {
   passenger: { table: "commuters", idCol: "commuter_id", nameCol: "name", extra: ", phoneno, email_verified, suspended_at" },
-  driver: { table: "drivers", idCol: "driver_id", nameCol: "name", extra: ", duty_status" },
+  // Drivers and conductors (bus crew) share this table and the crew app.
+  driver: { table: "drivers", idCol: "driver_id", nameCol: "name", extra: ", duty_status, crew_role" },
   staff: { table: "staff_accounts", idCol: "staff_id", nameCol: "name", roleFilter: "terminal_staff" },
   admin: { table: "staff_accounts", idCol: "staff_id", nameCol: "name", roleFilter: "admin" },
   owner: { table: "bus_owners", idCol: "owner_id", nameCol: "name" },
@@ -113,7 +114,7 @@ authRouter.post("/login", loginRequestsPerIp, async (req, res) => {
     }
     await failedPerAccount.reset(accountKey);
     if (role === "driver" && account.duty_status === "Suspended") {
-      return res.status(403).json({ error: "This driver account is suspended. Contact an administrator." });
+      return res.status(403).json({ error: "This crew account is suspended. Contact an administrator." });
     }
     if (role === "passenger" && account.suspended_at) {
       return res.status(403).json({ error: "This account is suspended. Contact the terminal office." });
@@ -151,6 +152,8 @@ authRouter.post("/login", loginRequestsPerIp, async (req, res) => {
     const user = { id: account.id, name: account.name, email: account.email, role };
     // Shown on the passenger Profile page.
     if (role === "passenger") user.phoneno = account.phoneno ?? null;
+    // "Driver" | "Conductor": the crew app's greeting and default screen.
+    if (role === "driver") user.crewRole = account.crew_role ?? "Driver";
     res.json({ user, token });
   } catch (err) {
     console.error(err);

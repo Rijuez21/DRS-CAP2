@@ -53,23 +53,27 @@ export async function ensureTripLifecycleColumns() {
   });
 }
 
-// Another trip this driver or bus is busy with (Boarding / In Transit), or
-// null. Missed trips don't count — they're waiting for an admin, not running.
+// Another trip this trip's driver, conductor or bus is busy with (Boarding /
+// In Transit), or null. Missed trips don't count — they're waiting for an
+// admin, not running. A person crews one bus at a time, in either job.
 export async function findOtherActiveTrip(conn, trip) {
+  const crew = [trip.driver_id, trip.conductor_id].filter((id) => id != null);
   const [[other]] = await conn.query(
-    `SELECT tr.trip_id, tr.status, tr.departure_time, tr.bus_id, tr.driver_id, rt.origin, rt.destination
+    `SELECT tr.trip_id, tr.status, tr.departure_time, tr.bus_id, tr.driver_id, tr.conductor_id, rt.origin, rt.destination
      FROM trips tr JOIN routes rt ON rt.route_id = tr.route_id
-     WHERE tr.trip_id != ? AND (tr.driver_id = ? OR tr.bus_id = ?)
+     WHERE tr.trip_id != ? AND (tr.driver_id IN (?) OR tr.conductor_id IN (?) OR tr.bus_id = ?)
        AND tr.status IN ('Boarding', 'In Transit') AND tr.missed_at IS NULL
      ORDER BY tr.status = 'In Transit' DESC, tr.departure_time
      LIMIT 1`,
-    [trip.trip_id, trip.driver_id, trip.bus_id]
+    [trip.trip_id, crew, crew, trip.bus_id]
   );
   return other ?? null;
 }
 
 export function otherActiveTripMessage(other, trip) {
-  const whose = other.driver_id === trip.driver_id ? "You're" : "This bus is";
+  const crewOf = (t) => [t.driver_id, t.conductor_id].filter((id) => id != null);
+  const sharesCrew = crewOf(other).some((id) => crewOf(trip).includes(id));
+  const whose = other.driver_id === trip.driver_id ? "You're" : sharesCrew ? "Your crew is" : "This bus is";
   const doing = other.status === "In Transit" ? "still on" : "still boarding";
   const finish = other.status === "In Transit" ? "Complete it first." : "Depart or finish it first.";
   return `${whose} ${doing} ${other.origin} → ${other.destination} (${manila(other.departure_time)}). ${finish}`;
@@ -110,6 +114,7 @@ export async function sweepTrips(io, { clearTripsCache }) {
     if (r.affectedRows !== 1) continue;
     // Same as a driver completing it: unboarded bookings become No-Show.
     await pool.query(`UPDATE bookings SET status = 'No-Show' WHERE trip_id = ? AND status IN ('Reserved', 'Confirmed')`, [trip_id]);
+    await pool.query(`UPDATE onboard_fares SET alighted_at = NOW() WHERE trip_id = ? AND booking_id IS NULL AND alighted_at IS NULL`, [trip_id]);
     out.completed.push(trip_id);
   }
 

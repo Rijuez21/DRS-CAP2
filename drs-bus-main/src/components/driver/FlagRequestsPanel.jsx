@@ -44,7 +44,10 @@ function PinLink({ flag, className = "" }) {
   );
 }
 
-export default function FlagRequestsPanel({ tripId, driverId, onBookingsChanged }) {
+// readOnly: the driver's "drive mode" on a trip with a conductor. The
+// conductor answers every hail; the driver only needs to know where to stop,
+// in text big enough to read at a glance, with nothing to tap.
+export default function FlagRequestsPanel({ tripId, driverId, onBookingsChanged, readOnly = false, conductorName = null }) {
   const [flags, setFlags] = useState([]);
   const [busyId, setBusyId] = useState(null);
   const [decliningId, setDecliningId] = useState(null);
@@ -145,6 +148,33 @@ export default function FlagRequestsPanel({ tripId, driverId, onBookingsChanged 
 
   const pending = flags.filter((f) => f.status === "Pending");
   const stoppingFor = flags.filter((f) => f.status === "Acknowledged");
+
+  if (readOnly) {
+    return (
+      <section className="rounded-xl bg-brand-forest-950 text-white p-4 space-y-3" aria-live="polite">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-emerald-200 flex items-center gap-2">
+          <Hand className="w-4 h-4" /> Stop ahead
+        </h2>
+        {stoppingFor.length === 0 ? (
+          <p className="text-lg font-semibold">No pickups. Just drive.</p>
+        ) : (
+          <ul className="space-y-2">
+            {stoppingFor.map((f) => (
+              <li key={f.flag_id} className="rounded-lg bg-white/10 px-3 py-3">
+                <p className="text-2xl font-bold leading-tight">{f.pickup_landmark || "Pinned roadside spot"}</p>
+                <p className="text-base text-emerald-100">{f.passenger_name} · Seat {f.seat_number}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+        {pending.length > 0 && (
+          <p className="text-sm text-amber-200">
+            {pending.length} new flag request{pending.length === 1 ? "" : "s"} — {conductorName ?? "your conductor"} will answer.
+          </p>
+        )}
+      </section>
+    );
+  }
 
   return (
     <section className="bg-white rounded-lg border p-4 space-y-3">

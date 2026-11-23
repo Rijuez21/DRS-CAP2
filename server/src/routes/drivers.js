@@ -5,12 +5,21 @@ import { requireRole, invalidateAccount } from "../middleware/auth.js";
 import { whyPasswordWeak, cleanEmail, cleanName } from "../services/passwordPolicy.js";
 import { cleanProfile, cleanDate, PROFILE_SELECT } from "../services/employeeProfile.js";
 import { logAudit } from "../services/audit.js";
+import { CREW_ROLES } from "../services/crew.js";
 
 export const driversRouter = Router();
 
 // Never includes password_hash.
-const DRIVER_SELECT = `SELECT driver_id, name, license_number, DATE_FORMAT(license_expiry, '%Y-%m-%d') AS license_expiry,
+// crew_role: 'Driver' or 'Conductor' — both are bus crew with a login to the
+// crew app (services/crew.js); a conductor needs no driver's license.
+const DRIVER_SELECT = `SELECT driver_id, name, crew_role, license_number, DATE_FORMAT(license_expiry, '%Y-%m-%d') AS license_expiry,
   email, duty_status, ${PROFILE_SELECT} FROM drivers`;
+
+// Returns { value } ('Driver' | 'Conductor') or { error }. undefined -> 'Driver'.
+function cleanCrewRole(value) {
+  if (value === undefined || value === null || value === "") return { value: "Driver" };
+  return CREW_ROLES.includes(value) ? { value } : { error: `crewRole must be one of: ${CREW_ROLES.join(", ")}` };
+}
 
 // GET /api/drivers — powers admin/DriverManagement.jsx and the driver rows
 // of admin/UserManagement.jsx.
@@ -72,16 +81,18 @@ driversRouter.post("/", requireRole("admin"), async (req, res) => {
   // as blank, so undefined used to fail as an invalid date).
   const expiry = req.body?.licenseExpiry === undefined ? { value: null } : cleanDate(req.body.licenseExpiry, "License expiry");
   if (expiry.error) return res.status(400).json({ error: expiry.error });
+  const crewRole = cleanCrewRole(req.body?.crewRole);
+  if (crewRole.error) return res.status(400).json({ error: crewRole.error });
 
   try {
     const passwordHash = password ? await bcrypt.hash(password, 10) : null;
-    const cols = { name, license_number: licenseNumber?.trim() || null, license_expiry: expiry.value, email, password_hash: passwordHash, ...profile.columns };
+    const cols = { name, crew_role: crewRole.value, license_number: licenseNumber?.trim() || null, license_expiry: expiry.value, email, password_hash: passwordHash, ...profile.columns };
     const [result] = await pool.query(
       `INSERT INTO drivers (${Object.keys(cols).join(", ")}) VALUES (${Object.keys(cols).map(() => "?").join(", ")})`,
       Object.values(cols)
     );
-    await logAudit({ staffId: req.user.id, action: "create", entityType: "driver", entityId: result.insertId, details: { name, licenseNumber, email, ...profile.columns } });
-    res.status(201).json({ driver_id: result.insertId, name, licenseNumber, licenseExpiry: expiry.value, email, ...profile.columns });
+    await logAudit({ staffId: req.user.id, action: "create", entityType: "driver", entityId: result.insertId, details: { name, crewRole: crewRole.value, licenseNumber, email, ...profile.columns } });
+    res.status(201).json({ driver_id: result.insertId, name, crewRole: crewRole.value, licenseNumber, licenseExpiry: expiry.value, email, ...profile.columns });
   } catch (err) {
     if (err.code === "ER_DUP_ENTRY") {
       return res.status(409).json({ error: "A driver with that license number, email or employee number already exists" });
@@ -134,6 +145,21 @@ driversRouter.patch("/:id", requireRole("admin"), async (req, res) => {
     fields.push("license_expiry = ?"); params.push(expiry.value);
   }
   if (dutyStatus !== undefined) { fields.push("duty_status = ?"); params.push(dutyStatus); }
+  if (req.body.crewRole !== undefined) {
+    const crewRole = cleanCrewRole(req.body.crewRole);
+    if (crewRole.error) return res.status(400).json({ error: crewRole.error });
+    // Switching job while holding upcoming trips in the old one would leave
+    // a conductor at the wheel (or a driver collecting fares).
+    const column = crewRole.value === "Driver" ? "conductor_id" : "driver_id";
+    const [[busy]] = await pool.query(
+      `SELECT trip_id FROM trips WHERE ${column} = ? AND status IN ('Scheduled', 'Boarding', 'In Transit') LIMIT 1`,
+      [req.params.id]
+    );
+    if (busy) {
+      return res.status(409).json({ error: `They're still assigned to upcoming trips as a ${crewRole.value === "Driver" ? "conductor" : "driver"} — reassign those trips first` });
+    }
+    fields.push("crew_role = ?"); params.push(crewRole.value);
+  }
   if (password) {
     const weak = whyPasswordWeak(password, { email: typeof email === "string" ? email : undefined, name });
     if (weak) return res.status(400).json({ error: weak });
@@ -166,11 +192,11 @@ driversRouter.patch("/:id", requireRole("admin"), async (req, res) => {
 driversRouter.delete("/:id", requireRole("admin"), async (req, res) => {
   try {
     const [[futureTrip]] = await pool.query(
-      `SELECT trip_id FROM trips WHERE driver_id = ? AND departure_time > NOW() AND status != 'Cancelled' LIMIT 1`,
-      [req.params.id]
+      `SELECT trip_id FROM trips WHERE (driver_id = ? OR conductor_id = ?) AND departure_time > NOW() AND status != 'Cancelled' LIMIT 1`,
+      [req.params.id, req.params.id]
     );
     if (futureTrip) {
-      return res.status(409).json({ error: "This driver has upcoming trips assigned — reassign them first" });
+      return res.status(409).json({ error: "This crew member has upcoming trips assigned — reassign them first" });
     }
 
     const [result] = await pool.query(`DELETE FROM drivers WHERE driver_id = ?`, [req.params.id]);

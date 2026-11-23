@@ -4,9 +4,13 @@ import { requireRole } from "../middleware/auth.js";
 import { logAudit } from "../services/audit.js";
 import { notifyRecipient, notifyStaff } from "../services/notify.js";
 import { fareStopsForTrip, fareBetween, tripCollections } from "../services/collections.js";
+import { isCrewOn, crewRoleOn, cashHolderId, tripOccupancy, NOT_YOUR_TRIP } from "../services/crew.js";
 
 // /api/collections — cash accountability (see services/collections.js).
-//   Driver (conductor on the driver's phone): record fares collected on board.
+//   Crew (the trip's conductor, or its driver when there's no conductor):
+//     record fares collected on board, including walk-on riders who flagged
+//     the bus by hand without the app, and mark walk-ons off when they
+//     get down so the bus's free seats stay right.
 //   Terminal staff: record the cash the conductor remits after the trip.
 //   Admin: everything staff can, plus correcting a recorded remittance.
 
@@ -18,9 +22,10 @@ const OPEN_FOR_FARES = ["Boarding", "In Transit"];
 
 async function loadTrip(tripId, conn = pool) {
   const [[trip]] = await conn.query(
-    `SELECT tr.trip_id, tr.status, tr.driver_id, tr.bus_id, tr.departure_time, rt.origin, rt.destination, rt.distance,
-            b.plate_num, b.bus_number, d.name AS driver_name
+    `SELECT tr.trip_id, tr.status, tr.driver_id, tr.conductor_id, tr.bus_id, tr.departure_time, rt.origin, rt.destination, rt.distance,
+            b.plate_num, b.bus_number, b.capacity, d.name AS driver_name, c.name AS conductor_name
      FROM trips tr JOIN routes rt ON rt.route_id = tr.route_id JOIN buses b ON b.bus_id = tr.bus_id JOIN drivers d ON d.driver_id = tr.driver_id
+     LEFT JOIN drivers c ON c.driver_id = tr.conductor_id
      WHERE tr.trip_id = ?`,
     [tripId]
   );
@@ -29,8 +34,8 @@ async function loadTrip(tripId, conn = pool) {
 
 const fareSelect = `
   SELECT f.fare_id, f.trip_id, f.booking_id, f.passenger_count, f.board_stop, f.drop_stop, f.fare_type, f.fare_each, f.amount,
-         f.recorded_at, f.voided_at, f.void_reason, bk.passenger_name
-  FROM onboard_fares f LEFT JOIN bookings bk ON bk.booking_id = f.booking_id`;
+         f.recorded_at, f.voided_at, f.void_reason, f.alighted_at, f.recorded_by, rb.name AS recorded_by_name, bk.passenger_name
+  FROM onboard_fares f LEFT JOIN bookings bk ON bk.booking_id = f.booking_id LEFT JOIN drivers rb ON rb.driver_id = f.recorded_by`;
 
 export function buildCollectionsRouter(io) {
   const router = Router();
@@ -42,7 +47,7 @@ export function buildCollectionsRouter(io) {
     try {
       const trip = await loadTrip(req.params.tripId);
       if (!trip) return res.status(404).json({ error: "Trip not found" });
-      if (req.user.role === "driver" && trip.driver_id !== req.user.id) return res.status(403).json({ error: "This trip isn't assigned to you" });
+      if (req.user.role === "driver" && !isCrewOn(trip, req.user.id)) return res.status(403).json({ error: NOT_YOUR_TRIP });
       const fareList = await fareStopsForTrip(pool, trip);
       const [fares] = await pool.query(`${fareSelect} WHERE f.trip_id = ? ORDER BY f.recorded_at DESC, f.fare_id DESC`, [trip.trip_id]);
       const [flagged] = await pool.query(
@@ -54,10 +59,15 @@ export function buildCollectionsRouter(io) {
       );
       const [summary] = await tripCollections({ tripId: trip.trip_id });
       res.json({
-        trip: { ...trip, can_record: OPEN_FOR_FARES.includes(trip.status) },
+        trip: {
+          ...trip,
+          can_record: OPEN_FOR_FARES.includes(trip.status),
+          my_role: req.user.role === "driver" ? crewRoleOn(trip, req.user.id) : null,
+        },
         fare_list: fareList,
         fares,
         flagged_riders: flagged,
+        occupancy: await tripOccupancy(pool, trip),
         summary,
       });
     } catch (err) {
@@ -81,7 +91,7 @@ export function buildCollectionsRouter(io) {
     try {
       const trip = await loadTrip(req.params.tripId);
       if (!trip) return res.status(404).json({ error: "Trip not found" });
-      if (trip.driver_id !== req.user.id) return res.status(403).json({ error: "This trip isn't assigned to you" });
+      if (!isCrewOn(trip, req.user.id)) return res.status(403).json({ error: NOT_YOUR_TRIP });
       if (!OPEN_FOR_FARES.includes(trip.status)) {
         return res.status(409).json({ error: `Fares can only be recorded while the trip is boarding or on the road (this trip is ${trip.status})` });
       }
@@ -101,7 +111,9 @@ export function buildCollectionsRouter(io) {
         [trip.trip_id, bookingId, count, body.boardStop, body.dropStop, fareType, priced.fare, amount, req.user.id]
       );
       const [[fare]] = await pool.query(`${fareSelect} WHERE f.fare_id = ?`, [r.insertId]);
-      res.status(201).json(fare);
+      // The new seat count comes back with it, so the crew screen's
+      // "seats left" is right the moment a walk-on is added.
+      res.status(201).json({ ...fare, occupancy: await tripOccupancy(pool, trip) });
     } catch (err) {
       if (err.code === "ER_DUP_ENTRY") return res.status(409).json({ error: "This rider's fare is already recorded" });
       console.error(err);
@@ -109,22 +121,63 @@ export function buildCollectionsRouter(io) {
     }
   });
 
+  // A fare entry with its trip's crew and capacity, for the routes below.
+  async function loadFareForCrew(fareId) {
+    const [[fare]] = await pool.query(
+      `SELECT f.fare_id, f.trip_id, f.booking_id, f.passenger_count, f.voided_at, f.alighted_at, f.recorded_by,
+              tr.status, tr.driver_id, tr.conductor_id, b.capacity
+       FROM onboard_fares f JOIN trips tr ON tr.trip_id = f.trip_id JOIN buses b ON b.bus_id = tr.bus_id
+       WHERE f.fare_id = ?`,
+      [fareId]
+    );
+    return fare ?? null;
+  }
+
   // POST /api/collections/fares/:fareId/void — undo a mistaken entry while
   // the trip is still running. Kept (marked void, with a reason), not deleted.
   router.post("/fares/:fareId/void", requireRole("driver"), async (req, res) => {
     const reason = String(req.body?.reason ?? "").trim().slice(0, 150);
     if (!reason) return res.status(400).json({ error: "Say why this entry is being removed" });
     try {
-      const [[fare]] = await pool.query(`SELECT f.fare_id, f.voided_at, f.recorded_by, tr.status, tr.driver_id FROM onboard_fares f JOIN trips tr ON tr.trip_id = f.trip_id WHERE f.fare_id = ?`, [req.params.fareId]);
+      const fare = await loadFareForCrew(req.params.fareId);
       if (!fare) return res.status(404).json({ error: "Fare entry not found" });
-      if (fare.driver_id !== req.user.id) return res.status(403).json({ error: "This trip isn't assigned to you" });
+      if (!isCrewOn(fare, req.user.id)) return res.status(403).json({ error: NOT_YOUR_TRIP });
       if (fare.voided_at) return res.status(409).json({ error: "This entry was already removed" });
       if (!OPEN_FOR_FARES.includes(fare.status)) return res.status(409).json({ error: "The trip is finished — entries can no longer be changed" });
       await pool.query(`UPDATE onboard_fares SET voided_at = NOW(), void_reason = ? WHERE fare_id = ? AND voided_at IS NULL`, [reason, fare.fare_id]);
-      res.json({ fare_id: fare.fare_id, voided: true });
+      res.json({ fare_id: fare.fare_id, voided: true, occupancy: await tripOccupancy(pool, { trip_id: fare.trip_id, capacity: fare.capacity }) });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: "Failed to remove the entry" });
+    }
+  });
+
+  // POST /api/collections/fares/:fareId/alight — walk-on riders got off.
+  // body: { undo?: true } puts them back on (a mis-tap). Only walk-on
+  // entries: booked and flagged riders keep their seat for the whole trip.
+  // This is what frees their seats for the next roadside hail.
+  router.post("/fares/:fareId/alight", requireRole("driver"), async (req, res) => {
+    const undo = req.body?.undo === true;
+    try {
+      const fare = await loadFareForCrew(req.params.fareId);
+      if (!fare) return res.status(404).json({ error: "Fare entry not found" });
+      if (!isCrewOn(fare, req.user.id)) return res.status(403).json({ error: NOT_YOUR_TRIP });
+      if (fare.booking_id) return res.status(400).json({ error: "Only walk-on riders are marked off here" });
+      if (fare.voided_at) return res.status(409).json({ error: "This entry was removed" });
+      if (!OPEN_FOR_FARES.includes(fare.status)) return res.status(409).json({ error: "The trip is finished — everyone is off" });
+      if (!undo && fare.alighted_at) return res.status(409).json({ error: "These riders were already marked off" });
+      if (undo && !fare.alighted_at) return res.status(409).json({ error: "These riders are still on board" });
+      await pool.query(
+        undo
+          ? `UPDATE onboard_fares SET alighted_at = NULL WHERE fare_id = ? AND alighted_at IS NOT NULL`
+          : `UPDATE onboard_fares SET alighted_at = NOW() WHERE fare_id = ? AND alighted_at IS NULL`,
+        [fare.fare_id]
+      );
+      const [[updated]] = await pool.query(`${fareSelect} WHERE f.fare_id = ?`, [fare.fare_id]);
+      res.json({ ...updated, occupancy: await tripOccupancy(pool, { trip_id: fare.trip_id, capacity: fare.capacity }) });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to update the riders" });
     }
   });
 
@@ -156,13 +209,17 @@ export function buildCollectionsRouter(io) {
     try {
       const trip = await loadTrip(req.params.tripId);
       if (!trip) return res.status(404).json({ error: "Trip not found" });
-      if (trip.status !== "Completed") return res.status(409).json({ error: "Record the remittance after the driver completes the trip" });
+      if (trip.status !== "Completed") return res.status(409).json({ error: "Record the remittance after the crew completes the trip" });
       const [summary] = await tripCollections({ tripId: trip.trip_id });
       const expected = summary.collected.on_board;
+      // The person who held the cash: the conductor, or the driver on a
+      // trip without one (trip_remittances.driver_id = that crew member).
+      const holderId = cashHolderId(trip);
+      const holderName = trip.conductor_id != null ? `conductor ${trip.conductor_name}` : `driver ${trip.driver_name}`;
       try {
         await pool.query(
           `INSERT INTO trip_remittances (trip_id, driver_id, expected_amount, remitted_amount, received_by, notes) VALUES (?, ?, ?, ?, ?, ?)`,
-          [trip.trip_id, trip.driver_id, expected, remitted, req.user.id, notes]
+          [trip.trip_id, holderId, expected, remitted, req.user.id, notes]
         );
       } catch (err) {
         if (err.code === "ER_DUP_ENTRY") return res.status(409).json({ error: "A remittance for this trip is already recorded. An administrator can correct it." });
@@ -170,10 +227,10 @@ export function buildCollectionsRouter(io) {
       }
       const diff = Math.round((remitted - expected) * 100) / 100;
       const bus = trip.bus_number ? `Bus ${trip.bus_number}` : trip.plate_num;
-      await logAudit({ staffId: req.user.id, action: "record_remittance", entityType: "trip", entityId: trip.trip_id, details: { driver: trip.driver_name, expected, remitted, difference: diff, notes } });
-      await notifyRecipient(io, { type: "driver", id: trip.driver_id }, `Remittance received for your ${trip.origin} → ${trip.destination} trip (${bus}): ${peso(remitted)}.`, "remittance_received");
+      await logAudit({ staffId: req.user.id, action: "record_remittance", entityType: "trip", entityId: trip.trip_id, details: { driver: trip.driver_name, conductor: trip.conductor_name ?? undefined, expected, remitted, difference: diff, notes } });
+      await notifyRecipient(io, { type: "driver", id: holderId }, `Remittance received for your ${trip.origin} → ${trip.destination} trip (${bus}): ${peso(remitted)}.`, "remittance_received");
       if (diff < 0) {
-        await notifyStaff(io, `Short remittance: trip #${trip.trip_id} (${bus}, driver ${trip.driver_name}) remitted ${peso(remitted)} — ${peso(-diff)} short of the ${peso(expected)} recorded on board.`, "remittance_short", { adminsOnly: true });
+        await notifyStaff(io, `Short remittance: trip #${trip.trip_id} (${bus}, ${holderName}) remitted ${peso(remitted)} — ${peso(-diff)} short of the ${peso(expected)} recorded on board.`, "remittance_short", { adminsOnly: true });
       }
       const [after] = await tripCollections({ tripId: trip.trip_id });
       res.status(201).json(after);

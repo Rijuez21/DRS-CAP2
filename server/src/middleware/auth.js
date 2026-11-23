@@ -73,11 +73,12 @@ export const SIGNED_IN_ELSEWHERE = "You were signed out because your account was
 export const IDLE_LIMIT_MINUTES = { admin: 30, staff: 30, owner: 30, passenger: 60, driver: 120 };
 export const idleMessage = (role) => `You were signed out after ${IDLE_LIMIT_MINUTES[role] ?? 30} minutes of inactivity.`;
 
-// True when this driver has a trip running (no idle sign-out then).
+// True when this crew member (driver or conductor) has a trip running (no
+// idle sign-out then).
 export async function driverOnTrip(driverId) {
   const [[trip]] = await pool.query(
-    `SELECT 1 FROM trips WHERE driver_id = ? AND status IN ('Boarding', 'In Transit') AND missed_at IS NULL LIMIT 1`,
-    [driverId]
+    `SELECT 1 FROM trips WHERE (driver_id = ? OR conductor_id = ?) AND status IN ('Boarding', 'In Transit') AND missed_at IS NULL LIMIT 1`,
+    [driverId, driverId]
   );
   return Boolean(trip);
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CalendarClock, Plus, Pencil, XCircle, Bus, UserRound, CheckCircle2, AlertTriangle } from "lucide-react";
+import { CalendarClock, Plus, Pencil, XCircle, Bus, UserRound, CheckCircle2, AlertTriangle, Ticket } from "lucide-react";
 import * as api from "../../lib/api";
 import ListFrame from "../../components/common/ListFrame";
 import { SkeletonList } from "../../components/common/Skeletons";
@@ -14,7 +14,8 @@ import { useAuth } from "../../context/AuthContext";
 import { useConfirm } from "../../hooks/useConfirm";
 import { formatDate, formatTime } from "../../lib/format";
 
-const emptyForm = { busId: "", driverId: "", routeId: "", departureTime: "", arrivalTime: "" };
+const emptyForm = { busId: "", driverId: "", conductorId: "", routeId: "", departureTime: "", arrivalTime: "" };
+const isConductor = (d) => d.crew_role === "Conductor";
 const UPCOMING_STATUSES = ["Scheduled", "Boarding", "In Transit"];
 const ALL_STATUSES = [...UPCOMING_STATUSES, "Completed", "Cancelled"];
 const routeLabel = (t) => `${t.origin} → ${t.destination}`;
@@ -113,6 +114,7 @@ export default function AdminTripScheduling() {
     setForm({
       busId: String(t.bus_id),
       driverId: String(t.driver_id),
+      conductorId: t.conductor_id != null ? String(t.conductor_id) : "",
       routeId: String(t.route_id ?? ""),
       departureTime: toLocalInput(t.departure_time),
       arrivalTime: toLocalInput(t.arrival_time),
@@ -165,7 +167,10 @@ export default function AdminTripScheduling() {
   const visibleTrips = showPast ? trips : trips.filter((t) => t.status !== "Completed" && t.status !== "Cancelled");
   // New trips can only use buses and drivers that are actually available.
   const selectableBuses = buses.filter((b) => b.status === "Active" || String(b.bus_id) === form.busId);
-  const selectableDrivers = drivers.filter((d) => (d.duty_status ?? "Active") === "Active" || String(d.driver_id) === form.driverId);
+  // Drivers and conductors are both bus crew (one roster); each slot lists its own kind.
+  const available = (d, current) => (d.duty_status ?? "Active") === "Active" || String(d.driver_id) === current;
+  const selectableDrivers = drivers.filter((d) => !isConductor(d) && available(d, form.driverId));
+  const selectableConductors = drivers.filter((d) => isConductor(d) && available(d, form.conductorId));
   // Past dates/times are greyed out in the pickers. When editing, the trip's
   // own (unchanged) departure stays allowed even if it has already passed,
   // so its other details can still be fixed.
@@ -191,7 +196,12 @@ export default function AdminTripScheduling() {
     setIsSaving(true);
     setFormError("");
     try {
-      const payload = { ...form, departureTime: toMysqlDatetime(form.departureTime), arrivalTime: toMysqlDatetime(form.arrivalTime) };
+      const payload = {
+        ...form,
+        conductorId: form.conductorId || null, // "No conductor" = the driver handles passengers and fares
+        departureTime: toMysqlDatetime(form.departureTime),
+        arrivalTime: toMysqlDatetime(form.arrivalTime),
+      };
       if (editingId) {
         await api.updateTrip(editingId, payload);
         setSuccess("Trip updated. Booked passengers were notified of any time change.");
@@ -315,8 +325,8 @@ export default function AdminTripScheduling() {
         initialSort={{ key: "departure_time", dir: "asc" }}
         pageSize={24}
         paging="pages"
-        searchKeys={[routeLabel, "plate_num", "bus_number", "driver_name"]}
-        searchPlaceholder="Search route, bus or driver…"
+        searchKeys={[routeLabel, "plate_num", "bus_number", "driver_name", "conductor_name"]}
+        searchPlaceholder="Search route, bus or crew…"
         filters={statusFilters}
         skeleton={<SkeletonList count={5} />}
         emptyState={{ icon: CalendarClock, title: "No trips scheduled", description: "Schedule a trip to get started." }}
@@ -372,6 +382,11 @@ export default function AdminTripScheduling() {
                             <span className="inline-flex items-center gap-1">
                               <UserRound className="w-3.5 h-3.5" aria-hidden="true" /> {t.driver_name}
                             </span>
+                            {t.conductor_name && (
+                              <span className="inline-flex items-center gap-1" title="Conductor">
+                                <Ticket className="w-3.5 h-3.5" aria-hidden="true" /> {t.conductor_name}
+                              </span>
+                            )}
                           </p>
                         </div>
                         <div className="text-right tabular-nums shrink-0 w-20">
@@ -422,6 +437,12 @@ export default function AdminTripScheduling() {
               <select required value={form.driverId} onChange={(e) => setForm({ ...form, driverId: e.target.value })} className="input">
                 <option value="">Select a driver…</option>
                 {selectableDrivers.map((d) => <option key={d.driver_id} value={d.driver_id}>{d.name}</option>)}
+              </select>
+            </Field>
+            <Field label="Conductor (optional)">
+              <select value={form.conductorId} onChange={(e) => setForm({ ...form, conductorId: e.target.value })} className="input">
+                <option value="">No conductor — the driver collects fares</option>
+                {selectableConductors.map((d) => <option key={d.driver_id} value={d.driver_id}>{d.name}</option>)}
               </select>
             </Field>
             <Field label="Departure Time"><input required type="datetime-local" min={minDeparture} value={form.departureTime} onChange={(e) => setForm({ ...form, departureTime: e.target.value })} className="input" /></Field>

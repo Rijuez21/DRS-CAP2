@@ -29,7 +29,8 @@ export const SEES_FULL_DRIVER_NAME = ["admin", "staff", "driver"];
 
 // A trip row for the public / passenger view: driver_name (full) removed,
 // driver_first_name added when it may be shown.
+// The conductor's name is staff-only too (passengers meet them on the bus).
 export function publicTripRow(row) {
-  const { driver_name: driverName, ...rest } = row;
+  const { driver_name: driverName, conductor_name: _conductorName, ...rest } = row;
   return { ...rest, driver_first_name: passengerDriverName({ driverName, departureTime: row.departure_time, tripStatus: row.status }) };
 }

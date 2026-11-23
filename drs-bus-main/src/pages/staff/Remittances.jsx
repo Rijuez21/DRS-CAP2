@@ -45,7 +45,7 @@ export default function Remittances() {
       setSuccess(
         after.status === "Short"
           ? `Recorded ${formatPeso(after.remittance.remitted)} — ${formatPeso(-after.difference)} SHORT of the ${formatPeso(after.expected_remittance)} collected on board. Administrators have been alerted.`
-          : `Recorded ${formatPeso(after.remittance.remitted)} for ${t.driver_name}'s trip — ${after.status.toLowerCase()}.`
+          : `Recorded ${formatPeso(after.remittance.remitted)} for ${t.cash_holder_name ?? t.driver_name}'s trip — ${after.status.toLowerCase()}.`
       );
       setDialog(null);
       load();
@@ -96,7 +96,7 @@ export default function Remittances() {
             <thead className="bg-slate-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
               <tr>
                 <th className="px-3 py-2">Trip</th>
-                <th className="px-3 py-2">Driver</th>
+                <th className="px-3 py-2">Crew (cash)</th>
                 <th className="px-3 py-2 text-right">Passengers</th>
                 <th className="px-3 py-2 text-right">On board</th>
                 <th className="px-3 py-2 text-right">Remitted</th>
@@ -112,7 +112,7 @@ export default function Remittances() {
                     <p className="font-medium">{formatTime(t.departure_time)} · {t.origin} → {t.destination}</p>
                     <p className="text-xs text-gray-500">{t.bus_number ? `Bus ${t.bus_number} · ` : ""}{t.plate_num} · {t.trip_status}</p>
                   </td>
-                  <td className="px-3 py-2">{t.driver_name}</td>
+                  <td className="px-3 py-2">{t.cash_holder_name ?? t.driver_name}{t.conductor_name && <span className="block text-xs text-gray-500">Driver: {t.driver_name}</span>}</td>
                   <td className="px-3 py-2 text-right">
                     <span className="inline-flex items-center gap-1"><Users className="w-3.5 h-3.5 text-gray-400" />{t.passengers.total}</span>
                     {t.passengers.walk_on > 0 && <p className="text-xs text-gray-500">{t.passengers.walk_on} walk-on</p>}
@@ -157,7 +157,7 @@ export default function Remittances() {
         >
           <form id="remit-form" onSubmit={submit} className="space-y-3 text-sm">
             <p>
-              <strong>{dialog.trip.driver_name}</strong> · {formatTime(dialog.trip.departure_time)} {dialog.trip.origin} → {dialog.trip.destination}
+              <strong>{dialog.trip.cash_holder_name ?? dialog.trip.driver_name}</strong> · {formatTime(dialog.trip.departure_time)} {dialog.trip.origin} → {dialog.trip.destination}
             </p>
             <div className="rounded-lg bg-slate-50 px-3 py-2 flex justify-between">
               <span>Fares recorded on board</span>

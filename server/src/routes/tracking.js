@@ -41,13 +41,15 @@ export function buildTrackingRouter(io) {
   // hailing a bus would have been sent to a fake location. Buffered points
   // uploaded after reconnecting may arrive shortly after the trip ends, so a
   // trip completed in the last 12 hours still counts.
+  // The trip's conductor counts too: with a conductor on board, the phone
+  // sharing the bus's position is usually theirs, not the driver's.
   async function driverMayReportBus(driverId, busId) {
     const [[row]] = await pool.query(
       `SELECT trip_id FROM trips
-       WHERE driver_id = ? AND bus_id = ?
+       WHERE (driver_id = ? OR conductor_id = ?) AND bus_id = ?
          AND (status IN ('Boarding', 'In Transit') OR (status = 'Completed' AND completed_at > NOW() - INTERVAL 12 HOUR))
        LIMIT 1`,
-      [driverId, busId]
+      [driverId, driverId, busId]
     );
     return Boolean(row);
   }

@@ -146,7 +146,7 @@ Every route is under `/api`. "Who" is the role required (`requireRole` in
 | Email confirmation | `POST /auth/verify-email`, `POST /auth/resend-verification` | anyone | LoginForm (code step) |
 | Forgot password | `POST /auth/forgot-password`, `/auth/verify-reset-code`, `/auth/reset-password` | anyone | ForgotPasswordForm |
 | Own account | `POST /auth/change-password` (any role), `PATCH /auth/me`, `DELETE /auth/me` (passenger) | signed in | AccountSettings |
-| Trips | `GET /trips`, `GET /trips/:id`, `/:id/seats`, `/:id/manifest`; `POST`, `PATCH /trips/:id`, `/:id/status` | public reads; staff, admin, driver writes | trip pages, TripScheduling, Manifest |
+| Trips | `GET /trips`, `GET /trips/:id`, `/:id/seats`, `/:id/manifest`; `POST`, `PATCH /trips/:id`, `/:id/status` | public reads; staff, admin, crew (driver or conductor of that trip) writes | trip pages, TripScheduling, Manifest |
 | Routes & fares | `GET /routes`; `POST`, `PATCH /routes/:id`, `/:id/deactivate`, `/:id/pin` | public reads; admin writes | RouteManagement |
 | Bookings | `GET /bookings`, `/bookings/search`, `/bookings/:id`; `POST /bookings`, `/walk-in`, `/:id/counter-payment`; `PATCH /:id/status` | passenger, staff, admin, driver | booking pages, WalkInSales, ReservationValidation |
 | Flag a Bus | `/bookings/flags` (create, list, location, acknowledge, decline, cancel) | passenger, driver | FlagBus, FlagRequestsPanel |
@@ -155,8 +155,10 @@ Every route is under `/api`. "Who" is the role required (`requireRole` in
 | Fleet | `/buses` (list, add, edit, delete, status) | staff reads; admin writes | FleetManagement |
 | Tracking | `POST /tracking`, `/tracking/batch` (driver phone), `/tracking/device` (Traccar); `GET /tracking/:busId/latest`, `/fleet/latest`, `/in-transit` | driver; signed in | LiveTracking, FleetTracking |
 | GPS trackers | `/gps` (status, device, verify, assign, history) | admin | GpsTracker |
-| People | `/drivers`, `/staff`, `/owners`, `/passengers` | admin (drivers: staff can read) | UserManagement, DriverManagement, Passengers |
+| People | `/drivers` (bus crew: `crewRole` Driver or Conductor), `/staff`, `/owners`, `/passengers` | admin (drivers: staff can read) | UserManagement, DriverManagement, Passengers |
 | Notifications | `GET /notifications`, `PATCH /:id/read`, `/read-all` | signed in | NotificationBell |
+| On-board fares | `GET /collections/trips/:id` (fares, walk-ons, seats left), `POST /collections/trips/:id/fares`, `/collections/fares/:id/void`, `/collections/fares/:id/alight` (walk-ons got off; `{ undo: true }` reverses) | trip's crew (staff and admin can read) | FareCollection |
+| Remittances | `GET /collections/remittances`, `POST /collections/trips/:id/remittance`, `PATCH /collections/remittances/:id` | staff, admin | Remittances |
 | Dashboard | `GET /dashboard/summary`, `GET /dashboard/audit-log` | admin, staff / admin | Dashboard, ActivityLog |
 | Reports | `/reports` (on-time performance, fleet utilization, reservation trends, CSV export) | admin | ReportsAnalytics |
 

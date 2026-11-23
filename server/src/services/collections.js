@@ -71,6 +71,7 @@ const TRIP_COLLECTION_SQL = `
   SELECT tr.trip_id, tr.departure_time, tr.status AS trip_status, tr.completed_at,
          rt.origin, rt.destination, rt.base_fare,
          b.bus_id, b.plate_num, b.bus_number, d.driver_id, d.name AS driver_name,
+         tr.conductor_id, cd.name AS conductor_name,
          (SELECT COUNT(*) FROM bookings x WHERE x.trip_id = tr.trip_id AND x.status = 'Boarded' AND x.channel = 'online') AS boarded_online,
          (SELECT COUNT(*) FROM bookings x WHERE x.trip_id = tr.trip_id AND x.status = 'Boarded' AND x.channel = 'walk_in') AS boarded_walk_in,
          (SELECT COUNT(*) FROM bookings x WHERE x.trip_id = tr.trip_id AND x.status = 'Boarded' AND x.channel = 'flagged') AS boarded_flagged,
@@ -90,6 +91,7 @@ const TRIP_COLLECTION_SQL = `
   JOIN routes rt ON rt.route_id = tr.route_id
   JOIN buses b ON b.bus_id = tr.bus_id
   JOIN drivers d ON d.driver_id = tr.driver_id
+  LEFT JOIN drivers cd ON cd.driver_id = tr.conductor_id
   LEFT JOIN trip_remittances rm ON rm.trip_id = tr.trip_id
   LEFT JOIN staff_accounts s ON s.staff_id = rm.received_by
   LEFT JOIN staff_accounts cs ON cs.staff_id = rm.corrected_by`;
@@ -123,6 +125,10 @@ function shapeRow(r) {
     bus_number: r.bus_number,
     driver_id: r.driver_id,
     driver_name: r.driver_name,
+    conductor_id: r.conductor_id ?? null,
+    conductor_name: r.conductor_name ?? null,
+    // Who turns the on-board cash over: the conductor, else the driver.
+    cash_holder_name: r.conductor_name ?? r.driver_name,
     passengers: {
       online: Number(r.boarded_online),
       walk_in: Number(r.boarded_walk_in),

@@ -4,12 +4,15 @@ import { Bus, Ticket } from "lucide-react";
 import AuthShell from "../../components/auth/AuthShell";
 import LoginForm from "../../components/auth/LoginForm";
 
+// Bus crew (drivers AND conductors) share one tab and one app: each signs in
+// with their own account, and the app shows the screens for their job on
+// that trip (services/crew.js on the server).
 const SUB_ROLES = [
-  { role: "driver", label: "Driver", icon: Bus, redirectPath: "/driver/dashboard" },
+  { role: "driver", label: "Driver / Conductor", icon: Bus, redirectPath: "/driver/dashboard" },
   { role: "staff", label: "Terminal Staff", icon: Ticket, redirectPath: "/staff/walk-in" },
 ];
 
-// One login page for Driver + Terminal Staff (same module, one link:
+// One login page for bus crew + Terminal Staff (same module, one link:
 // /login/staff). The backend still needs to know which table to check
 // (drivers vs. staff_accounts), so this small tab picks that — it's not a
 // role-selection landing screen, just part of this one login form.
@@ -22,9 +25,9 @@ export default function StaffLogin() {
 
   return (
     <AuthShell
-      roleLabel="Driver / Terminal Staff Login"
+      roleLabel="Bus Crew / Terminal Staff Login"
       headline="Ready for today's trips."
-      tagline="Manifests, walk-in sales and boarding checks for drivers and terminal staff."
+      tagline="Trips, passenger lists and fares for drivers and conductors; walk-in sales and boarding checks for terminal staff."
       audience="team"
     >
       <div className="grid grid-cols-2 gap-2 mb-5 bg-brand-forest-900/5 rounded-xl p-1">

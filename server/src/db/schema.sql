@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS drivers (
   email VARCHAR(150) UNIQUE, -- addition: the ERD has no auth field on Driver at all, but DriverLogin.jsx (like every other role) logs in with email. Nullable for the same reason as license_number — no login until a real email is on file.
   password_hash VARCHAR(255), -- nullable until email is set (a password is meaningless without something to log in with)
   duty_status ENUM('Active', 'On Leave', 'Suspended') NOT NULL DEFAULT 'Active', -- addition: Table 4's Driver Management calls for a "duty status toggle", same additive spirit as routes.is_active
+  crew_role ENUM('Driver', 'Conductor') NOT NULL DEFAULT 'Driver', -- addition: bus crew share this table and the crew app (/driver). A Conductor has their own login, is named on a trip (trips.conductor_id) and handles passengers and fares, so the driver never has to work the phone while driving (services/crew.js)
   license_expiry DATE NULL, -- addition: so the admin can see when a driver's license is due for renewal
   -- addition: employee profile, same columns as staff_accounts (services/employeeProfile.js). All nullable, filled in once known
   employee_no VARCHAR(30) NULL UNIQUE,
@@ -120,9 +121,11 @@ CREATE TABLE IF NOT EXISTS trips (
   completed_at TIMESTAMP NULL DEFAULT NULL, -- addition: on-time-performance reporting (Phase 5) needs an *actual* completion timestamp to compare against the *scheduled* arrival_time; set when status transitions to 'Completed'
   bus_id INT NOT NULL,
   driver_id INT NOT NULL,
+  conductor_id INT NULL, -- addition: the conductor on this trip (a drivers row with crew_role 'Conductor'). NULL = no conductor: the driver does everything, as before
   route_id INT NOT NULL,
   FOREIGN KEY (bus_id) REFERENCES buses(bus_id),
   FOREIGN KEY (driver_id) REFERENCES drivers(driver_id),
+  CONSTRAINT fk_trips_conductor FOREIGN KEY (conductor_id) REFERENCES drivers(driver_id),
   FOREIGN KEY (route_id) REFERENCES routes(route_id),
   KEY idx_trips_status_departure (status, departure_time) -- addition: the passenger / walk-in list only wants Boarding trips and Scheduled ones that haven't left; without this MySQL scans every trip ever scheduled. Measured at 50,000 trips: ~80 ms -> ~8 ms. See migrate.js
 );
@@ -481,8 +484,9 @@ CREATE TABLE IF NOT EXISTS onboard_fares (
   fare_type ENUM('regular', 'discounted') NOT NULL DEFAULT 'regular',
   fare_each DECIMAL(8,2) NOT NULL,
   amount DECIMAL(10,2) NOT NULL,
-  recorded_by INT NOT NULL, -- the driver's account (the conductor uses the driver's phone)
+  recorded_by INT NOT NULL, -- the crew member who took the cash: the trip's conductor, or the driver on a trip without one (both are drivers rows)
   recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  alighted_at TIMESTAMP NULL DEFAULT NULL, -- addition: walk-on riders count as on board (taking seats) until the conductor taps "Got off"
   voided_at TIMESTAMP NULL DEFAULT NULL,
   void_reason VARCHAR(150) NULL,
   active_booking_id INT GENERATED ALWAYS AS (CASE WHEN voided_at IS NULL THEN booking_id ELSE NULL END) STORED,

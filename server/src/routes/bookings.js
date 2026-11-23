@@ -20,6 +20,7 @@ import { logAudit } from "../services/audit.js";
 import { logPaymentEvent } from "../services/paymentAudit.js";
 import { passengerDriverName } from "../services/driverDisplay.js";
 import { activeDiscount, FARE_DUE_SQL } from "../services/discounts.js";
+import { isCrewOn, crewRooms, walkOnsAboard, NOT_YOUR_TRIP } from "../services/crew.js";
 
 export const bookingsRouter = Router();
 
@@ -79,7 +80,7 @@ const peso = (n) => `₱${Number(n).toLocaleString("en-PH", { minimumFractionDig
 // forever-"Reserved" ticket; bus/plate help staff and drivers match riders.
 const BOOKING_LIST_SELECT = `
   SELECT bk.booking_id, bk.passenger_id, bk.passenger_name, bk.seat_number, bk.status, bk.channel, bk.booked_at,
-         tr.trip_id, tr.departure_time, tr.arrival_time, tr.status AS trip_status, tr.driver_id,
+         tr.trip_id, tr.departure_time, tr.arrival_time, tr.status AS trip_status, tr.driver_id, tr.conductor_id,
          rt.origin, rt.destination, rt.base_fare, bk.discount_category, ${FARE_DUE_SQL} AS fare_due, b.plate_num, b.bus_number
   FROM bookings bk
   JOIN trips tr ON tr.trip_id = bk.trip_id
@@ -108,9 +109,9 @@ bookingsRouter.get("/", authenticate, async (req, res) => {
       passengerId = req.user.id;
     } else if (req.user.role === "driver") {
       if (!tripId) return res.status(400).json({ error: "tripId is required" });
-      const [[trip]] = await pool.query(`SELECT driver_id FROM trips WHERE trip_id = ?`, [tripId]);
+      const [[trip]] = await pool.query(`SELECT driver_id, conductor_id FROM trips WHERE trip_id = ?`, [tripId]);
       if (!trip) return res.status(404).json({ error: "Trip not found" });
-      if (trip.driver_id !== req.user.id) return res.status(403).json({ error: "This trip isn't assigned to you" });
+      if (!isCrewOn(trip, req.user.id)) return res.status(403).json({ error: NOT_YOUR_TRIP });
     }
 
     const conditions = [];
@@ -193,7 +194,7 @@ bookingsRouter.get("/:id", authenticate, async (req, res) => {
     if (req.user.role === "passenger" && booking.passenger_id !== req.user.id) {
       return res.status(404).json({ error: "Booking not found" });
     }
-    if (req.user.role === "driver" && booking.driver_id !== req.user.id) {
+    if (req.user.role === "driver" && !isCrewOn(booking, req.user.id)) {
       return res.status(403).json({ error: "This booking isn't on your trip" });
     }
     // The ticket shows the driver's first name from the day of travel
@@ -539,7 +540,7 @@ bookingsRouter.patch("/:id/status", authenticate, async (req, res) => {
     if (req.user.role === "passenger" && booking.passenger_id !== req.user.id) {
       return res.status(404).json({ error: "Booking not found" });
     }
-    const [[trip]] = await pool.query(`SELECT status, driver_id FROM trips WHERE trip_id = ?`, [booking.trip_id]);
+    const [[trip]] = await pool.query(`SELECT status, driver_id, conductor_id FROM trips WHERE trip_id = ?`, [booking.trip_id]);
 
     const refusal = whyStatusChangeNotAllowed({ user: req.user, booking, trip, next });
     if (refusal) return res.status(409).json({ error: refusal });
@@ -573,14 +574,14 @@ bookingsRouter.patch("/:id/status", authenticate, async (req, res) => {
     // tell the driver not to stop (before, the driver kept a stale pickup).
     if (next === "Cancelled") {
       const [[flag]] = await pool.query(
-        `SELECT fr.flag_id, fr.passenger_name, tr.driver_id FROM flag_requests fr JOIN trips tr ON tr.trip_id = fr.trip_id
+        `SELECT fr.flag_id, fr.passenger_name, tr.driver_id, tr.conductor_id FROM flag_requests fr JOIN trips tr ON tr.trip_id = fr.trip_id
          WHERE fr.booking_id = ? AND fr.status = 'Acknowledged'`,
         [booking.booking_id]
       );
       if (flag) {
         await pool.query(`UPDATE flag_requests SET status = 'Cancelled' WHERE flag_id = ?`, [flag.flag_id]);
         emitFlagUpdate(bookingsIo, await loadFlag(flag.flag_id)); // same full payload the Flag UIs always get
-        await notifyRecipient(bookingsIo, { type: "driver", id: flag.driver_id }, `${flag.passenger_name} cancelled their flagged ride — no need to stop.`, "flag_cancelled");
+        await notifyCrew(bookingsIo, flag, `${flag.passenger_name} cancelled their flagged ride — no need to stop.`, "flag_cancelled");
       }
     }
 
@@ -637,7 +638,7 @@ const FLAG_SELECT = `
          fr.pickup_latitude, fr.pickup_longitude, fr.pickup_landmark,
          fr.status, fr.decline_reason, fr.booking_id, fr.requested_at, fr.responded_at,
          bk.seat_number, bk.status AS booking_status,
-         tr.driver_id, tr.status AS trip_status,
+         tr.driver_id, tr.conductor_id, tr.status AS trip_status,
          b.bus_id, b.plate_num, b.bus_number, rt.origin, rt.destination
   FROM flag_requests fr
   JOIN trips tr ON tr.trip_id = fr.trip_id
@@ -651,19 +652,30 @@ async function loadFlag(flagId, conn = pool) {
 }
 
 // Both sides always get the same payload, so the passenger's FlagBus page
-// and the driver's FlagRequestsPanel never disagree about a flag's state.
+// and the crew's FlagRequestsPanel never disagree about a flag's state.
+// The whole crew hears it: the conductor answers, the driver's drive-mode
+// screen shows where to stop.
 function emitFlagUpdate(io, flag) {
   if (!flag) return;
   io?.to(`passenger:${flag.passenger_id}`).emit("flag:updated", flag);
-  io?.to(`driver:${flag.driver_id}`).emit("flag:updated", flag);
+  for (const room of crewRooms(flag)) io?.to(room).emit("flag:updated", flag);
+}
+
+// A bell notification for each crew member on the trip (driver, conductor).
+async function notifyCrew(io, trip, message, type) {
+  const ids = [...new Set([trip.driver_id, trip.conductor_id].filter((id) => id != null))];
+  for (const id of ids) await notifyRecipient(io, { type: "driver", id }, message, type);
 }
 
 // Same "live booking" rule as trips.js's booked_count and /:id/seats
 // (anything not Cancelled/No-Show holds a seat), so a flag can never be
-// accepted onto a bus the terminal would also consider full.
+// accepted onto a bus the terminal would also consider full. Walk-on riders
+// the conductor recorded (no app, no seat number) fill seats too until they
+// get off, so `full` counts them: before, a bus packed with roadside
+// walk-ons still looked half empty to Flag a Bus.
 async function getTripOccupancy(conn, tripId) {
   const [[trip]] = await conn.query(
-    `SELECT tr.trip_id, tr.status, tr.driver_id, b.capacity, b.seat_layout, b.plate_num
+    `SELECT tr.trip_id, tr.status, tr.driver_id, tr.conductor_id, b.capacity, b.seat_layout, b.plate_num
      FROM trips tr JOIN buses b ON b.bus_id = tr.bus_id
      WHERE tr.trip_id = ?`,
     [tripId]
@@ -673,7 +685,10 @@ async function getTripOccupancy(conn, tripId) {
     `SELECT seat_number FROM bookings WHERE trip_id = ? AND status NOT IN ('Cancelled', 'No-Show')`,
     [tripId]
   );
-  return { ...trip, takenSeats: new Set(taken.map((r) => String(r.seat_number))) };
+  const takenSeats = new Set(taken.map((r) => String(r.seat_number)));
+  const walkOns = await walkOnsAboard(conn, tripId);
+  const full = trip.capacity != null && takenSeats.size + walkOns >= trip.capacity;
+  return { ...trip, takenSeats, walkOns, full };
 }
 
 // A flagged rider never picks a seat, but bookings.seat_number is NOT NULL
@@ -787,7 +802,7 @@ export function buildFlagRequestsRouter(io) {
       if (trip.capacity == null) {
         return res.status(409).json({ error: "This bus's seating capacity isn't on file yet, so it can't take flag requests" });
       }
-      if (trip.takenSeats.size >= trip.capacity) {
+      if (trip.full) {
         return res.status(409).json({ error: "This bus is already full" });
       }
 
@@ -798,10 +813,10 @@ export function buildFlagRequestsRouter(io) {
       );
       const flag = await loadFlag(result.insertId);
 
-      io?.to(`driver:${flag.driver_id}`).emit("flag:new", flag);
-      await notifyRecipient(
+      for (const room of crewRooms(flag)) io?.to(room).emit("flag:new", flag);
+      await notifyCrew(
         io,
-        { type: "driver", id: flag.driver_id },
+        flag,
         `Flag request: ${flag.passenger_name} is waiting at a pinned roadside location${landmark ? ` (${landmark})` : ""}. Open your dashboard to respond.`,
         "flag_request"
       );
@@ -843,9 +858,9 @@ export function buildFlagRequestsRouter(io) {
     if (!tripId) return res.status(400).json({ error: "tripId is required" });
 
     try {
-      const [[trip]] = await pool.query(`SELECT driver_id FROM trips WHERE trip_id = ?`, [tripId]);
+      const [[trip]] = await pool.query(`SELECT driver_id, conductor_id FROM trips WHERE trip_id = ?`, [tripId]);
       if (!trip) return res.status(404).json({ error: "Trip not found" });
-      if (trip.driver_id !== req.user.id) return res.status(403).json({ error: "This trip isn't assigned to you" });
+      if (!isCrewOn(trip, req.user.id)) return res.status(403).json({ error: NOT_YOUR_TRIP });
 
       const [rows] = await pool.query(
         `${FLAG_SELECT}
@@ -911,7 +926,7 @@ export function buildFlagRequestsRouter(io) {
 
       const [[locked]] = await conn.query(
         `SELECT fr.flag_id, fr.trip_id, fr.passenger_id, fr.passenger_name, fr.status,
-                tr.driver_id, tr.status AS trip_status
+                tr.driver_id, tr.conductor_id, tr.status AS trip_status
          FROM flag_requests fr JOIN trips tr ON tr.trip_id = fr.trip_id
          WHERE fr.flag_id = ? FOR UPDATE`,
         [req.params.id]
@@ -920,7 +935,7 @@ export function buildFlagRequestsRouter(io) {
         await conn.rollback();
         return res.status(404).json({ error: "Flag request not found" });
       }
-      if (locked.driver_id !== req.user.id) {
+      if (!isCrewOn(locked, req.user.id)) {
         await conn.rollback();
         return res.status(403).json({ error: "This flag request isn't for your bus" });
       }
@@ -934,7 +949,9 @@ export function buildFlagRequestsRouter(io) {
       }
 
       const trip = await getTripOccupancy(conn, locked.trip_id);
-      const seat = trip.capacity == null ? null : firstFreeSeat(trip, trip.takenSeats);
+      // Walk-ons fill seats without a seat number, so a bus can be full while
+      // some numbered seats are still "free" on paper.
+      const seat = trip.capacity == null || trip.full ? null : firstFreeSeat(trip, trip.takenSeats);
 
       if (!seat) {
         // Bus filled up between the hail and the driver's response — close
@@ -998,7 +1015,7 @@ export function buildFlagRequestsRouter(io) {
     try {
       const existing = await loadFlag(req.params.id);
       if (!existing) return res.status(404).json({ error: "Flag request not found" });
-      if (existing.driver_id !== req.user.id) return res.status(403).json({ error: "This flag request isn't for your bus" });
+      if (!isCrewOn(existing, req.user.id)) return res.status(403).json({ error: "This flag request isn't for your bus" });
 
       const [result] = await pool.query(
         `UPDATE flag_requests SET status = 'Declined', decline_reason = ?, responded_at = NOW()
@@ -1059,7 +1076,7 @@ export function buildFlagRequestsRouter(io) {
 
       const flag = await loadFlag(locked.flag_id);
       emitFlagUpdate(io, flag);
-      await notifyRecipient(io, { type: "driver", id: flag.driver_id }, `${flag.passenger_name} cancelled their flag request — no need to stop.`, "flag_cancelled");
+      await notifyCrew(io, flag, `${flag.passenger_name} cancelled their flag request — no need to stop.`, "flag_cancelled");
       res.json(flag);
     } catch (err) {
       await conn.rollback().catch(() => {});

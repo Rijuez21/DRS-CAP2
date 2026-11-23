@@ -9,6 +9,7 @@ import { pool, pingDatabase } from "./db/pool.js";
 import { redis } from "./cache/redis.js";
 import { buildTripsRouter, clearTripsCache } from "./routes/trips.js";
 import { ensureTripLifecycleColumns, startTripSweeper } from "./services/tripLifecycle.js";
+import { ensureCrewColumns } from "./services/crew.js";
 import { bookingsRouter, buildFlagRequestsRouter, attachBookingsIo } from "./routes/bookings.js";
 import { verifyToken, isDeployed, SIGNED_IN_ELSEWHERE } from "./middleware/auth.js";
 import { attachSessionsIo, sessionRoom, ensureSessionsTable } from "./services/sessions.js";
@@ -272,6 +273,8 @@ const gpsServer = startGpsGateway(io);
 await ensureSessionsTable().catch((err) => console.error("Couldn't create the auth_sessions table — logins will fail until `npm run db:migrate` runs:", err.message));
 // Every trip query reads trips.missed_at — same safety net.
 await ensureTripLifecycleColumns().catch((err) => console.error("Couldn't add trips.missed_at — run `npm run db:migrate`:", err.message));
+// Conductors (drivers.crew_role, trips.conductor_id, onboard_fares.alighted_at) — same safety net.
+await ensureCrewColumns().catch((err) => console.error("Couldn't add the bus crew columns — run `npm run db:migrate`:", err.message));
 
 // Trips nobody moved forward: completes forgotten arrivals, flags missed
 // departures for the admins (services/tripLifecycle.js).

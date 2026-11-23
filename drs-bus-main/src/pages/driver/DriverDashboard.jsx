@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { WifiOff, Satellite, MapPinOff, LocateFixed } from "lucide-react";
+import { WifiOff, Satellite, MapPinOff, LocateFixed, UserPlus, Users, Phone, BusFront } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useConfirm } from "../../hooks/useConfirm";
 import { useDriverLocation } from "../../hooks/useDriverLocation";
@@ -70,9 +70,20 @@ export default function DriverDashboard() {
     const id = setInterval(() => setClock(Date.now()), 60000);
     return () => clearInterval(id);
   }, []);
-  const gps = useDriverLocation(activeTrip?.bus_id ?? null);
+  // My job on the trip that's running: "driver" or "conductor" (the server
+  // works it out per trip, so one person can conduct today, drive tomorrow).
+  const myRole = activeTrip?.my_role ?? null;
+  const hasConductor = activeTrip?.conductor_id != null;
+  // With a conductor on board, the conductor's phone is the GPS backup and
+  // the driver's phone stays out of the way (two phones would make the bus
+  // jump between two slightly different positions on the map).
+  const sharesGps = Boolean(activeTrip) && (myRole === "conductor" || !hasConductor);
+  const gps = useDriverLocation(sharesGps ? activeTrip.bus_id : null);
   // A bus fitted with a GPS tracker reports by itself; the phone is backup.
   const tracker = useBusTracker(activeTrip?.bus_id ?? null);
+  // Drive mode: the driver of a trip on the road with a conductor aboard.
+  // Nothing to tap — just where to stop next, in big text.
+  const driveMode = activeTrip?.status === "In Transit" && myRole === "driver" && hasConductor;
   // Never signed out for inactivity during a trip — even with the phone in a
   // pocket (the server exempts a driver on a trip too).
   useKeepAlive(Boolean(activeTrip), { evenWhenHidden: true });
@@ -131,8 +142,12 @@ export default function DriverDashboard() {
   return (
     <div className="p-4 lg:p-6 space-y-4 max-w-3xl">
       <header>
-        <h1 className="text-xl font-bold">Welcome, {user?.name ?? "Driver"}</h1>
-        <p className="text-sm text-gray-500">Your trips, in order. Tap the green button to move a trip to its next step.</p>
+        <h1 className="text-xl font-bold">Welcome, {user?.name ?? (user?.crewRole === "Conductor" ? "Conductor" : "Driver")}</h1>
+        <p className="text-sm text-gray-500">
+          {user?.crewRole === "Conductor"
+            ? "Your trips, in order. You handle the passengers and fares; the driver drives."
+            : "Your trips, in order. Tap the green button to move a trip to its next step."}
+        </p>
       </header>
 
       <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
@@ -141,13 +156,34 @@ export default function DriverDashboard() {
       {activeTrip &&
         (tracker.online ? (
           <p className="flex items-center gap-2 text-sm font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-            <Satellite className="w-4 h-4" /> The bus's GPS tracker is sharing your location with passengers. Your phone is only a backup.
+            <Satellite className="w-4 h-4" /> The bus's GPS tracker is sharing the bus's location with passengers. {sharesGps ? "Your phone is only a backup." : ""}
           </p>
-        ) : (
+        ) : sharesGps ? (
           <GpsBanner status={gps.status} queuedCount={gps.queuedCount} onRetry={gps.retry} />
+        ) : (
+          <p className="flex items-center gap-2 text-sm text-gray-700 bg-white border rounded-lg px-3 py-2">
+            <Satellite className="w-4 h-4 text-emerald-700" /> Your conductor's phone shares the bus's location — keep your eyes on the road.
+          </p>
         ))}
 
-      {activeTrip?.status === "In Transit" && (
+      {activeTrip && <CrewCard trip={activeTrip} myRole={myRole} />}
+
+      {driveMode && (
+        <>
+          <p className="flex items-center gap-2 text-sm font-semibold text-emerald-900">
+            <BusFront className="w-4 h-4" /> Drive mode — {activeTrip.conductor_name} is handling passengers and fares.
+          </p>
+          <FlagRequestsPanel tripId={activeTrip.trip_id} driverId={user?.id} onBookingsChanged={reload} readOnly conductorName={activeTrip.conductor_name} />
+        </>
+      )}
+
+      {/* Whoever handles passengers (the conductor, or a driver working alone)
+          gets the quick actions and answers the hails. */}
+      {activeTrip && !driveMode && (myRole === "conductor" || !hasConductor) && (
+        <ConductorActions trip={activeTrip} />
+      )}
+
+      {activeTrip?.status === "In Transit" && !driveMode && (
         <FlagRequestsPanel tripId={activeTrip.trip_id} driverId={user?.id} onBookingsChanged={reload} />
       )}
 
@@ -175,6 +211,74 @@ export default function DriverDashboard() {
   );
 }
 
+// Free seats right now: booked seats and walk-on riders still aboard both
+// take one. Same count the server uses for Flag a Bus (services/crew.js).
+function seatsLeft(t) {
+  if (t.capacity == null) return null;
+  return Math.max(0, Number(t.capacity) - Number(t.booked_count ?? 0) - Number(t.walk_ons_aboard ?? 0));
+}
+
+const ROLE_LABEL = { driver: "Driver", conductor: "Conductor" };
+
+// Who's on this bus with you, one tap to call them.
+function CrewCard({ trip, myRole }) {
+  const partner =
+    myRole === "conductor"
+      ? { role: "Driver", name: trip.driver_name, phone: trip.driver_phone }
+      : trip.conductor_id != null
+        ? { role: "Conductor", name: trip.conductor_name, phone: trip.conductor_phone }
+        : null;
+  return (
+    <section className="bg-white rounded-lg border px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+      <p className="text-sm">
+        You&apos;re the <strong>{ROLE_LABEL[myRole] ?? "crew"}</strong> on {trip.bus_number ? `Bus ${trip.bus_number}` : trip.plate_num}
+      </p>
+      {partner ? (
+        <p className="text-sm text-gray-600 flex items-center gap-2">
+          {partner.role}: <strong className="text-ink-900">{partner.name}</strong>
+          {partner.phone && (
+            <a href={`tel:${String(partner.phone).replace(/[^\d+]/g, "")}`} className="inline-flex items-center gap-1 text-emerald-700 font-semibold underline">
+              <Phone className="w-3.5 h-3.5" /> Call
+            </a>
+          )}
+        </p>
+      ) : (
+        <p className="text-sm text-gray-500">No conductor on this trip — you handle passengers and fares too.</p>
+      )}
+      {seatsLeft(trip) != null && (
+        <p className="ml-auto text-right">
+          <span className="block text-2xl font-bold tabular-nums text-emerald-800 leading-none">{seatsLeft(trip)}</span>
+          <span className="text-xs text-gray-500">seats left</span>
+        </p>
+      )}
+    </section>
+  );
+}
+
+// The conductor's everyday buttons, big enough to hit on a moving bus.
+// "Walk-on" is for the rider who waved the bus down without the app.
+function ConductorActions({ trip }) {
+  const onRoad = trip.status === "In Transit";
+  return (
+    <section className="grid grid-cols-2 gap-2">
+      {onRoad && (
+        <Link
+          to={`/driver/fares?tripId=${trip.trip_id}&add=walkon`}
+          className="col-span-2 flex items-center justify-center gap-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-lg font-bold py-4"
+        >
+          <UserPlus className="w-6 h-6" /> Walk-on passenger
+        </Link>
+      )}
+      <Link to={`/driver/manifest?tripId=${trip.trip_id}`} className="flex items-center justify-center gap-2 rounded-xl border-2 border-emerald-700 text-emerald-800 font-semibold py-3">
+        <Users className="w-5 h-5" /> Passenger list
+      </Link>
+      <Link to={`/driver/fares?tripId=${trip.trip_id}`} className="flex items-center justify-center gap-2 rounded-xl border-2 border-emerald-700 text-emerald-800 font-semibold py-3">
+        Fares {Number(trip.walk_ons_aboard) > 0 && <span className="text-xs bg-emerald-100 rounded-full px-2">{trip.walk_ons_aboard} aboard</span>}
+      </Link>
+    </section>
+  );
+}
+
 function TripGroup({ title, note, trips, onAdvance, updatingId, waitReason, empty, muted = false }) {
   if (trips.length === 0 && !empty) return null;
   return (
@@ -190,10 +294,21 @@ function TripGroup({ title, note, trips, onAdvance, updatingId, waitReason, empt
               <p className="font-semibold">
                 {t.origin} → {t.destination}
               </p>
-              <StatusBadge status={t.status} />
+              <span className="flex items-center gap-1.5">
+                {t.my_role && (
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${t.my_role === "conductor" ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}>
+                    {ROLE_LABEL[t.my_role]}
+                  </span>
+                )}
+                <StatusBadge status={t.status} />
+              </span>
             </div>
             <p className="text-sm text-gray-600">
               {formatDate(t.departure_time)?.replace(/, \d{4}$/, "")} · Departs {formatTime(t.departure_time)} · {t.plate_num} · {t.booked_count}/{t.capacity ?? "?"} seats booked
+              {Number(t.walk_ons_aboard) > 0 && ` · ${t.walk_ons_aboard} walk-on aboard`}
+            </p>
+            <p className="text-xs text-gray-500">
+              {t.my_role === "conductor" ? `Driver: ${t.driver_name}` : t.conductor_name ? `Conductor: ${t.conductor_name}` : "No conductor assigned"}
             </p>
             {!muted && (
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm pt-1">
