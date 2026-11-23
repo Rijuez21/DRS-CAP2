@@ -615,7 +615,7 @@ export default function FlagBus() {
         <LocationPermissionCard
           status={geoStatus}
           onRequest={requestLocation}
-          reason="The bus stops exactly where you're standing, so we need your phone's location. It's shared only with the driver of the bus you flag."
+          reason="The bus stops exactly where you're standing, so we need your phone's location. It's shared only with the crew (driver and conductor) of the bus you flag."
         />
       )}
 
@@ -818,7 +818,7 @@ function TrackingCard({ bus, target, route, routeStatus, flag, now }) {
     title = `${busName} is on the way`;
     detail = "The driver is stopping where you are. Stay close to this spot.";
   } else if (open) {
-    title = "Waiting for the driver to accept";
+    title = "Waiting for the bus to accept";
     detail = `Estimated time if ${busName} stops for you.`;
   } else {
     title = `${busName} to you`;
@@ -992,12 +992,12 @@ function FlagStatusCard({ flag, now, onCancel, onDismiss }) {
 
   if (flag.status === "Pending") {
     return (
-      <StatusShell tone="amber" icon={Clock} title="Waiting for the driver…">
+      <StatusShell tone="amber" icon={Clock} title="Waiting for the bus crew…">
         <p>
           {busLabel} has been notified and can see your exact location. Wave the bus down when you see it.
         </p>
         <p className="text-xs">Keep this page open with location on — if you move, your pickup point moves with you.</p>
-        <p className="text-xs">If the driver doesn't respond in about {minutesLeft} min, this request expires on its own.</p>
+        <p className="text-xs">If the bus crew doesn't respond in about {minutesLeft} min, this request expires on its own.</p>
         <CancelButton onClick={onCancel} />
       </StatusShell>
     );
@@ -1034,9 +1034,9 @@ function FlagStatusCard({ flag, now, onCancel, onDismiss }) {
   }
 
   const closed = {
-    Declined: { title: "The driver can't stop", body: flag.decline_reason ? `${busLabel}: ${flag.decline_reason}.` : `${busLabel} can't pick you up.` },
+    Declined: { title: "The bus can't stop", body: flag.decline_reason ? `${busLabel}: ${flag.decline_reason}.` : `${busLabel} can't pick you up.` },
     Expired: { title: "No response in time", body: `${busLabel} didn't answer. It may be out of signal — try again or flag another bus.` },
-    Cancelled: { title: "Flag cancelled", body: "The driver has been told not to stop." },
+    Cancelled: { title: "Flag cancelled", body: "The bus crew has been told not to stop." },
   }[flag.status];
 
   return (

@@ -5,14 +5,14 @@ import { requireRole, invalidateAccount } from "../middleware/auth.js";
 import { whyPasswordWeak, cleanEmail, cleanName } from "../services/passwordPolicy.js";
 import { cleanProfile, cleanDate, PROFILE_SELECT } from "../services/employeeProfile.js";
 import { logAudit } from "../services/audit.js";
-import { CREW_ROLES } from "../services/crew.js";
+import { CREW_ROLES, CREW_ROLE_SQL } from "../services/crew.js";
 
 export const driversRouter = Router();
 
 // Never includes password_hash.
 // crew_role: 'Driver' or 'Conductor' — both are bus crew with a login to the
 // crew app (services/crew.js); a conductor needs no driver's license.
-const DRIVER_SELECT = `SELECT driver_id, name, crew_role, license_number, DATE_FORMAT(license_expiry, '%Y-%m-%d') AS license_expiry,
+const DRIVER_SELECT = `SELECT driver_id, name, ${CREW_ROLE_SQL()} AS crew_role, license_number, DATE_FORMAT(license_expiry, '%Y-%m-%d') AS license_expiry,
   email, duty_status, ${PROFILE_SELECT} FROM drivers`;
 
 // Returns { value } ('Driver' | 'Conductor') or { error }. undefined -> 'Driver'.

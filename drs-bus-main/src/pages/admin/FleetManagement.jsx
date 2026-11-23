@@ -361,9 +361,12 @@ export default function AdminFleetManagement() {
             <Field label="Assigned Driver">
               <select value={form.currentDriverId} onChange={(e) => setForm({ ...form, currentDriverId: e.target.value })} className="input">
                 <option value="">Unassigned</option>
-                {drivers.map((d) => (
-                  <option key={d.driver_id} value={d.driver_id}>{d.name}</option>
-                ))}
+                {/* Drivers only: conductors are crew too, but they don't drive the bus. */}
+                {drivers
+                  .filter((d) => d.crew_role !== "Conductor" || String(d.driver_id) === String(form.currentDriverId))
+                  .map((d) => (
+                    <option key={d.driver_id} value={d.driver_id}>{d.name}</option>
+                  ))}
               </select>
             </Field>
             <Field label="Boarding Point">

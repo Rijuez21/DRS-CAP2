@@ -107,7 +107,7 @@ const CSV_BUILDERS = {
   "on-time-performance": (rows) => toCsv(rows, ["origin", "destination", "completedTrips", "onTimeTrips", "onTimePercentage", "avgDelayMinutes"]),
   "fleet-utilization": (rows) => toCsv(rows, ["plate_num", "capacity", "status", "tripsRun", "activeDays", "idleDays"]),
   "reservation-trends": (data) => toCsv(data.byDay, ["day", "count"]),
-  "trip-collections": (rows) => toCsv(rows, ["trip_id", "departure", "route", "bus", "driver", "trip_status", "passengers", "walk_on", "flagged_unpaid", "online", "terminal", "on_board", "total", "remitted", "difference", "status", "received_by"]),
+  "trip-collections": (rows) => toCsv(rows, ["trip_id", "departure", "route", "bus", "driver", "conductor", "trip_status", "passengers", "walk_on", "flagged_unpaid", "online", "terminal", "on_board", "total", "remitted", "difference", "status", "received_by"]),
   "daily-collections": (rows) => toCsv(rows, ["day", "trips", "passengers", "online", "terminal", "on_board", "total", "remitted", "awaiting", "short_trips", "shortage"]),
 };
 
@@ -118,6 +118,7 @@ const flatTrip = (t) => ({
   route: `${t.origin} - ${t.destination}`,
   bus: t.bus_number ? `${t.bus_number} (${t.plate_num})` : t.plate_num,
   driver: t.driver_name,
+  conductor: t.conductor_name ?? "",
   trip_status: t.trip_status,
   passengers: t.passengers.total,
   walk_on: t.passengers.walk_on,

@@ -34,6 +34,21 @@ function parseRouteBody(body, { partial }) {
   return { fields: out };
 }
 
+// The special fare (student / PWD / senior) is a discount: it can match the
+// regular fare (the ₱15 minimum fare is the same for everyone on the printed
+// fare matrix) but never be higher. Before, any amount was accepted, so a
+// typo could charge discounted riders MORE than everyone else. Returns an
+// error string or null. Amounts as stored (strings or numbers).
+function whySpecialFareInvalid(baseFare, specialFare) {
+  if (specialFare == null || baseFare == null) return null;
+  const regular = Math.round(Number(baseFare) * 100);
+  const special = Math.round(Number(specialFare) * 100);
+  if (special > regular) {
+    return `The student / special fare (₱${(special / 100).toFixed(2)}) can't be higher than the regular fare (₱${(regular / 100).toFixed(2)}). It's a discount: the same or lower.`;
+  }
+  return null;
+}
+
 export const busRoutesRouter = Router();
 
 // Rough box around the Baguio–Bontoc corridor (Halsema Highway, Benguet to
@@ -90,6 +105,8 @@ busRoutesRouter.post("/", requireRole("admin"), async (req, res) => {
   if (parsed.error) return res.status(400).json({ error: parsed.error });
   const f = parsed.fields;
   const { origin, destination, distance, baseFare, specialFare } = body;
+  const fareError = whySpecialFareInvalid(f.base_fare, f.special_fare);
+  if (fareError) return res.status(400).json({ error: fareError });
 
   try {
     const [result] = await pool.query(
@@ -114,6 +131,16 @@ busRoutesRouter.patch("/:id", requireRole("admin"), async (req, res) => {
   if (fields.length === 0) return res.status(400).json({ error: "No editable fields provided" });
 
   try {
+    // Check the fares as they'll be AFTER this edit: lowering only the
+    // regular fare below the stored special fare is caught too.
+    if ("base_fare" in parsed.fields || "special_fare" in parsed.fields) {
+      const [[current]] = await pool.query(`SELECT base_fare, special_fare FROM routes WHERE route_id = ?`, [req.params.id]);
+      if (!current) return res.status(404).json({ error: "Route not found" });
+      const nextBase = "base_fare" in parsed.fields ? parsed.fields.base_fare : current.base_fare;
+      const nextSpecial = "special_fare" in parsed.fields ? parsed.fields.special_fare : current.special_fare;
+      const fareError = whySpecialFareInvalid(nextBase, nextSpecial);
+      if (fareError) return res.status(400).json({ error: fareError });
+    }
     params.push(req.params.id);
     const [result] = await pool.query(`UPDATE routes SET ${fields.join(", ")} WHERE route_id = ?`, params);
     if (result.affectedRows === 0) return res.status(404).json({ error: "Route not found" });

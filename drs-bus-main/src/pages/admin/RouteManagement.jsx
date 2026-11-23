@@ -110,6 +110,9 @@ export default function AdminRouteManagement() {
     setEditing(route);
   }
 
+  // Student / PWD / senior fare above the regular one: blocked here and on the server.
+  const specialTooHigh = form.specialFare !== "" && form.baseFare !== "" && Number(form.specialFare) > Number(form.baseFare);
+
   async function handleSave(e) {
     setError("");
     setSuccess("");
@@ -120,6 +123,11 @@ export default function AdminRouteManagement() {
     }
     if (Number(form.baseFare) < 0) {
       setError("Base fare can't be negative.");
+      return;
+    }
+    // Same rule as the server (routes.js): the special fare is a discount.
+    if (specialTooHigh) {
+      setError(`The student / special fare can't be higher than the regular fare (₱${Number(form.baseFare).toFixed(2)}).`);
       return;
     }
 
@@ -351,6 +359,8 @@ export default function AdminRouteManagement() {
           }
         >
           <form id="route-form" onSubmit={handleSave} className="space-y-3">
+            {/* Errors show here: the page's own alert is hidden behind this dialog. */}
+            <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
             <Field label="Origin">
               <input required value={form.origin} onChange={(e) => setForm({ ...form, origin: e.target.value })} className="input" />
             </Field>
@@ -364,7 +374,22 @@ export default function AdminRouteManagement() {
               <input required type="number" min="0" step="0.01" value={form.baseFare} onChange={(e) => setForm({ ...form, baseFare: e.target.value })} className="input" />
             </Field>
             <Field label="Student / Special Fare (₱)">
-              <input type="number" min="0" step="0.01" value={form.specialFare} onChange={(e) => setForm({ ...form, specialFare: e.target.value })} className="input" />
+              <input
+                type="number"
+                min="0"
+                max={form.baseFare === "" ? undefined : form.baseFare}
+                step="0.01"
+                value={form.specialFare}
+                onChange={(e) => setForm({ ...form, specialFare: e.target.value })}
+                aria-invalid={specialTooHigh}
+                aria-describedby="special-fare-hint"
+                className={`input ${specialTooHigh ? "border-rose-500 focus:border-rose-500" : ""}`}
+              />
+              <span id="special-fare-hint" className={`block text-xs mt-1 ${specialTooHigh ? "text-rose-600 font-semibold" : "text-gray-500"}`}>
+                {specialTooHigh
+                  ? `Can't be higher than the regular fare (₱${Number(form.baseFare).toFixed(2)}).`
+                  : "Same as or lower than the regular fare. The conductor charges it to students, PWD and seniors on board; leave blank for 20% off the regular fare."}
+              </span>
             </Field>
           </form>
         </Modal>

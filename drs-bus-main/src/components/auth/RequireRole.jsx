@@ -4,7 +4,7 @@ import { useAuth, AUTH_NOTICE_KEY } from "../../context/AuthContext";
 import { LOGIN_PATH, HOME_PATH, logoutPath } from "../../lib/rolePaths";
 import PageLoader from "../common/PageLoader";
 
-const ROLE_LABEL = { passenger: "passengers", driver: "drivers", staff: "terminal staff", admin: "administrators", owner: "bus owners" };
+const ROLE_LABEL = { passenger: "passengers", driver: "drivers and conductors", staff: "terminal staff", admin: "administrators", owner: "bus owners" };
 
 /**
  * Wrap a layout route with this to require a logged-in user of a given role.

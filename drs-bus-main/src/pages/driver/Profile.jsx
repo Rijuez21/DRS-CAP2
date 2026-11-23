@@ -60,7 +60,9 @@ export default function DriverProfile() {
           </div>
 
           <dl className="grid grid-cols-2 gap-y-3 gap-x-4 text-sm pt-2 border-t">
-            <Field label="License Number" value={driver.license_number} />
+            <Field label="Job" value={driver.crew_role ?? "Driver"} />
+            {/* Conductors don't drive, so there's no license to show. */}
+            {(driver.crew_role ?? "Driver") === "Driver" && <Field label="License Number" value={driver.license_number} />}
             <Field label="Phone Number" value={driver.phoneno} />
             <Field label="Hire Date" value={formatDate(driver.hire_date)} />
           </dl>

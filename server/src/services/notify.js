@@ -46,11 +46,13 @@ export async function notifyTripChange(io, tripId, message, type = "schedule_cha
       `SELECT DISTINCT passenger_id FROM bookings WHERE trip_id = ? AND status NOT IN ('Cancelled', 'No-Show')`,
       [tripId]
     );
-    const [[trip]] = await pool.query(`SELECT driver_id FROM trips WHERE trip_id = ?`, [tripId]);
+    const [[trip]] = await pool.query(`SELECT driver_id, conductor_id FROM trips WHERE trip_id = ?`, [tripId]);
 
+    // The whole crew: the driver and, when there is one, the conductor.
+    const crew = [...new Set([trip?.driver_id, trip?.conductor_id].filter((id) => id != null))];
     const recipients = [
       ...passengers.map((p) => ({ type: "passenger", id: p.passenger_id })),
-      ...(trip?.driver_id ? [{ type: "driver", id: trip.driver_id }] : []),
+      ...crew.map((id) => ({ type: "driver", id })),
     ];
     for (const r of recipients) await notifyRecipient(io, r, message, type);
   } catch (err) {

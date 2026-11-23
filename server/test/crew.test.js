@@ -75,7 +75,7 @@ describe("conductor accounts", () => {
 });
 
 describe("the conductor works the trip", () => {
-  test("sees it in their schedule, opens the manifest, moves it on; outsiders can't", async () => {
+  test("sees it in their schedule and opens the manifest; only the driver moves the trip on; outsiders can't", async () => {
     const driver = await createDriver();
     const conductor = await createConductor();
     const { tripId } = await createTrip({ hours: 1, driverId: driver.id });
@@ -87,7 +87,18 @@ describe("the conductor works the trip", () => {
     assert.equal(row?.my_role, "conductor");
 
     assert.equal((await api("GET", `/api/trips/${tripId}/manifest`, { token: conductor.token })).status, 200);
-    assert.equal((await api("PATCH", `/api/trips/${tripId}/status`, { token: conductor.token, body: { status: "Boarding" } })).status, 200);
+    const byConductor = await api("PATCH", `/api/trips/${tripId}/status`, { token: conductor.token, body: { status: "Boarding" } });
+    assert.equal(byConductor.status, 409);
+    assert.match(byConductor.data.error, /Only the driver/);
+    assert.equal((await api("PATCH", `/api/trips/${tripId}/status`, { token: driver.token, body: { status: "Boarding" } })).status, 200);
+
+    // GPS is the driver's job too: the conductor's phone can't report the bus.
+    const [[trip]] = await db.query(`SELECT bus_id FROM trips WHERE trip_id = ?`, [tripId]);
+    const gps = await api("POST", "/api/tracking", {
+      token: conductor.token,
+      body: { busId: trip.bus_id, latitude: 16.9, longitude: 120.9, timestamp: new Date().toISOString() },
+    });
+    assert.equal(gps.status, 403);
 
     const stranger = await createConductor();
     assert.equal((await api("GET", `/api/trips/${tripId}/manifest`, { token: stranger.token })).status, 403);
@@ -125,9 +136,9 @@ describe("walk-on riders", () => {
   });
 
   test("everyone still aboard is marked off when the trip completes", async () => {
-    const { conductor, tripId } = await tripOnRoad();
+    const { driver, conductor, tripId } = await tripOnRoad();
     const added = await walkOn(conductor.token, tripId, 2);
-    assert.equal((await api("PATCH", `/api/trips/${tripId}/status`, { token: conductor.token, body: { status: "Completed" } })).status, 200);
+    assert.equal((await api("PATCH", `/api/trips/${tripId}/status`, { token: driver.token, body: { status: "Completed" } })).status, 200);
     const [[row]] = await db.query(`SELECT alighted_at FROM onboard_fares WHERE fare_id = ?`, [added.data.fare_id]);
     assert.ok(row.alighted_at);
   });

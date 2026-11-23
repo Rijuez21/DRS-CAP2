@@ -13,7 +13,7 @@ const LAST_UPDATED = "November 11, 2026";
 const SECTIONS = [
   {
     heading: "Introduction",
-    body: "D' Rising Sun Transport (\"we\", \"us\") runs this bus booking and tracking platform for the Baguio–Bontoc line. This policy explains what personal information we collect, why, how long we keep it, who can see it, and the rights you have under the Data Privacy Act of 2012 (Republic Act No. 10173) and its Implementing Rules. It covers the passenger app and website, the driver app, and the terminal staff, bus owner and administrator tools. By creating an account and ticking the consent box at sign-up, you agree to the processing described here.",
+    body: "D' Rising Sun Transport (\"we\", \"us\") runs this bus booking and tracking platform for the Baguio–Bontoc line. This policy explains what personal information we collect, why, how long we keep it, who can see it, and the rights you have under the Data Privacy Act of 2012 (Republic Act No. 10173) and its Implementing Rules. It covers the passenger app and website, the bus crew app (drivers and conductors), and the terminal staff, bus owner and administrator tools. By creating an account and ticking the consent box at sign-up, you agree to the processing described here.",
   },
   {
     heading: "Information We Collect",
@@ -44,13 +44,13 @@ const SECTIONS = [
   },
   {
     heading: "Location Data",
-    body: "During an active trip, the bus's location is collected from the GPS tracker fitted to the bus or, as a backup, from the driver's phone while the driver app is open. If the phone loses signal, points are kept on the device and sent once it reconnects. This is the bus's location, not a passenger's. Passengers' devices are not tracked. When you use \"Flag a Bus\", we receive the pickup point you choose (map position or landmark) and share it with the driver of that bus so they can stop for you. Bus location history is used for live tracking, trip records and service planning.",
+    body: "During an active trip, the bus's location is collected from the GPS tracker fitted to the bus or, as a backup, from the driver's phone while the driver app is open. If the phone loses signal, points are kept on the device and sent once it reconnects. This is the bus's location, not a passenger's. Passengers' devices are not tracked. When you use \"Flag a Bus\", we receive the pickup point you choose (map position or landmark) and share it with the crew of that bus (its driver and, when there is one, its conductor) so they can stop for you. Bus location history is used for live tracking, trip records and service planning.",
   },
   {
     heading: "Data Sharing & Third Parties",
     body: "We do not sell your personal information or share it for advertising. It is shared only as follows:",
     items: [
-      "Within D' Rising Sun: drivers see the names and seats on their trip and any flag-down pickup points; terminal staff see bookings, payment submissions and discount applications; administrators manage accounts. Bus owners see information about their own buses and trips.",
+      "Within D' Rising Sun: the bus crew (the driver and the conductor) see the names and seats on their trip and any flag-down pickup points; terminal staff see bookings, payment submissions and discount applications; administrators manage accounts. Bus owners see information about their own buses and trips.",
       "With passengers: on the day of travel, passengers see the first name of the driver assigned to their bus (on their ticket, live tracking and departure reminder) so they can find the right bus. No other driver details are shown to passengers.",
       "Service providers that host the platform (cloud servers and database). Some of these may store data outside the Philippines; we use providers with appropriate security safeguards, as the Data Privacy Act requires.",
       "Maps: the live map loads map images from OpenStreetMap, and \"Directions\" links open Google Maps. These services receive your IP address and the map area you view, under their own privacy policies.",

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ShieldCheck, Plus, Pencil, Trash2, UserRound, Bus, Phone, IdCard, Briefcase } from "lucide-react";
+import { ShieldCheck, Plus, Pencil, Trash2, UserRound, Bus, Phone, IdCard, Briefcase, Ticket } from "lucide-react";
 import * as api from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { useConfirm } from "../../hooks/useConfirm";
@@ -38,13 +38,17 @@ const emptyForm = {
   dutyStatus: "Active",
   busIds: [], // owner only: the buses they can track
 };
-const ROLE_LABELS = { admin: "Admin", terminal_staff: "Terminal Staff", driver: "Driver", owner: "Bus Owner" };
+// Drivers and conductors are both bus crew: one drivers row each, told apart
+// by crew_role, signing in to the same crew app (server services/crew.js).
+const ROLE_LABELS = { admin: "Admin", terminal_staff: "Terminal Staff", driver: "Driver", conductor: "Conductor", owner: "Bus Owner" };
 const ROLE_STYLES = {
   admin: { badge: "bg-violet-100 text-violet-800", icon: ShieldCheck },
   terminal_staff: { badge: "bg-sky-100 text-sky-800", icon: UserRound },
   driver: { badge: "bg-amber-100 text-amber-800", icon: Bus },
+  conductor: { badge: "bg-orange-100 text-orange-800", icon: Ticket },
   owner: { badge: "bg-emerald-100 text-emerald-800", icon: Briefcase },
 };
+const isCrewRole = (role) => role === "driver" || role === "conductor";
 const busLabel = (b) => (b.bus_number ? `Bus ${b.bus_number} · ${b.plate_num}` : b.plate_num);
 const DUTY = ["Active", "On Leave", "Suspended"];
 const ROLE_FILTERS = [
@@ -82,7 +86,7 @@ export default function AdminUserManagement() {
       .then(([staff, drivers, owners, busRows]) => {
         setUsers([
           ...staff.map((s) => ({ ...s, kind: "staff", id: s.staff_id, key: `s${s.staff_id}` })),
-          ...drivers.map((d) => ({ ...d, kind: "driver", role: "driver", id: d.driver_id, key: `d${d.driver_id}` })),
+          ...drivers.map((d) => ({ ...d, kind: "driver", role: d.crew_role === "Conductor" ? "conductor" : "driver", id: d.driver_id, key: `d${d.driver_id}` })),
           ...owners.map((o) => ({ ...o, kind: "owner", role: "owner", id: o.owner_id, key: `o${o.owner_id}` })),
         ]);
         setBuses(busRows);
@@ -95,7 +99,8 @@ export default function AdminUserManagement() {
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
   const isNew = editing === "new";
-  const isDriver = form.role === "driver";
+  const isDriver = form.role === "driver"; // needs a license
+  const isCrew = isCrewRole(form.role); // driver or conductor: drivers table, duty status
   const isOwner = form.role === "owner";
 
   // Which owner currently has each bus, so the picker can say "owned by …".
@@ -163,12 +168,14 @@ export default function AdminUserManagement() {
     const payload = isOwner
       ? { name, email, phoneno: form.phoneno.trim(), address: form.address.trim(), busIds: form.busIds }
       : { name, email, ...Object.fromEntries(Object.keys(PROFILE_FIELDS).map((k) => [k, form[k].trim()])) };
-    if (isDriver) Object.assign(payload, { licenseNumber: form.licenseNumber.trim(), licenseExpiry: form.licenseExpiry });
-    else if (!isOwner) payload.role = form.role;
+    if (isCrew) {
+      payload.crewRole = isDriver ? "Driver" : "Conductor";
+      if (isDriver) Object.assign(payload, { licenseNumber: form.licenseNumber.trim(), licenseExpiry: form.licenseExpiry });
+    } else if (!isOwner) payload.role = form.role;
 
     try {
       if (isNew) {
-        const create = isOwner ? api.createOwner : isDriver ? api.createDriver : api.createStaff;
+        const create = isOwner ? api.createOwner : isCrew ? api.createDriver : api.createStaff;
         await create({ ...payload, password: form.password });
         setSuccess(`${ROLE_LABELS[form.role]} account created for ${name}.`);
       } else if (editing.kind === "owner") {
@@ -234,7 +241,7 @@ export default function AdminUserManagement() {
     searchKeys: ["name", "email", "employee_no", "phoneno", "license_number"],
     searchPlaceholder: "Search name, email, employee no. or phone…",
     filters: ROLE_FILTERS,
-    emptyState: { icon: ShieldCheck, title: "No accounts yet", description: "Add a terminal-staff, admin, driver or bus owner account." },
+    emptyState: { icon: ShieldCheck, title: "No accounts yet", description: "Add a terminal-staff, admin, driver, conductor or bus owner account." },
     toolbar: <ViewToggle value={view} onChange={setView} />,
   };
 
@@ -242,7 +249,7 @@ export default function AdminUserManagement() {
     <div className="p-4 sm:p-6 space-y-4">
       <PageHeading
         title="User Accounts"
-        subtitle="Terminal staff, admin, driver and bus owner accounts."
+        subtitle="Terminal staff, admin, driver, conductor and bus owner accounts."
         actions={
           <PrimaryButton icon={Plus} onClick={openNew}>
             Add Account
@@ -342,15 +349,21 @@ export default function AdminUserManagement() {
             </div>
             <FormSection title="Account">
               <Field label="Role" required>
-                {/* Staff, drivers and owners are stored separately, so an existing account can't switch between them. */}
-                <select value={form.role} onChange={set("role")} className="input" disabled={!isNew && editing.kind !== "staff"}>
+                {/* Staff, bus crew and owners are stored separately, so an existing account can't switch between them.
+                    Within the crew, a driver can become a conductor and back (the server refuses while they hold upcoming trips in the old job). */}
+                <select value={form.role} onChange={set("role")} className="input" disabled={!isNew && editing.kind === "owner"}>
                   {(isNew || editing.kind === "staff") && (
                     <>
                       <option value="terminal_staff">Terminal Staff</option>
                       <option value="admin">Admin</option>
                     </>
                   )}
-                  {(isNew || editing.kind === "driver") && <option value="driver">Driver</option>}
+                  {(isNew || editing.kind === "driver") && (
+                    <>
+                      <option value="driver">Driver</option>
+                      <option value="conductor">Conductor</option>
+                    </>
+                  )}
                   {(isNew || editing.kind === "owner") && <option value="owner">Bus Owner</option>}
                 </select>
               </Field>
@@ -438,14 +451,18 @@ export default function AdminUserManagement() {
               <Field label="Hire Date">
                 <input type="date" value={form.hireDate} onChange={set("hireDate")} className="input" />
               </Field>
-              {isDriver && (
+              {isCrew && (
                 <>
-                  <Field label="Driver's License No." required>
-                    <input required value={form.licenseNumber} onChange={set("licenseNumber")} className="input" />
-                  </Field>
-                  <Field label="License Expiry">
-                    <input type="date" value={form.licenseExpiry} onChange={set("licenseExpiry")} className="input" />
-                  </Field>
+                  {isDriver && (
+                    <>
+                      <Field label="Driver's License No." required>
+                        <input required value={form.licenseNumber} onChange={set("licenseNumber")} className="input" />
+                      </Field>
+                      <Field label="License Expiry">
+                        <input type="date" value={form.licenseExpiry} onChange={set("licenseExpiry")} className="input" />
+                      </Field>
+                    </>
+                  )}
                   {!isNew && (
                     <Field label="Duty Status">
                       <select value={form.dutyStatus} onChange={set("dutyStatus")} className="input">

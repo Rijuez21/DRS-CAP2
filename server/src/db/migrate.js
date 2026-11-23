@@ -360,7 +360,7 @@ const STATEMENTS = [
   // account (drivers.crew_role = 'Conductor'), and a trip can name one.
   // Walk-on riders count as on board until the conductor marks them off.
   // Also created at server start (crew.js ensureCrewColumns). Re-running is a no-op.
-  `ALTER TABLE drivers ADD COLUMN crew_role ENUM('Driver', 'Conductor') NOT NULL DEFAULT 'Driver'`,
+  `ALTER TABLE drivers ADD COLUMN crew_role ENUM('driver', 'conductor') NOT NULL DEFAULT 'driver'`,
   `ALTER TABLE trips ADD COLUMN conductor_id INT NULL`,
   `ALTER TABLE trips ADD CONSTRAINT fk_trips_conductor FOREIGN KEY (conductor_id) REFERENCES drivers(driver_id)`,
   `ALTER TABLE onboard_fares ADD COLUMN alighted_at TIMESTAMP NULL DEFAULT NULL`,

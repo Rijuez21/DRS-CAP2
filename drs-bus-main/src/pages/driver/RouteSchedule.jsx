@@ -34,7 +34,11 @@ export default function RouteSchedule() {
                 <p className="font-medium">
                   {t.origin} → {t.destination}
                 </p>
-                <p className="text-xs text-gray-500">{formatDate(t.departure_time)}</p>
+                <p className="text-xs text-gray-500">
+                  {formatDate(t.departure_time)} · {t.bus_number ? `Bus ${t.bus_number}` : t.plate_num}
+                  {/* Your job on this trip, and who you're working with. */}
+                  {t.my_role === "conductor" ? ` · Conductor (driver ${t.driver_name})` : ` · Driver${t.conductor_name ? ` (conductor ${t.conductor_name})` : ""}`}
+                </p>
               </div>
               <div className="text-right">
                 <p className="text-sm font-semibold">{formatTime(t.departure_time)}</p>

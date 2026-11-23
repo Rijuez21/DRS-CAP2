@@ -69,7 +69,7 @@ export default function BookingDetails() {
       // The server says whether it opened a refund (it does for a verified payment).
       setSuccess(
         flagged
-          ? "Ride cancelled. The driver has been told."
+          ? "Ride cancelled. The bus crew has been told."
           : result?.refunds_opened > 0
             ? "Booking cancelled. A refund has been requested — you'll be notified when it's sent."
             : "Booking cancelled. Your seat has been released."
@@ -274,7 +274,7 @@ function CancelDialog({ booking, payment, busy, onConfirm, onCancel }) {
         Seat <span className="font-semibold">{booking.seat_number}</span> · {booking.origin} → {booking.destination} · {when}
       </p>
       {flagged ? (
-        <p>The driver will be told not to stop for you.</p>
+        <p>The bus crew will be told not to stop for you.</p>
       ) : payment?.status === "Verified" ? (
         <p className="rounded-lg bg-sky-50 text-sky-800 px-3 py-2">
           You&apos;ve paid {formatPeso(payment.amount)} for this seat, so a refund will be requested for you. You&apos;ll be notified when it&apos;s sent.

@@ -12,11 +12,11 @@ import {
   passengersNotBoarded,
   earlyDepartureMessage,
 } from "../services/tripLifecycle.js";
-import { isCrewOn, whyCrewNotAssignable, NOT_YOUR_TRIP } from "../services/crew.js";
+import { isCrewOn, crewRoleOn, whyCrewNotAssignable, NOT_YOUR_TRIP } from "../services/crew.js";
 
 const seesFullDriverName = (req) => SEES_FULL_DRIVER_NAME.includes(req.user?.role);
 import { logAudit } from "../services/audit.js";
-import { notifyTripChange } from "../services/notify.js";
+import { notifyTripChange, notifyRecipient } from "../services/notify.js";
 import { openRefundsForCancelledTrip } from "../services/paymentSweeper.js";
 import { dateTime, id as parseId } from "../services/validate.js";
 import { busLayout, busSeatLabels, naturalCompare, readStoredLayout } from "../services/seatLayout.js";
@@ -104,6 +104,23 @@ async function describeConflicts(conflicts, { busId, driverId, conductorId = nul
   return `Schedule conflict: ${lines.join(" ")}${more} Pick another time, bus or crew.`;
 }
 
+// Tell a crew member they've been put on a trip (bell; their crew app also
+// lists it). job: "driver" | "conductor". Never fails the request.
+async function notifyCrewAssignment(io, tripId, crewId, job) {
+  try {
+    const [[t]] = await pool.query(
+      `SELECT tr.departure_time, rt.origin, rt.destination, b.plate_num, b.bus_number
+       FROM trips tr JOIN routes rt ON rt.route_id = tr.route_id JOIN buses b ON b.bus_id = tr.bus_id WHERE tr.trip_id = ?`,
+      [tripId]
+    );
+    if (!t) return;
+    const bus = t.bus_number ? `Bus ${t.bus_number}` : t.plate_num;
+    await notifyRecipient(io, { type: "driver", id: crewId }, `You're the ${job} on ${t.origin} → ${t.destination}, ${manilaShort(t.departure_time)} (${bus}).`, "crew_assigned");
+  } catch (err) {
+    console.error("Crew assignment notice failed (non-fatal):", err.message);
+  }
+}
+
 // A departure earlier than now (with a minute's grace for the time spent
 // filling in the form) can't be scheduled.
 function isPast(departure) {
@@ -160,9 +177,13 @@ function whyTripStatusChangeNotAllowed({ user, trip, next, otherActiveTrip, notB
   if (user.role === "staff") {
     return next === "Completed" && trip.status === "In Transit" ? null : "Terminal staff can only mark a trip as completed";
   }
-  // Either crew member moves the trip on: with a conductor aboard it's
-  // usually the conductor, so the driver keeps their hands on the wheel.
-  if (user.role === "driver" && !isCrewOn(trip, user.id)) return NOT_YOUR_TRIP;
+  // Only the trip's driver moves it on (board, depart, arrive). The
+  // conductor handles passengers and fares, never the trip itself.
+  if (user.role === "driver") {
+    const job = crewRoleOn(trip, user.id);
+    if (!job) return NOT_YOUR_TRIP;
+    if (job === "conductor") return "Only the driver can start boarding, depart or complete the trip";
+  }
   if (DRIVER_NEXT[trip.status] !== next) return `A ${trip.status} trip can only move to ${DRIVER_NEXT[trip.status]}`;
   if (user.role !== "driver") return null;
 
@@ -218,8 +239,8 @@ export function buildTripsRouter(io) {
           `SELECT tr.trip_id, tr.departure_time, tr.arrival_time, tr.status, tr.missed_at,
                   rt.origin, rt.destination, rt.base_fare,
                   b.bus_id, b.plate_num, b.bus_number, b.capacity, b.type AS bus_type,
-                  tr.driver_id, d.name AS driver_name, d.phoneno AS driver_phone,
-                  tr.conductor_id, c.name AS conductor_name, c.phoneno AS conductor_phone,
+                  tr.driver_id, d.name AS driver_name,
+                  tr.conductor_id, c.name AS conductor_name,
                   IF(tr.driver_id = ?, 'driver', 'conductor') AS my_role,
                   (SELECT COUNT(*) FROM bookings bk WHERE bk.trip_id = tr.trip_id AND bk.status NOT IN ('Cancelled', 'No-Show')) AS booked_count,
                   (SELECT COALESCE(SUM(f.passenger_count), 0) FROM onboard_fares f
@@ -355,6 +376,8 @@ export function buildTripsRouter(io) {
       );
       await clearTripsCache();
       await logAudit({ staffId: req.user.id, action: "create", entityType: "trip", entityId: result.insertId, details: req.body });
+      await notifyCrewAssignment(io, result.insertId, driverId, "driver");
+      if (conductorId != null) await notifyCrewAssignment(io, result.insertId, conductorId, "conductor");
       res.status(201).json({ trip_id: result.insertId, busId, driverId, conductorId, routeId, departureTime, arrivalTime, status: "Scheduled" });
     } catch (err) {
       if (err.code === "ER_NO_REFERENCED_ROW_2") return res.status(400).json({ error: "That bus, driver or route doesn't exist" });
@@ -560,6 +583,9 @@ export function buildTripsRouter(io) {
       if (scheduleChanged) {
         await notifyTripChange(io, req.params.id, "Your trip's schedule has changed — please check the updated departure time.");
       }
+      // Someone newly put on this trip hears about it.
+      if (driverId !== undefined && driverId !== existing.driver_id) await notifyCrewAssignment(io, req.params.id, driverId, "driver");
+      if (conductorId != null && conductorId !== existing.conductor_id) await notifyCrewAssignment(io, req.params.id, conductorId, "conductor");
 
       res.json({ trip_id: Number(req.params.id), ...req.body });
     } catch (err) {

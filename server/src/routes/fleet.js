@@ -5,11 +5,21 @@ import { logAudit } from "../services/audit.js";
 import { optionalText, requiredText, integer } from "../services/validate.js";
 import { validateSeatLayout, getSeatLabels, busSeatLabels, readStoredLayout, naturalCompare } from "../services/seatLayout.js";
 import { clearTripsCache } from "./trips.js";
+import { normalizeCrewRole } from "../services/crew.js";
 
 const BUS_TYPES = ["ordinary", "air_conditioned"];
 
 // Capacity decides which seat numbers can be sold, so it must be a sane
 // whole number; plate/bus numbers are shown on passenger maps and tickets.
+// A bus's regular driver must be a driver, not a conductor (both are bus
+// crew in the drivers table, services/crew.js). Error string or null.
+async function whyNotABusDriver(driverId) {
+  if (driverId == null) return null;
+  const [[row]] = await pool.query(`SELECT name, crew_role FROM drivers WHERE driver_id = ?`, [driverId]);
+  if (row && normalizeCrewRole(row.crew_role) === "Conductor") return `${row.name} is a conductor — pick a driver for the bus`;
+  return null; // a missing id is reported by the foreign key below
+}
+
 function parseBusBody(body, { partial }) {
   const out = {};
   let layout = null;
@@ -145,6 +155,8 @@ busesRouter.post("/", requireRole("admin"), async (req, res) => {
   const parsed = parseBusBody(req.body, { partial: false });
   if (parsed.error) return res.status(400).json({ error: parsed.error });
   const f = parsed.fields;
+  const notDriver = await whyNotABusDriver(f.current_driver_id).catch(() => null);
+  if (notDriver) return res.status(400).json({ error: notDriver });
   // Without a layout this is exactly the old behaviour (capacity as sent);
   // with one, capacity is the layout's seat count.
   const savedCapacity = parsed.layout ? f.capacity : capacity;
@@ -191,6 +203,8 @@ busesRouter.post("/", requireRole("admin"), async (req, res) => {
 busesRouter.patch("/:id", requireRole("admin"), async (req, res) => {
   const parsed = parseBusBody(req.body ?? {}, { partial: true });
   if (parsed.error) return res.status(400).json({ error: parsed.error });
+  const notDriver = await whyNotABusDriver(parsed.fields.current_driver_id).catch(() => null);
+  if (notDriver) return res.status(400).json({ error: notDriver });
   const fields = Object.keys(parsed.fields).map((c) => `${c} = ?`);
   const params = Object.values(parsed.fields);
 

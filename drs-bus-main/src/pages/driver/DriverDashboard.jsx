@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { WifiOff, Satellite, MapPinOff, LocateFixed, UserPlus, Users, Phone, BusFront } from "lucide-react";
+import { WifiOff, Satellite, MapPinOff, LocateFixed, UserPlus, Users, BusFront } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useConfirm } from "../../hooks/useConfirm";
 import { useDriverLocation } from "../../hooks/useDriverLocation";
@@ -74,10 +74,9 @@ export default function DriverDashboard() {
   // works it out per trip, so one person can conduct today, drive tomorrow).
   const myRole = activeTrip?.my_role ?? null;
   const hasConductor = activeTrip?.conductor_id != null;
-  // With a conductor on board, the conductor's phone is the GPS backup and
-  // the driver's phone stays out of the way (two phones would make the bus
-  // jump between two slightly different positions on the map).
-  const sharesGps = Boolean(activeTrip) && (myRole === "conductor" || !hasConductor);
+  // GPS is the driver's job: only the driver's phone shares the bus's
+  // position (backup to the bus's tracker). The server refuses a conductor's.
+  const sharesGps = Boolean(activeTrip) && myRole === "driver";
   const gps = useDriverLocation(sharesGps ? activeTrip.bus_id : null);
   // A bus fitted with a GPS tracker reports by itself; the phone is backup.
   const tracker = useBusTracker(activeTrip?.bus_id ?? null);
@@ -162,7 +161,7 @@ export default function DriverDashboard() {
           <GpsBanner status={gps.status} queuedCount={gps.queuedCount} onRetry={gps.retry} />
         ) : (
           <p className="flex items-center gap-2 text-sm text-gray-700 bg-white border rounded-lg px-3 py-2">
-            <Satellite className="w-4 h-4 text-emerald-700" /> Your conductor's phone shares the bus's location — keep your eyes on the road.
+            <Satellite className="w-4 h-4 text-emerald-700" /> {activeTrip.driver_name}&apos;s phone shares the bus&apos;s location. You handle the passengers and fares.
           </p>
         ))}
 
@@ -220,13 +219,13 @@ function seatsLeft(t) {
 
 const ROLE_LABEL = { driver: "Driver", conductor: "Conductor" };
 
-// Who's on this bus with you, one tap to call them.
+// Who's on this bus with you.
 function CrewCard({ trip, myRole }) {
   const partner =
     myRole === "conductor"
-      ? { role: "Driver", name: trip.driver_name, phone: trip.driver_phone }
+      ? { role: "Driver", name: trip.driver_name }
       : trip.conductor_id != null
-        ? { role: "Conductor", name: trip.conductor_name, phone: trip.conductor_phone }
+        ? { role: "Conductor", name: trip.conductor_name }
         : null;
   return (
     <section className="bg-white rounded-lg border px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -236,11 +235,6 @@ function CrewCard({ trip, myRole }) {
       {partner ? (
         <p className="text-sm text-gray-600 flex items-center gap-2">
           {partner.role}: <strong className="text-ink-900">{partner.name}</strong>
-          {partner.phone && (
-            <a href={`tel:${String(partner.phone).replace(/[^\d+]/g, "")}`} className="inline-flex items-center gap-1 text-emerald-700 font-semibold underline">
-              <Phone className="w-3.5 h-3.5" /> Call
-            </a>
-          )}
         </p>
       ) : (
         <p className="text-sm text-gray-500">No conductor on this trip — you handle passengers and fares too.</p>
@@ -315,7 +309,10 @@ function TripGroup({ title, note, trips, onAdvance, updatingId, waitReason, empt
                 <Link to={`/driver/manifest?tripId=${t.trip_id}`} className="text-emerald-700 font-medium underline">
                   Passenger list
                 </Link>
-                {NEXT[t.status] &&
+                {/* Moving the trip on is the driver's job; the conductor just sees where it's at. */}
+                {NEXT[t.status] && t.my_role === "conductor" ? (
+                  <span className="ml-auto text-xs text-gray-500">The driver starts boarding, departs and completes the trip</span>
+                ) : NEXT[t.status] &&
                   (waitReason?.(t) ? (
                     <span className="ml-auto text-sm font-medium text-gray-500 bg-gray-100 px-3 py-2 rounded">{waitReason(t)}</span>
                   ) : (

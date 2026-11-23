@@ -182,7 +182,7 @@ function TripCollectionsTable({ rows }) {
         <thead className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide border-b">
           <tr>
             <th className="py-2 pr-3">Trip</th>
-            <th className="py-2 pr-3">Driver</th>
+            <th className="py-2 pr-3">Crew</th>
             <th className="py-2 pr-3 text-right">Passengers</th>
             <th className="py-2 pr-3 text-right">Online</th>
             <th className="py-2 pr-3 text-right">Terminal cash</th>
@@ -199,7 +199,10 @@ function TripCollectionsTable({ rows }) {
                 <p className="font-medium">{formatDate(r.departure_time)} {formatTime(r.departure_time)}</p>
                 <p className="text-xs text-gray-500">{r.origin} → {r.destination} · {r.plate_num}</p>
               </td>
-              <td className="py-2 pr-3">{r.driver_name}</td>
+              <td className="py-2 pr-3">
+                {r.driver_name}
+                {r.conductor_name && <span className="block text-xs text-gray-500">Conductor: {r.conductor_name}</span>}
+              </td>
               <td className="py-2 pr-3 text-right">
                 {r.passengers.total}
                 {r.passengers.walk_on > 0 && <span className="block text-xs text-gray-500">{r.passengers.walk_on} walk-on</span>}

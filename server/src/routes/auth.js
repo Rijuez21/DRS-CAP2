@@ -10,6 +10,7 @@ import { rateLimit, failureLimiter } from "../services/rateLimit.js";
 import { whyPasswordWeak, cleanEmail, cleanName, cleanPhMobile, PASSWORD_MAX } from "../services/passwordPolicy.js";
 import { sendMail } from "../services/mailer.js";
 import { passwordResetEmail, passwordChangedEmail, emailVerificationEmail } from "../services/emailTemplates.js";
+import { normalizeCrewRole } from "../services/crew.js";
 
 export const authRouter = Router();
 
@@ -153,7 +154,7 @@ authRouter.post("/login", loginRequestsPerIp, async (req, res) => {
     // Shown on the passenger Profile page.
     if (role === "passenger") user.phoneno = account.phoneno ?? null;
     // "Driver" | "Conductor": the crew app's greeting and default screen.
-    if (role === "driver") user.crewRole = account.crew_role ?? "Driver";
+    if (role === "driver") user.crewRole = normalizeCrewRole(account.crew_role);
     res.json({ user, token });
   } catch (err) {
     console.error(err);

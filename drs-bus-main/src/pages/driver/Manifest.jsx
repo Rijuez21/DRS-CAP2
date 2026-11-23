@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import InlineAlert from "../../components/common/InlineAlert";
+import { CurrentTripCard, NoTripCard } from "../../components/driver/CurrentTrip";
 import * as api from "../../lib/api";
-import { compareSeats, formatDate, formatTime } from "../../lib/format";
+import { pickCurrentTrip } from "../../lib/currentTrip";
+import { compareSeats } from "../../lib/format";
 
 const CHANNEL_LABEL = { online: "Booked online", walk_in: "Walk-in", flagged: "Flagged on the road" };
 
@@ -14,18 +15,26 @@ const CHANNEL_LABEL = { online: "Booked online", walk_in: "Walk-in", flagged: "F
 // button that 500'd when the seat had been resold.
 export default function Manifest() {
   const { user } = useAuth();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const tripId = searchParams.get("tripId");
-  const [trips, setTrips] = useState([]);
+  const [trips, setTrips] = useState(null); // null = still loading
   const [bookings, setBookings] = useState([]);
-  const [isLoading, setIsLoading] = useState(() => Boolean(searchParams.get("tripId")));
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [updatingId, setUpdatingId] = useState(null);
 
   useEffect(() => {
     if (!user) return;
-    api.getTrips({ driverId: user.id }).then(setTrips).catch((err) => setError(err.message));
+    api
+      .getTrips({ driverId: user.id })
+      .then(setTrips)
+      .catch((err) => {
+        setTrips([]);
+        setError(err.message);
+      });
   }, [user]);
+
+  // One trip at a time: the one running, or the next one (no trip picker).
+  const trip = trips ? pickCurrentTrip(trips) : null;
+  const tripId = trip ? String(trip.trip_id) : null;
 
   const reload = useCallback(() => {
     if (!tripId) return;
@@ -54,7 +63,6 @@ export default function Manifest() {
     }
   }
 
-  const trip = trips.find((t) => String(t.trip_id) === String(tripId));
   const readOnly = trip && (trip.status === "Completed" || trip.status === "Cancelled");
   const bySeat = (a, b) => compareSeats(a.seat_number, b.seat_number);
   const groups = [
@@ -71,18 +79,7 @@ export default function Manifest() {
         <p className="text-sm text-gray-500">As each passenger gets on, tap Boarded. Tap No-show for anyone who didn't come.</p>
       </header>
 
-      <select value={tripId ?? ""} onChange={(e) => {
-          setBookings([]);
-          setIsLoading(Boolean(e.target.value));
-          setSearchParams(e.target.value ? { tripId: e.target.value } : {});
-        }} className="input bg-white">
-        <option value="">Select a trip…</option>
-        {trips.map((t) => (
-          <option key={t.trip_id} value={t.trip_id}>
-            {formatDate(t.departure_time)?.replace(/, \d{4}$/, "")} {formatTime(t.departure_time)} · {t.origin} → {t.destination} · {t.status}
-          </option>
-        ))}
-      </select>
+      {trip ? <CurrentTripCard trip={trip} /> : <NoTripCard loading={trips === null} />}
 
       <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
 

@@ -4,8 +4,10 @@ import { Banknote, UserPlus, Undo2, HandCoins, Minus, Plus, LogOut } from "lucid
 import { useAuth } from "../../context/AuthContext";
 import InlineAlert from "../../components/common/InlineAlert";
 import StatusBadge from "../../components/common/StatusBadge";
+import { CurrentTripCard, NoTripCard } from "../../components/driver/CurrentTrip";
+import { pickCurrentTrip } from "../../lib/currentTrip";
 import * as api from "../../lib/api";
-import { formatDate, formatTime } from "../../lib/format";
+import { formatTime } from "../../lib/format";
 import { formatPeso } from "../../lib/image";
 
 // Cash collected on board, recorded by the conductor on their own phone (or
@@ -55,7 +57,7 @@ function newForm(stops, tripId, rider) {
 export default function FareCollection() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [trips, setTrips] = useState([]);
+  const [trips, setTrips] = useState(null); // null = still loading
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -66,12 +68,18 @@ export default function FareCollection() {
 
   useEffect(() => {
     if (!user) return;
-    api.getTrips({ driverId: user.id }).then(setTrips).catch((err) => setError(err.message));
+    api
+      .getTrips({ driverId: user.id })
+      .then(setTrips)
+      .catch((err) => {
+        setTrips([]);
+        setError(err.message);
+      });
   }, [user]);
 
-  // Default to the trip that's on the road (or boarding).
-  const active = trips.find((t) => t.status === "In Transit") ?? trips.find((t) => t.status === "Boarding");
-  const tripId = searchParams.get("tripId") ?? (active ? String(active.trip_id) : "");
+  // One trip at a time: the one running, or the next one (no trip picker).
+  const currentTrip = trips ? pickCurrentTrip(trips) : null;
+  const tripId = currentTrip ? String(currentTrip.trip_id) : "";
   const wantsWalkOn = searchParams.get("add") === "walkon";
 
   // Arrived from the dashboard's big "Walk-on passenger" button
@@ -196,14 +204,7 @@ export default function FareCollection() {
         <p className="text-sm text-gray-500">Record every fare collected on the bus. Hand this cash to terminal staff after the trip.</p>
       </header>
 
-      <select value={tripId} onChange={(e) => { setData(null); setForm(null); setSearchParams(e.target.value ? { tripId: e.target.value } : {}); }} className="input bg-white">
-        <option value="">Select a trip…</option>
-        {trips.map((t) => (
-          <option key={t.trip_id} value={t.trip_id}>
-            {formatDate(t.departure_time)?.replace(/, \d{4}$/, "")} {formatTime(t.departure_time)} · {t.origin} → {t.destination} · {t.status}
-          </option>
-        ))}
-      </select>
+      {currentTrip ? <CurrentTripCard trip={currentTrip} /> : <NoTripCard loading={trips === null} />}
 
       <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
       <InlineAlert type="success" message={success} onDismiss={() => setSuccess("")} />

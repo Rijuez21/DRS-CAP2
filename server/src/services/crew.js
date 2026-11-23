@@ -9,19 +9,29 @@ import { pool } from "../db/pool.js";
 //
 // Who does what on a trip:
 //
-//   Conductor   passengers and money: boarding / no-show on the manifest,
-//               answering Flag a Bus hails, walk-on riders and their fares,
-//               the remittance. Can also move the trip forward (board,
-//               depart, arrive) and share GPS from their phone, so the
-//               driver never has to touch a phone on the road.
-//   Driver      the trip itself and GPS. With a conductor on board the
-//               driver's screen is a read-only "drive mode" (where to stop
-//               next); the server still lets the driver do the conductor's
-//               jobs, so a conductor with a flat phone doesn't stop the trip.
+//   Conductor   passengers and money only: boarding / no-show on the
+//               manifest, answering Flag a Bus hails, walk-on riders and
+//               their fares, the remittance. Never the trip itself: a
+//               conductor can't start boarding, depart, complete the trip
+//               or share GPS (routes/trips.js, routes/tracking.js).
+//   Driver      the trip itself (board, depart, arrive) and GPS. With a
+//               conductor on board, the driver's screen is a read-only
+//               "drive mode" (where to stop next) while on the road; the
+//               server still lets the driver do the conductor's jobs, so a
+//               conductor with a flat phone doesn't stop the trip.
 //   No conductor  the driver does everything, exactly as before.
 // ============================================================================
 
 export const CREW_ROLES = ["Driver", "Conductor"];
+
+// drivers.crew_role as stored can be 'Conductor' (this repo's schema) or
+// 'conductor' (the shared Railway database was given a lowercase
+// enum('driver','conductor') column before this code ran, and the startup
+// ALTER then skips an existing column). MySQL stores either spelling in
+// either column, so writes are fine; every READ goes through here.
+export const normalizeCrewRole = (value) => (String(value ?? "").toLowerCase() === "conductor" ? "Conductor" : "Driver");
+// SQL form of the same, for SELECT lists (enum comparison ignores case).
+export const CREW_ROLE_SQL = (column = "crew_role") => `IF(${column} = 'conductor', 'Conductor', 'Driver')`;
 
 // The columns may be missing on a database that hasn't run
 // `npm run db:migrate` since this was added; every trip query reads them,
@@ -31,7 +41,7 @@ export async function ensureCrewColumns() {
     pool.query(sql).catch((err) => {
       if (!["ER_DUP_FIELDNAME", "ER_FK_DUP_NAME", "ER_DUP_KEYNAME"].includes(err.code)) throw err;
     });
-  await add(`ALTER TABLE drivers ADD COLUMN crew_role ENUM('Driver', 'Conductor') NOT NULL DEFAULT 'Driver'`);
+  await add(`ALTER TABLE drivers ADD COLUMN crew_role ENUM('driver', 'conductor') NOT NULL DEFAULT 'driver'`);
   await add(`ALTER TABLE trips ADD COLUMN conductor_id INT NULL`);
   await add(`ALTER TABLE trips ADD CONSTRAINT fk_trips_conductor FOREIGN KEY (conductor_id) REFERENCES drivers(driver_id)`);
   await add(`ALTER TABLE onboard_fares ADD COLUMN alighted_at TIMESTAMP NULL DEFAULT NULL`);
@@ -100,7 +110,8 @@ export async function whyCrewNotAssignable(conn, crewId, slot) {
   const [[row]] = await conn.query(`SELECT name, crew_role, duty_status FROM drivers WHERE driver_id = ?`, [crewId]);
   const want = slot === "conductor" ? "Conductor" : "Driver";
   if (!row) return `That ${want.toLowerCase()} doesn't exist`;
-  if (row.crew_role !== want) return `${row.name} is a ${row.crew_role.toLowerCase()}, not a ${want.toLowerCase()}`;
+  const role = normalizeCrewRole(row.crew_role);
+  if (role !== want) return `${row.name} is a ${role.toLowerCase()}, not a ${want.toLowerCase()}`;
   if (row.duty_status !== "Active") return `${row.name} is ${row.duty_status.toLowerCase()}`;
   return null;
 }

@@ -37,13 +37,13 @@ Management System IT project (Saint Louis University).
 - Flag a Bus: hail a bus that's already on the road from a roadside pickup point.
 - Account & Password: edit name and mobile, change password, close the account. Forgot password by emailed code.
 
-**Bus crew: drivers and conductors** (`/login/staff`, Driver / Conductor tab). Each crew member has their own account, and an admin names a trip's driver and (optionally) its conductor. Both use the same crew app, which shows each person the screens for their job on that trip:
-- **Conductor:** passenger manifest (Boarded / No-Show), answering Flag a Bus requests, fare collection, and a one-tap **Walk-on passenger** button for riders who wave the bus down without the app. Walk-ons count as on board (taking seats, so Flag a Bus won't overfill the bus) until the conductor taps **Got off**. The conductor also moves the trip forward, shares GPS from their phone, and remits the cash.
-- **Driver:** trip status and GPS. With a conductor aboard, the driver's screen switches to a read-only **drive mode** that only shows where to stop next. Without a conductor, the driver does everything.
+**Bus crew: drivers and conductors** (`/login/staff`, Driver / Conductor tab). Each crew member has their own account (an admin creates conductors in User Management, Role → Conductor) and the admin names a trip's driver and (optionally) its conductor in Trips. Both use the same crew app, which shows each person the screens for their job on that trip:
+- **Conductor:** passenger manifest (Boarded / No-Show), answering Flag a Bus requests, fare collection, and a one-tap **Walk-on passenger** button for riders who wave the bus down without the app. Walk-ons count as on board (taking seats, so Flag a Bus won't overfill the bus) until the conductor taps **Got off**. The conductor also remits the cash. They never move the trip on or share GPS: that's the driver's job.
+- **Driver:** trip status (start boarding, depart, arrive) and GPS, which only the driver can do. With a conductor aboard, the driver's screen switches to a read-only **drive mode** that only shows where to stop next. Without a conductor, the driver does everything.
 
 **Terminal staff** (`/login/staff`, Terminal Staff tab): walk-in ticket sales, validate reservations, payment verification, discount ID review, trip schedules, live fleet map.
 
-**Administrators** (`/login/admin`): dashboard, fleet, routes and fares, bus crew (drivers and conductors), trip scheduling (bus, driver, optional conductor), reservations, payment verification and payment methods, ID verification, GPS trackers, reports, user accounts, passenger accounts (suspend / confirm email), activity log.
+**Administrators** (`/login/admin`): dashboard, fleet, routes and fares, drivers, trip scheduling (bus, driver, optional conductor), reservations, payment verification and payment methods, ID verification, GPS trackers, reports, user accounts (staff, admins, drivers, conductors and bus owners), passenger accounts (suspend / confirm email), activity log.
 
 **Bus owners** (`/login/owner`): live map of their own buses.
 

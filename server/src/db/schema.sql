@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS drivers (
   email VARCHAR(150) UNIQUE, -- addition: the ERD has no auth field on Driver at all, but DriverLogin.jsx (like every other role) logs in with email. Nullable for the same reason as license_number — no login until a real email is on file.
   password_hash VARCHAR(255), -- nullable until email is set (a password is meaningless without something to log in with)
   duty_status ENUM('Active', 'On Leave', 'Suspended') NOT NULL DEFAULT 'Active', -- addition: Table 4's Driver Management calls for a "duty status toggle", same additive spirit as routes.is_active
-  crew_role ENUM('Driver', 'Conductor') NOT NULL DEFAULT 'Driver', -- addition: bus crew share this table and the crew app (/driver). A Conductor has their own login, is named on a trip (trips.conductor_id) and handles passengers and fares, so the driver never has to work the phone while driving (services/crew.js)
+  crew_role ENUM('driver', 'conductor') NOT NULL DEFAULT 'driver', -- addition (lowercase, matching the shared Railway database; the server reads either spelling): bus crew share this table and the crew app (/driver). A Conductor has their own login, is named on a trip (trips.conductor_id) and handles passengers and fares, so the driver never has to work the phone while driving (services/crew.js)
   license_expiry DATE NULL, -- addition: so the admin can see when a driver's license is due for renewal
   -- addition: employee profile, same columns as staff_accounts (services/employeeProfile.js). All nullable, filled in once known
   employee_no VARCHAR(30) NULL UNIQUE,
