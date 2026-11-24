@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Bus, MapPin, Plus, Pencil, Trash2, UserRound, Satellite, Armchair, MapPinned } from "lucide-react";
 import * as api from "../../lib/api";
 import { useConfirm } from "../../hooks/useConfirm";
-import { useListState, useViewPreference } from "../../hooks/useListState";
+import { sortFieldsFrom, useListState, useViewPreference } from "../../hooks/useListState";
 import DataTable from "../../components/common/DataTable";
 import CardGrid from "../../components/common/CardGrid";
 import PageHeading from "../../components/common/PageHeading";
@@ -26,13 +26,6 @@ const STATUS_STYLES = {
 const FLEET_FILTERS = [
   { key: "status", label: "Status", allLabel: "All statuses", options: ["Active", "Idle", "Maintenance"].map((v) => ({ value: v, label: v })) },
   { key: "type", label: "Type", allLabel: "All types", options: ["ordinary", "air_conditioned"].map((v) => ({ value: v, label: busTypeLabel(v) })) },
-];
-const SORT_FIELDS = [
-  { key: "bus_number", label: "Bus #" },
-  { key: "plate_num", label: "Plate" },
-  { key: "capacity", label: "Capacity", type: "number" },
-  { key: "status", label: "Status", type: "status" },
-  { key: "driver_name", label: "Driver" },
 ];
 const LIST_OPTIONS = { initialSort: { key: "bus_number", dir: "asc" }, filters: FLEET_FILTERS, syncUrl: true };
 
@@ -68,7 +61,8 @@ export default function AdminFleetManagement() {
   const [initialLayout, setInitialLayout] = useState(null);
   const [formError, setFormError] = useState(null); // string or node, shown inside the dialog
   const [confirm, confirmDialog] = useConfirm();
-  const [view, setView] = useViewPreference("drs:view:fleet", "cards");
+  // Table by default (new key, so an old saved "cards" choice doesn't override it).
+  const [view, setView] = useViewPreference("drs:view:fleet-v2", "table");
   const list = useListState(LIST_OPTIONS); // shared by both views
 
   function load() {
@@ -208,8 +202,8 @@ export default function AdminFleetManagement() {
       ),
     },
     { key: "driver_name", header: "Driver", truncate: true, render: (bus) => <span className="text-gray-600">{bus.driver_name ?? "Unassigned"}</span> },
-    { key: "boarding_point", header: "Boarding Point", truncate: true, render: (bus) => <span className="text-gray-600">{bus.boarding_point ?? "—"}</span> },
-    { key: "gps_device_id", header: "GPS Device", render: (bus) => <span className="text-gray-600 font-mono text-xs">{bus.gps_device_id ?? "—"}</span> },
+    { key: "boarding_point", header: "Boarding Point", truncate: true, sortable: false, render: (bus) => <span className="text-gray-600">{bus.boarding_point ?? "—"}</span> },
+    { key: "gps_device_id", header: "GPS Device", sortable: false, render: (bus) => <span className="text-gray-600 font-mono text-xs">{bus.gps_device_id ?? "—"}</span> },
     {
       key: "status",
       header: "Status",
@@ -222,6 +216,11 @@ export default function AdminFleetManagement() {
       render: (bus) => busActions(bus),
     },
   ];
+
+  // One set of sort options for both views: the table's sortable headers ARE
+  // the card view's "Sort by" list. Free-text / ID columns (boarding point,
+  // GPS device) aren't sortable — ordering by them tells you nothing.
+  const sortFields = sortFieldsFrom(columns);
 
   // The status pill is a select: changing it updates the bus right away.
   function statusSelect(bus) {
@@ -291,7 +290,7 @@ export default function AdminFleetManagement() {
         <CardGrid
           {...shared}
           label="Buses"
-          sortFields={SORT_FIELDS}
+          sortFields={sortFields}
           cardClassName={(bus) => (bus.status === "Maintenance" ? "border-l-4 border-l-amber-500" : "")}
           renderCard={(bus) => (
             <>

@@ -3,7 +3,7 @@ import { ShieldCheck, Plus, Pencil, Trash2, UserRound, Bus, Phone, IdCard, Brief
 import * as api from "../../lib/api";
 import { useAuth } from "../../context/AuthContext";
 import { useConfirm } from "../../hooks/useConfirm";
-import { useListState, useViewPreference } from "../../hooks/useListState";
+import { sortFieldsFrom, useListState, useViewPreference } from "../../hooks/useListState";
 import CardGrid from "../../components/common/CardGrid";
 import DataTable from "../../components/common/DataTable";
 import PageHeading from "../../components/common/PageHeading";
@@ -54,19 +54,13 @@ const DUTY = ["Active", "On Leave", "Suspended"];
 const ROLE_FILTERS = [
   { key: "role", label: "Role", allLabel: "All roles", options: Object.entries(ROLE_LABELS).map(([value, label]) => ({ value, label })) },
 ];
-const SORT_FIELDS = [
-  { key: "name", label: "Name" },
-  { key: "email", label: "Email" },
-  { key: "role", label: "Role", accessor: (u) => ROLE_LABELS[u.role] ?? u.role },
-  { key: "employee_no", label: "Employee No." },
-];
 const LIST_OPTIONS = { initialSort: { key: "name", dir: "asc" }, filters: ROLE_FILTERS, syncUrl: true };
 
 // Table 4's User Account Administration: every account the admin manages in
 // one place — terminal staff and admins (staff_accounts), drivers (drivers)
 // and bus owners (bus_owners). They live in different tables, so each row
 // carries `kind` to know which API to call. Layout: compact cards (found by
-// name + role) with a remembered Table toggle.
+// name + role) and a table (the default), with a remembered toggle.
 export default function AdminUserManagement() {
   const { user: currentUser } = useAuth();
   const [users, setUsers] = useState([]);
@@ -78,7 +72,8 @@ export default function AdminUserManagement() {
   const [form, setForm] = useState(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
   const [confirm, confirmDialog] = useConfirm();
-  const [view, setView] = useViewPreference("drs:view:users", "cards");
+  // Table by default (new key, so an old saved "cards" choice doesn't override it).
+  const [view, setView] = useViewPreference("drs:view:users-v2", "table");
   const list = useListState(LIST_OPTIONS); // shared by both views, so switching keeps search/filters
 
   function load() {
@@ -233,6 +228,18 @@ export default function AdminUserManagement() {
     </>
   );
 
+  // One set of sort options for both views: the table's sortable headers ARE
+  // the card view's "Sort by" list. Email and phone aren't sortable.
+  const columns = [
+    { key: "name", header: "Name", truncate: true, render: (u) => <span className="font-medium">{nameCell(u)}</span> },
+    { key: "employee_no", header: "Employee No.", render: (u) => <span className="font-mono text-gray-600">{u.employee_no ?? "—"}</span> },
+    { key: "email", header: "Email", truncate: true, sortable: false, render: (u) => <span className="text-gray-600">{u.email ?? "—"}</span> },
+    { key: "phoneno", header: "Phone", sortable: false, render: (u) => <span className="text-gray-600">{u.phoneno ?? "—"}</span> },
+    { key: "role", header: "Role", accessor: (u) => ROLE_LABELS[u.role] ?? u.role, render: (u) => <RoleBadge role={u.role} /> },
+    { key: "actions", header: "", render: actions },
+  ];
+  const sortFields = sortFieldsFrom(columns);
+
   const shared = {
     state: list,
     rows: users,
@@ -265,20 +272,13 @@ export default function AdminUserManagement() {
           {...shared}
           label="Employee accounts"
           minWidth="52rem"
-          columns={[
-            { key: "name", header: "Name", truncate: true, render: (u) => <span className="font-medium">{nameCell(u)}</span> },
-            { key: "employee_no", header: "Employee No.", render: (u) => <span className="font-mono text-gray-600">{u.employee_no ?? "—"}</span> },
-            { key: "email", header: "Email", truncate: true, render: (u) => <span className="text-gray-600">{u.email ?? "—"}</span> },
-            { key: "phoneno", header: "Phone", render: (u) => <span className="text-gray-600">{u.phoneno ?? "—"}</span> },
-            { key: "role", header: "Role", accessor: (u) => ROLE_LABELS[u.role] ?? u.role, render: (u) => <RoleBadge role={u.role} /> },
-            { key: "actions", header: "", render: actions },
-          ]}
+          columns={columns}
         />
       ) : (
         <CardGrid
           {...shared}
           label="Employee accounts"
-          sortFields={SORT_FIELDS}
+          sortFields={sortFields}
           renderCard={(u) => (
             <>
               <div className="flex items-start gap-3">

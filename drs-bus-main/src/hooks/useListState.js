@@ -168,6 +168,15 @@ export function applyListState(rows, fields, state, { searchKeys = [], filters =
   return out;
 }
 
+// Sort options for a card view, taken from the same columns its table view
+// uses, so both views offer exactly the same sorts. A column opts out with
+// sortable: false; the actions column never sorts.
+export function sortFieldsFrom(columns) {
+  return columns
+    .filter((c) => c.sortable !== false && c.key !== "actions")
+    .map(({ key, header, type, accessor, sortValue }) => ({ key, label: typeof header === "string" && header ? header : key, type, accessor, sortValue }));
+}
+
 // A per-viewer display preference (e.g. Table vs Cards), remembered in this
 // browser. Storage can be unavailable (private mode) — then it just isn't
 // remembered.

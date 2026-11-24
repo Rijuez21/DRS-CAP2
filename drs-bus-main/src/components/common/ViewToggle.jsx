@@ -1,10 +1,10 @@
 import { LayoutGrid, Table2 } from "lucide-react";
 
-// Table / Cards switch (the choice is remembered by useViewPreference).
+// Table / Cards switch, table first (the choice is remembered by useViewPreference).
 export default function ViewToggle({ value, onChange }) {
   const options = [
-    { value: "cards", label: "Cards", icon: LayoutGrid },
     { value: "table", label: "Table", icon: Table2 },
+    { value: "cards", label: "Cards", icon: LayoutGrid },
   ];
   return (
     <div className="inline-flex rounded-lg border bg-white p-0.5" role="group" aria-label="View">
