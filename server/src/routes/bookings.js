@@ -19,7 +19,7 @@ import { openRefundsForCancelledBooking } from "../services/paymentSweeper.js";
 import { logAudit } from "../services/audit.js";
 import { logPaymentEvent } from "../services/paymentAudit.js";
 import { passengerDriverName } from "../services/driverDisplay.js";
-import { activeDiscount, FARE_DUE_SQL } from "../services/discounts.js";
+import { activeDiscount, FARE_DUE_SQL, DISCOUNT_RATE, DISCOUNT_CATEGORIES } from "../services/discounts.js";
 import { isCrewOn, crewRooms, walkOnsAboard, NOT_YOUR_TRIP } from "../services/crew.js";
 
 export const bookingsRouter = Router();
@@ -347,6 +347,18 @@ bookingsRouter.post("/walk-in", requireRole("staff", "admin"), async (req, res) 
   if (!tripId || !passengerName) return res.status(400).json({ error: "Choose a trip and enter the passenger's name" });
   const payment = parseCashReceived(req.body.cashReceived, { required: false });
   if (payment.error) return res.status(400).json({ error: payment.error });
+  // Student / PWD / senior at the counter: staff look at the rider's ID and
+  // note its number. Same rule as online: the rider's own seat (the first
+  // one) is 20% off; any companions' seats are regular fare.
+  const rawCategory = req.body.discountCategory ?? null;
+  if (rawCategory != null && rawCategory !== "" && !DISCOUNT_CATEGORIES.includes(rawCategory)) {
+    return res.status(400).json({ error: `discountCategory must be one of: ${DISCOUNT_CATEGORIES.join(", ")}` });
+  }
+  const discountCategory = rawCategory || null;
+  const discountIdNumber = String(req.body.discountIdNumber ?? "").trim().slice(0, 50);
+  if (discountCategory && discountIdNumber.length < 3) {
+    return res.status(400).json({ error: "Enter the number on the passenger's ID to give the discounted fare" });
+  }
 
   try {
     const trip = await loadTripForSale(pool, tripId);
@@ -364,7 +376,13 @@ bookingsRouter.post("/walk-in", requireRole("staff", "admin"), async (req, res) 
     // Summed in centavos: as floats, ₱1.05 × 3 seats is 3.1500000000000004,
     // which refused a customer handing over exactly ₱3.15.
     const fareCentavos = fareRow?.base_fare != null ? toCentavos(fareRow.base_fare) : null;
-    const totalCentavos = fareCentavos != null ? fareCentavos * parsed.seats.length : null;
+    // The discounted seat costs ROUND(base × 0.8, 2), the same figure
+    // FARE_DUE_SQL gives everywhere else (receipts, reports, cash check).
+    const discountedCentavos = fareCentavos != null ? Math.round(fareCentavos * (1 - DISCOUNT_RATE)) : null;
+    const totalCentavos =
+      fareCentavos != null
+        ? fareCentavos * parsed.seats.length - (discountCategory ? fareCentavos - discountedCentavos : 0)
+        : null;
     const total = totalCentavos != null ? totalCentavos / 100 : null;
     const cashCentavos = payment.cash != null ? Math.round(payment.cash * 100) : null;
     if (cashCentavos != null && totalCentavos != null && cashCentavos < totalCentavos) {
@@ -374,6 +392,7 @@ bookingsRouter.post("/walk-in", requireRole("staff", "admin"), async (req, res) 
     const passengerId = await getOrCreateWalkInPassengerId();
     const result = await insertSeatsAtomically(pool, {
       tripId, passengerId, passengerName, seats: parsed.seats, status: "Confirmed", channel: "walk_in",
+      discountCategory, onePerPassengerTrip: false,
     });
     if (result.conflictSeat) {
       return res.status(409).json({
@@ -396,13 +415,26 @@ bookingsRouter.post("/walk-in", requireRole("staff", "admin"), async (req, res) 
         total,
         cashReceived: payment.cash,
         change,
+        // Who got the discount and on what ID, for the office to check later.
+        discount: discountCategory
+          ? { category: discountCategory, idNumber: discountIdNumber, seat: parsed.seats[0], fare: discountedCentavos / 100 }
+          : undefined,
       },
     });
     res.status(201).json({
       tripId: Number(tripId),
       passengerName,
       bookings: result.created,
-      payment: { method: "cash", total, cashReceived: payment.cash, change },
+      payment: {
+        method: "cash",
+        total,
+        cashReceived: payment.cash,
+        change,
+        regularFare: fareCentavos != null ? fareCentavos / 100 : null,
+        discountedFare: discountCategory && discountedCentavos != null ? discountedCentavos / 100 : null,
+        discountCategory,
+        discountIdNumber: discountCategory ? discountIdNumber : null,
+      },
     });
   } catch (err) {
     console.error(err);

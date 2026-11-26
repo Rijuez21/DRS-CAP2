@@ -82,6 +82,10 @@ const TRIP_COLLECTION_SQL = `
          (SELECT COALESCE(SUM(p.amount), 0) FROM payments p JOIN bookings x ON x.booking_id = p.booking_id
             WHERE x.trip_id = tr.trip_id AND p.status = 'Verified') AS online_paid,
          (SELECT COUNT(*) FROM bookings x WHERE x.trip_id = tr.trip_id AND x.channel = 'walk_in' AND x.status <> 'Cancelled') AS walk_in_tickets,
+         -- Each walk-in ticket at the fare actually charged: a student / PWD /
+         -- senior seat sold at the counter is 20% off (same rounding as FARE_DUE_SQL).
+         (SELECT COALESCE(SUM(ROUND(rt.base_fare * IF(x.discount_category IS NULL, 1, ${1 - DISCOUNT_RATE}), 2)), 0)
+            FROM bookings x WHERE x.trip_id = tr.trip_id AND x.channel = 'walk_in' AND x.status <> 'Cancelled') AS walk_in_cash,
          (SELECT COALESCE(SUM(CAST(JSON_UNQUOTE(JSON_EXTRACT(a.details, '$.fare')) AS DECIMAL(10,2))), 0)
             FROM audit_log a JOIN bookings x ON x.booking_id = a.entity_id
             WHERE a.entity_type = 'booking' AND a.action = 'counter_payment' AND x.trip_id = tr.trip_id AND x.status <> 'Cancelled') AS counter_cash,
@@ -111,7 +115,7 @@ function shapeRow(r) {
         : difference < 0 ? "Short"
           : difference > 0 ? "Over"
             : "Balanced";
-  const walkInCash = round2(Number(r.walk_in_tickets) * Number(r.base_fare));
+  const walkInCash = round2(r.walk_in_cash);
   const counterCash = round2(r.counter_cash);
   const onlinePaid = round2(r.online_paid);
   return {

@@ -154,13 +154,17 @@ export function firstFreeSeat(bus, takenSeats) {
 // at once can't both get a discounted seat.
 // refuseIfUnpaid: Book Ahead's one-unpaid-reservation rule (findUnpaidHolds).
 // Returns { unpaid: [...] } instead of booking when the passenger has one.
-export async function insertSeatsAtomically(pool, { tripId, passengerId, passengerName, seats, status, channel, paymentDeadline = null, discountCategory = null, refuseIfUnpaid = false }) {
+// onePerPassengerTrip (default true): online rule, one discounted seat per
+// passenger per trip. false for walk-in sales (see below).
+export async function insertSeatsAtomically(pool, { tripId, passengerId, passengerName, seats, status, channel, paymentDeadline = null, discountCategory = null, refuseIfUnpaid = false, onePerPassengerTrip = true }) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
     // The passenger's row lock serializes their own bookings, so two taps
     // at once can't both pass the checks below (unpaid hold, discount seat).
-    if (discountCategory || refuseIfUnpaid) {
+    // Not needed (and not wanted) for walk-ins: that row is shared by every
+    // counter sale, and the walk-in discount has no per-passenger check.
+    if ((discountCategory && onePerPassengerTrip) || refuseIfUnpaid) {
       await conn.query(`SELECT commuter_id FROM commuters WHERE commuter_id = ? FOR UPDATE`, [passengerId]);
     }
     if (refuseIfUnpaid) {
@@ -171,7 +175,12 @@ export async function insertSeatsAtomically(pool, { tripId, passengerId, passeng
       }
     }
     let discountSeat = null;
-    if (discountCategory) {
+    if (discountCategory && !onePerPassengerTrip) {
+      // Walk-in sale: staff checked the rider's ID at the counter. Every
+      // walk-in shares one placeholder passenger, so "already has a discounted
+      // seat on this trip" would wrongly block the next student in line.
+      discountSeat = seats[0];
+    } else if (discountCategory) {
       const [[already]] = await conn.query(
         `SELECT 1 FROM bookings WHERE trip_id = ? AND passenger_id = ? AND discount_category IS NOT NULL AND status NOT IN ('Cancelled', 'No-Show') LIMIT 1`,
         [tripId, passengerId]

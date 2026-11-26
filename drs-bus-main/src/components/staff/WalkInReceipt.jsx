@@ -1,5 +1,6 @@
 import sunLogo from "../../assets/logo-sun.svg";
 import { bookingReference, formatDate, formatPeso, formatTime } from "../../lib/format";
+import { CATEGORY_LABELS, DISCOUNT_PERCENT, discountedFare } from "../../lib/discounts";
 
 // The walk-in sale's printed receipt — laid out like a counter (thermal)
 // receipt, not a screenshot of the page: company header, receipt number,
@@ -53,15 +54,25 @@ export default function WalkInReceipt({ sale, cashier }) {
         <span>Item</span>
         <span>Amount</span>
       </div>
-      {seats.map((b) => (
-        <div key={b.booking_id} className="py-0.5">
-          <div className="flex justify-between gap-3">
-            <span>Bus fare · Seat {b.seat_number}</span>
-            <span className="tabular-nums">{perSeat != null ? formatPeso(perSeat) : "—"}</span>
+      {seats.map((b) => {
+        // A student / PWD / senior seat shows its 20% discount on its own line.
+        const seatFare = b.discount_category ? discountedFare(perSeat) : perSeat;
+        return (
+          <div key={b.booking_id} className="py-0.5">
+            <div className="flex justify-between gap-3">
+              <span>Bus fare · Seat {b.seat_number}</span>
+              <span className="tabular-nums">{seatFare != null ? formatPeso(seatFare) : "—"}</span>
+            </div>
+            {b.discount_category && (
+              <p className="text-[11px] text-ink-600">
+                {CATEGORY_LABELS[b.discount_category]} {DISCOUNT_PERCENT}% off (regular {formatPeso(perSeat)})
+                {sale.payment?.discountIdNumber ? ` · ID ${sale.payment.discountIdNumber}` : ""}
+              </p>
+            )}
+            <p className="text-[11px] text-ink-600">Ticket {b.booking_reference ?? bookingReference(b.booking_id, issuedAt)}</p>
           </div>
-          <p className="text-[11px] text-ink-600">Ticket {b.booking_reference ?? bookingReference(b.booking_id, issuedAt)}</p>
-        </div>
-      ))}
+        );
+      })}
 
       <Rule />
       <div className="flex justify-between font-sans font-bold text-base">

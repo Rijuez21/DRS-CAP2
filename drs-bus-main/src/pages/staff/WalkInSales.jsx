@@ -12,6 +12,7 @@ import WalkInReceipt from "../../components/staff/WalkInReceipt";
 import { useAuth } from "../../context/AuthContext";
 import * as api from "../../lib/api";
 import { compareSeats, customSeatLayout, mapTrip, formatDate, formatPeso, formatTime, stillSelectable } from "../../lib/format";
+import { PASSENGER_TYPES, CATEGORY_LABELS, DISCOUNT_PERCENT, discountedFare, totalWithDiscount } from "../../lib/discounts";
 
 const tripLabel = (t) => `${t.origin} → ${t.destination}`;
 const shortDeparture = (t) => `${formatDate(t.departure_time)?.replace(/, \d{4}$/, "")} ${formatTime(t.departure_time)}`;
@@ -51,6 +52,10 @@ export default function WalkInSales() {
   const [seatLayout, setSeatLayout] = useState(null); // null = auto layout from capacity
   const [selectedSeatIds, setSelectedSeatIds] = useState([]);
   const [passengerName, setPassengerName] = useState("");
+  // Student / PWD / senior: staff check the rider's ID at the counter and
+  // note its number. 20% off the rider's own seat (the first one picked).
+  const [fareType, setFareType] = useState("regular");
+  const [idNumber, setIdNumber] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [receipt, setReceipt] = useState(null);
   const [error, setError] = useState("");
@@ -109,6 +114,10 @@ export default function WalkInSales() {
       return;
     }
     if (selectedSeatIds.length === 0) return;
+    if (discounted && idNumber.trim().length < 3) {
+      setError(`Check the passenger's ${CATEGORY_LABELS[fareType]} ID and type its number to give the discounted fare.`);
+      return;
+    }
     if (trip.fare == null) {
       setError("This route has no fare on file yet, so the payment can't be confirmed. Ask an admin to set it in Route Management.");
       return;
@@ -127,8 +136,10 @@ export default function WalkInSales() {
         passengerName: passengerName.trim(),
         seatNumbers: selectedSeatIds.map(String),
         cashReceived,
+        discountCategory: discounted ? fareType : null,
+        discountIdNumber: discounted ? idNumber.trim() : undefined,
       });
-      const total = result.payment?.total ?? (trip.fare != null ? trip.fare * result.bookings.length : null);
+      const total = result.payment?.total ?? totalWithDiscount(trip.fare, result.bookings.length, discounted);
       setReceipt({
         ...result,
         trip,
@@ -139,6 +150,8 @@ export default function WalkInSales() {
       });
       setPaying(false);
       setPassengerName("");
+      setFareType("regular");
+      setIdNumber("");
       setSelectedSeatIds([]);
       refreshSeats(tripId).catch(() => {});
       loadTrips(); // seats-left in the dropdown
@@ -157,6 +170,9 @@ export default function WalkInSales() {
   }
 
   const count = selectedSeatIds.length;
+  const discounted = fareType !== "regular";
+  // One seat (the rider's own) at 20% off; the rest regular. Same as the server.
+  const total = trip?.fare != null ? totalWithDiscount(trip.fare, count, discounted) : null;
   const pickedTrip = tripId ? trips.find((t) => String(t.trip_id) === String(tripId)) : null;
 
   // Goal-gradient: always show where in the sale we are.
@@ -303,22 +319,68 @@ export default function WalkInSales() {
                   <span className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Passenger name</span>
                   <input value={passengerName} onChange={(e) => setPassengerName(e.target.value)} maxLength={150} placeholder="Name on ticket" className="input min-h-11" />
                 </label>
+                <fieldset>
+                  <legend className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Fare type</legend>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {PASSENGER_TYPES.map((t) => (
+                      <button
+                        key={t.value}
+                        type="button"
+                        aria-pressed={fareType === t.value}
+                        onClick={() => {
+                          setFareType(t.value);
+                          setError("");
+                        }}
+                        className={`min-h-11 rounded-lg border-2 px-2 text-sm ${fareType === t.value ? "border-amber-700 bg-amber-50 font-semibold text-amber-900" : "border-slate-200 text-gray-700"}`}
+                      >
+                        {t.label}
+                        {t.value !== "regular" && <span className="block text-[11px] font-normal text-gray-500">{DISCOUNT_PERCENT}% off</span>}
+                      </button>
+                    ))}
+                  </div>
+                </fieldset>
+                {discounted && (
+                  <label className="block">
+                    <span className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">{CATEGORY_LABELS[fareType]} ID number</span>
+                    <input value={idNumber} onChange={(e) => setIdNumber(e.target.value)} maxLength={50} placeholder="Number on the ID you checked" className="input min-h-11" />
+                    <span className="block text-xs text-gray-500 mt-1">
+                      Check the passenger&apos;s {CATEGORY_LABELS[fareType]} ID first. The discount is for their own seat{count > 1 ? ` (seat ${sortedSeats[0]}); the other seats are regular fare` : ""}.
+                    </span>
+                  </label>
+                )}
                 <dl className="text-sm space-y-1">
                   <div className="flex justify-between gap-2">
                     <dt className="text-gray-600">Seats</dt>
                     <dd className="font-medium text-right">{count === 0 ? "None yet" : sortedSeats.join(", ")}</dd>
                   </div>
-                  {trip.fare != null && (
-                    <div className="flex justify-between gap-2">
-                      <dt className="text-gray-600">Fare</dt>
-                      <dd className="tabular-nums">
-                        {formatPeso(trip.fare)} × {count}
-                      </dd>
-                    </div>
+                  {trip.fare != null && discounted && count > 0 ? (
+                    <>
+                      <div className="flex justify-between gap-2">
+                        <dt className="text-gray-600">{CATEGORY_LABELS[fareType]} fare</dt>
+                        <dd className="tabular-nums">{formatPeso(discountedFare(trip.fare))} × 1</dd>
+                      </div>
+                      {count > 1 && (
+                        <div className="flex justify-between gap-2">
+                          <dt className="text-gray-600">Regular fare</dt>
+                          <dd className="tabular-nums">
+                            {formatPeso(trip.fare)} × {count - 1}
+                          </dd>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    trip.fare != null && (
+                      <div className="flex justify-between gap-2">
+                        <dt className="text-gray-600">Fare</dt>
+                        <dd className="tabular-nums">
+                          {formatPeso(trip.fare)} × {count}
+                        </dd>
+                      </div>
+                    )
                   )}
                   <div className="flex justify-between gap-2 border-t border-slate-100 pt-2">
                     <dt className="font-semibold">Total</dt>
-                    <dd className="font-bold text-emerald-700 tabular-nums">{trip.fare != null ? formatPeso(trip.fare * count) : "—"}</dd>
+                    <dd className="font-bold text-emerald-700 tabular-nums">{total != null ? formatPeso(total) : "—"}</dd>
                   </div>
                 </dl>
                 <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
@@ -346,12 +408,25 @@ export default function WalkInSales() {
               <p>
                 {trip.origin} → {trip.destination} · {trip.departureTime}
               </p>
-              <p>
-                {count} seat{count === 1 ? "" : "s"} ({sortedSeats.join(", ")}) × {formatPeso(trip.fare)}
-              </p>
+              {discounted ? (
+                <>
+                  <p>
+                    Seat {sortedSeats[0]} · {CATEGORY_LABELS[fareType]} ({DISCOUNT_PERCENT}% off, ID {idNumber.trim()}) · {formatPeso(discountedFare(trip.fare))}
+                  </p>
+                  {count > 1 && (
+                    <p>
+                      {count - 1} more seat{count - 1 === 1 ? "" : "s"} ({sortedSeats.slice(1).join(", ")}) × {formatPeso(trip.fare)}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p>
+                  {count} seat{count === 1 ? "" : "s"} ({sortedSeats.join(", ")}) × {formatPeso(trip.fare)}
+                </p>
+              )}
             </>
           }
-          amountDue={(Math.round(trip.fare * 100) * count) / 100}
+          amountDue={total}
           confirmLabel={`Confirm payment & sell`}
           isSaving={isSubmitting}
           error={payError}
