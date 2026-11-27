@@ -364,6 +364,10 @@ const STATEMENTS = [
   `ALTER TABLE trips ADD COLUMN conductor_id INT NULL`,
   `ALTER TABLE trips ADD CONSTRAINT fk_trips_conductor FOREIGN KEY (conductor_id) REFERENCES drivers(driver_id)`,
   `ALTER TABLE onboard_fares ADD COLUMN alighted_at TIMESTAMP NULL DEFAULT NULL`,
+
+  // How accurate a Flag a Bus pickup pin is (metres), for the conductor's
+  // map. Also created at server start (crew.js ensureCrewColumns).
+  `ALTER TABLE flag_requests ADD COLUMN pickup_accuracy_m DECIMAL(7,1) NULL`,
 ];
 
 // ---- One passenger account per mobile number (routes/auth.js) -----------

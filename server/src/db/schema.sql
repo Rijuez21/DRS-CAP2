@@ -224,6 +224,7 @@ CREATE TABLE IF NOT EXISTS flag_requests (
   pickup_latitude DECIMAL(10,7) NULL, -- where the driver stops: the passenger's own GPS fix, required by the API (bookings.js, MAX_PICKUP_ACCURACY_M) and kept current while the flag is open. Left NULL-able only so any rows from before that rule stay valid -- the API never writes NULL here
   pickup_longitude DECIMAL(10,7) NULL,
   pickup_landmark VARCHAR(150) NULL, -- optional note to help the driver spot the passenger ("yellow umbrella, KM 42 waiting shed"); never a substitute for the coordinates
+  pickup_accuracy_m DECIMAL(7,1) NULL, -- addition: how accurate the pickup pin is, in metres (the phone's own estimate). The conductor's map draws it as a circle, so a rough laptop/Wi-Fi fix looks rough
   status ENUM('Pending', 'Acknowledged', 'Declined', 'Cancelled', 'Expired') NOT NULL DEFAULT 'Pending',
   decline_reason VARCHAR(150) NULL, -- shown to the passenger ("Bus is full") so a decline isn't a silent dead end
   booking_id INT NULL, -- set when the driver acknowledges and the real bookings row is created

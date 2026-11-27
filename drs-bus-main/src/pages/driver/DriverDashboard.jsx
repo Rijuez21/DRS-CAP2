@@ -186,7 +186,7 @@ export default function DriverDashboard() {
       )}
 
       {activeTrip?.status === "In Transit" && !driveMode && (
-        <FlagRequestsPanel tripId={activeTrip.trip_id} driverId={user?.id} onBookingsChanged={reload} />
+        <FlagRequestsPanel tripId={activeTrip.trip_id} driverId={user?.id} busId={activeTrip.bus_id} onBookingsChanged={reload} />
       )}
 
       {isLoading ? (

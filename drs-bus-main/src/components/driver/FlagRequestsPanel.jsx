@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Hand, MapPin } from "lucide-react";
+import { Hand, MapPin, Crosshair } from "lucide-react";
 import * as api from "../../lib/api";
 import { getSocket } from "../../lib/socket";
-import { timeAgo } from "../../lib/geo";
+import { timeAgo, distanceKm, formatDistance } from "../../lib/geo";
+import { useBusPosition } from "../../hooks/useBusPosition";
+import PickupMap from "./PickupMap";
 
 // Driver side of passenger Mode 2 ("Flag a Bus"). Mounted on
 // DriverDashboard only while a trip is In Transit — a hail is only ever
@@ -24,8 +26,8 @@ function isOnPickupList(flag) {
   return flag.status === "Pending" || (flag.status === "Acknowledged" && flag.booking_status === "Confirmed");
 }
 
-// The pickup point is always the passenger's own GPS fix (the server
-// rejects a flag without a precise one), and it follows them while the
+// The pickup point is always the passenger's own GPS fix (with its accuracy,
+// shown on the conductor's map), and it follows them while the
 // flag is open — every "flag:updated" carries the latest coordinates, so
 // this link always opens where they are *now*. The landmark, if any, is
 // only a note for spotting them.
@@ -39,16 +41,40 @@ function PinLink({ flag, className = "" }) {
   if (!url) return null;
   return (
     <a href={url} target="_blank" rel="noreferrer" className={`inline-flex items-center gap-1 font-semibold text-emerald-700 underline ${className}`}>
-      <MapPin className="w-4 h-4" /> Exact pickup pin
+      <MapPin className="w-4 h-4" /> Open in Google Maps
     </a>
+  );
+}
+
+// How far the passenger is from the bus (straight line) and how exact their
+// pin is: a phone outdoors is a few metres; a laptop's Wi-Fi guess can be
+// hundreds, so then the landmark matters.
+function PickupFacts({ flag, bus }) {
+  const pin = flag.pickup_latitude == null ? null : { latitude: Number(flag.pickup_latitude), longitude: Number(flag.pickup_longitude) };
+  const km = bus && pin ? distanceKm(bus, pin) : null;
+  const accuracy = flag.pickup_accuracy_m != null ? Math.round(Number(flag.pickup_accuracy_m)) : null;
+  const rough = accuracy != null && accuracy > 100;
+  return (
+    <p className="text-xs text-gray-600">
+      {km != null && <strong className="text-ink-900">{formatDistance(km)} from the bus</strong>}
+      {km != null && accuracy != null && " · "}
+      {accuracy != null && (
+        <span className={rough ? "text-amber-700 font-semibold" : ""}>
+          {rough ? `Approximate pin (±${accuracy} m) — look for the landmark` : `Exact pin (±${accuracy} m)`}
+        </span>
+      )}
+    </p>
   );
 }
 
 // readOnly: the driver's "drive mode" on a trip with a conductor. The
 // conductor answers every hail; the driver only needs to know where to stop,
 // in text big enough to read at a glance, with nothing to tap.
-export default function FlagRequestsPanel({ tripId, driverId, onBookingsChanged, readOnly = false, conductorName = null }) {
+// busId: the trip's bus, for the pickup map (where the bus is vs. each pin).
+export default function FlagRequestsPanel({ tripId, driverId, busId = null, onBookingsChanged, readOnly = false, conductorName = null }) {
   const [flags, setFlags] = useState([]);
+  const bus = useBusPosition(readOnly ? null : busId); // drive mode shows no map
+  const [focus, setFocus] = useState(null); // { id, at } — zoom the map to a passenger
   const [busyId, setBusyId] = useState(null);
   const [decliningId, setDecliningId] = useState(null);
   const [error, setError] = useState("");
@@ -193,15 +219,33 @@ export default function FlagRequestsPanel({ tripId, driverId, onBookingsChanged,
         <p className="text-sm text-gray-500">No one has flagged this bus. Requests from passengers along the route will appear here.</p>
       ) : (
         <div className="space-y-2">
+          {/* Where everyone is: the bus and each passenger's exact pickup pin. */}
+          <PickupMap bus={bus} flags={flags} focus={focus} />
+          <p className="text-xs text-gray-500 flex flex-wrap gap-x-3">
+            <span>🚌 Your bus</span>
+            <span className="text-amber-700">● Waiting for an answer</span>
+            <span className="text-emerald-700">● Stopping for them</span>
+            <span>Circle = how exact the pin is</span>
+          </p>
           {pending.map((f) => (
             <div key={f.flag_id} className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="font-medium">{f.passenger_name}</p>
                   {f.pickup_landmark && <p className="text-sm text-gray-700">&ldquo;{f.pickup_landmark}&rdquo;</p>}
+                  <PickupFacts flag={f} bus={bus} />
                   <p className="text-xs text-gray-500">Flagged {timeAgo(f.requested_at)}</p>
                 </div>
-                <PinLink flag={f} className="text-sm shrink-0" />
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setFocus({ id: f.flag_id, at: Date.now() })}
+                    className="inline-flex items-center gap-1 text-sm font-semibold text-emerald-700 underline"
+                  >
+                    <Crosshair className="w-4 h-4" /> Show on map
+                  </button>
+                  <PinLink flag={f} className="text-xs" />
+                </div>
               </div>
 
               {decliningId === f.flag_id ? (
@@ -248,12 +292,22 @@ export default function FlagRequestsPanel({ tripId, driverId, onBookingsChanged,
             <div className="pt-1 space-y-1.5">
               <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Stopping for</p>
               {stoppingFor.map((f) => (
-                <div key={f.flag_id} className="flex items-center justify-between text-sm rounded border px-3 py-2">
-                  <span>
+                <div key={f.flag_id} className="flex items-center justify-between gap-3 text-sm rounded border border-emerald-200 px-3 py-2">
+                  <span className="min-w-0">
                     <span className="font-medium">{f.passenger_name}</span> · Seat {f.seat_number}
                     {f.pickup_landmark && <> · &ldquo;{f.pickup_landmark}&rdquo;</>}
+                    <PickupFacts flag={f} bus={bus} />
                   </span>
-                  <PinLink flag={f} className="text-xs" />
+                  <span className="flex flex-col items-end gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setFocus({ id: f.flag_id, at: Date.now() })}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 underline"
+                    >
+                      <Crosshair className="w-3.5 h-3.5" /> Show on map
+                    </button>
+                    <PinLink flag={f} className="text-xs" />
+                  </span>
                 </div>
               ))}
               <p className="text-xs text-gray-500">

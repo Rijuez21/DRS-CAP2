@@ -691,7 +691,7 @@ const MAX_PICKUP_ACCURACY_M = Number(process.env.FLAG_MAX_ACCURACY_M) > 0 ? Numb
 
 const FLAG_SELECT = `
   SELECT fr.flag_id, fr.trip_id, fr.passenger_id, fr.passenger_name,
-         fr.pickup_latitude, fr.pickup_longitude, fr.pickup_landmark,
+         fr.pickup_latitude, fr.pickup_longitude, fr.pickup_landmark, fr.pickup_accuracy_m,
          fr.status, fr.decline_reason, fr.booking_id, fr.requested_at, fr.responded_at,
          bk.seat_number, bk.status AS booking_status,
          tr.driver_id, tr.conductor_id, tr.status AS trip_status,
@@ -788,7 +788,8 @@ function parsePickupFix(body) {
       error: `Your location isn't precise enough yet (±${Math.round(accuracy)} m, needs ±${MAX_PICKUP_ACCURACY_M} m or better). Step into the open for a few seconds and try again.`,
     };
   }
-  return { latitude, longitude };
+  // Kept with the pin so the conductor's map can show how exact it is.
+  return { latitude, longitude, accuracy: Math.min(Math.round(accuracy * 10) / 10, 999999) };
 }
 
 async function expireStaleFlags(io) {
@@ -842,7 +843,7 @@ export function buildFlagRequestsRouter(io) {
     if (!tripId) return res.status(400).json({ error: "tripId is required" });
     const fix = parsePickupFix(req.body);
     if (fix.error) return res.status(400).json({ error: fix.error });
-    const { latitude, longitude } = fix;
+    const { latitude, longitude, accuracy } = fix;
 
     try {
       const [[commuter]] = await pool.query(`SELECT name FROM commuters WHERE commuter_id = ?`, [req.user.id]);
@@ -863,9 +864,9 @@ export function buildFlagRequestsRouter(io) {
       }
 
       const [result] = await pool.query(
-        `INSERT INTO flag_requests (trip_id, passenger_id, passenger_name, pickup_latitude, pickup_longitude, pickup_landmark)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [tripId, req.user.id, commuter.name, latitude, longitude, landmark || null]
+        `INSERT INTO flag_requests (trip_id, passenger_id, passenger_name, pickup_latitude, pickup_longitude, pickup_landmark, pickup_accuracy_m)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [tripId, req.user.id, commuter.name, latitude, longitude, landmark || null, accuracy]
       );
       const flag = await loadFlag(result.insertId);
 
@@ -952,10 +953,10 @@ export function buildFlagRequestsRouter(io) {
       const [result] = await pool.query(
         `UPDATE flag_requests fr
          LEFT JOIN bookings bk ON bk.booking_id = fr.booking_id
-         SET fr.pickup_latitude = ?, fr.pickup_longitude = ?
+         SET fr.pickup_latitude = ?, fr.pickup_longitude = ?, fr.pickup_accuracy_m = ?
          WHERE fr.flag_id = ?
            AND (fr.status = 'Pending' OR (fr.status = 'Acknowledged' AND bk.status = 'Confirmed'))`,
-        [fix.latitude, fix.longitude, req.params.id]
+        [fix.latitude, fix.longitude, fix.accuracy, req.params.id]
       );
       if (result.affectedRows === 0) {
         return res.status(409).json({ error: "This flag request is no longer open" });

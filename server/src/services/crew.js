@@ -45,6 +45,8 @@ export async function ensureCrewColumns() {
   await add(`ALTER TABLE trips ADD COLUMN conductor_id INT NULL`);
   await add(`ALTER TABLE trips ADD CONSTRAINT fk_trips_conductor FOREIGN KEY (conductor_id) REFERENCES drivers(driver_id)`);
   await add(`ALTER TABLE onboard_fares ADD COLUMN alighted_at TIMESTAMP NULL DEFAULT NULL`);
+  // The conductor's pickup map draws each Flag a Bus pin with its accuracy.
+  await add(`ALTER TABLE flag_requests ADD COLUMN pickup_accuracy_m DECIMAL(7,1) NULL`);
 }
 
 // "driver" | "conductor" | null — this crew account's job on this trip.
