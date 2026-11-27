@@ -10,6 +10,7 @@ import {
   firstFreeSeat,
   findUnpaidHolds,
   unpaidHoldMessage,
+  normalizeSeat,
 } from "../services/bookingRules.js";
 import { notifyRecipient } from "../services/notify.js";
 import { emailCounterPaymentReceipt } from "../services/receiptEmail.js";
@@ -347,17 +348,25 @@ bookingsRouter.post("/walk-in", requireRole("staff", "admin"), async (req, res) 
   if (!tripId || !passengerName) return res.status(400).json({ error: "Choose a trip and enter the passenger's name" });
   const payment = parseCashReceived(req.body.cashReceived, { required: false });
   if (payment.error) return res.status(400).json({ error: payment.error });
-  // Student / PWD / senior at the counter: staff look at the rider's ID and
-  // note its number. Same rule as online: the rider's own seat (the first
-  // one) is 20% off; any companions' seats are regular fare.
-  const rawCategory = req.body.discountCategory ?? null;
-  if (rawCategory != null && rawCategory !== "" && !DISCOUNT_CATEGORIES.includes(rawCategory)) {
-    return res.status(400).json({ error: `discountCategory must be one of: ${DISCOUNT_CATEGORIES.join(", ")}` });
+  // Student / PWD / senior at the counter, per seat: staff look at each
+  // rider's ID and note its number. body.seatDiscounts:
+  //   [{ seat: "7", category: "student", idNumber: "2024-11873" }, ...]
+  // Any number of seats in one sale can be discounted (two students
+  // travelling together each get theirs). An older client's single
+  // { discountCategory, discountIdNumber } still means "the first seat".
+  let rawDiscounts = Array.isArray(req.body.seatDiscounts) ? req.body.seatDiscounts : [];
+  if (rawDiscounts.length === 0 && req.body.discountCategory) {
+    const first = Array.isArray(req.body.seatNumbers) ? req.body.seatNumbers[0] : req.body.seatNumber;
+    rawDiscounts = [{ seat: first, category: req.body.discountCategory, idNumber: req.body.discountIdNumber }];
   }
-  const discountCategory = rawCategory || null;
-  const discountIdNumber = String(req.body.discountIdNumber ?? "").trim().slice(0, 50);
-  if (discountCategory && discountIdNumber.length < 3) {
-    return res.status(400).json({ error: "Enter the number on the passenger's ID to give the discounted fare" });
+  if (rawDiscounts.length > MAX_WALK_IN_SEATS) return res.status(400).json({ error: "Too many discounted seats" });
+  for (const d of rawDiscounts) {
+    if (!DISCOUNT_CATEGORIES.includes(d?.category)) {
+      return res.status(400).json({ error: `Discount type must be one of: ${DISCOUNT_CATEGORIES.join(", ")}` });
+    }
+    if (String(d?.idNumber ?? "").trim().length < 3) {
+      return res.status(400).json({ error: `Enter the ID number for the discounted passenger in seat ${d?.seat ?? "?"}` });
+    }
   }
 
   try {
@@ -369,6 +378,20 @@ bookingsRouter.post("/walk-in", requireRole("staff", "admin"), async (req, res) 
     const parsed = parseSeatRequest(req.body, trip, MAX_WALK_IN_SEATS);
     if (parsed.error) return res.status(400).json({ error: parsed.error });
 
+    // Match each discount to a seat being sold (labels normalised the same
+    // way as the seat list: " 07 " -> "7", "1a" -> "1A").
+    const discountBySeat = {};
+    const discounts = [];
+    for (const d of rawDiscounts) {
+      const seat = normalizeSeat(d.seat, trip);
+      if (!seat || !parsed.seats.includes(seat)) {
+        return res.status(400).json({ error: `Seat ${d.seat} has a discount but isn't one of the seats being sold` });
+      }
+      if (discountBySeat[seat]) return res.status(400).json({ error: `Seat ${seat} has two discounts` });
+      discountBySeat[seat] = d.category;
+      discounts.push({ seat, category: d.category, idNumber: String(d.idNumber).trim().slice(0, 50) });
+    }
+
     const [[fareRow]] = await pool.query(
       `SELECT rt.base_fare FROM trips tr JOIN routes rt ON rt.route_id = tr.route_id WHERE tr.trip_id = ?`,
       [tripId]
@@ -376,13 +399,11 @@ bookingsRouter.post("/walk-in", requireRole("staff", "admin"), async (req, res) 
     // Summed in centavos: as floats, ₱1.05 × 3 seats is 3.1500000000000004,
     // which refused a customer handing over exactly ₱3.15.
     const fareCentavos = fareRow?.base_fare != null ? toCentavos(fareRow.base_fare) : null;
-    // The discounted seat costs ROUND(base × 0.8, 2), the same figure
+    // A discounted seat costs ROUND(base × 0.8, 2), the same figure
     // FARE_DUE_SQL gives everywhere else (receipts, reports, cash check).
     const discountedCentavos = fareCentavos != null ? Math.round(fareCentavos * (1 - DISCOUNT_RATE)) : null;
     const totalCentavos =
-      fareCentavos != null
-        ? fareCentavos * parsed.seats.length - (discountCategory ? fareCentavos - discountedCentavos : 0)
-        : null;
+      fareCentavos != null ? parsed.seats.reduce((sum, seat) => sum + (discountBySeat[seat] ? discountedCentavos : fareCentavos), 0) : null;
     const total = totalCentavos != null ? totalCentavos / 100 : null;
     const cashCentavos = payment.cash != null ? Math.round(payment.cash * 100) : null;
     if (cashCentavos != null && totalCentavos != null && cashCentavos < totalCentavos) {
@@ -392,7 +413,7 @@ bookingsRouter.post("/walk-in", requireRole("staff", "admin"), async (req, res) 
     const passengerId = await getOrCreateWalkInPassengerId();
     const result = await insertSeatsAtomically(pool, {
       tripId, passengerId, passengerName, seats: parsed.seats, status: "Confirmed", channel: "walk_in",
-      discountCategory, onePerPassengerTrip: false,
+      discountBySeat,
     });
     if (result.conflictSeat) {
       return res.status(409).json({
@@ -415,10 +436,8 @@ bookingsRouter.post("/walk-in", requireRole("staff", "admin"), async (req, res) 
         total,
         cashReceived: payment.cash,
         change,
-        // Who got the discount and on what ID, for the office to check later.
-        discount: discountCategory
-          ? { category: discountCategory, idNumber: discountIdNumber, seat: parsed.seats[0], fare: discountedCentavos / 100 }
-          : undefined,
+        // Who got a discount and on what ID, for the office to check later.
+        discounts: discounts.length > 0 ? discounts.map((d) => ({ ...d, fare: discountedCentavos / 100 })) : undefined,
       },
     });
     res.status(201).json({
@@ -431,9 +450,9 @@ bookingsRouter.post("/walk-in", requireRole("staff", "admin"), async (req, res) 
         cashReceived: payment.cash,
         change,
         regularFare: fareCentavos != null ? fareCentavos / 100 : null,
-        discountedFare: discountCategory && discountedCentavos != null ? discountedCentavos / 100 : null,
-        discountCategory,
-        discountIdNumber: discountCategory ? discountIdNumber : null,
+        discountedFare: discounts.length > 0 && discountedCentavos != null ? discountedCentavos / 100 : null,
+        // [{ seat, category, idNumber }] — the receipt shows each one on its seat.
+        discounts,
       },
     });
   } catch (err) {

@@ -17,6 +17,8 @@ export default function WalkInReceipt({ sale, cashier }) {
   const first = bookings[0];
   const receiptNo = bookingReference(first?.booking_id, issuedAt);
   const perSeat = trip.fare != null ? Number(trip.fare) : null;
+  // The ID number staff checked for each discounted seat (payment.discounts).
+  const idBySeat = Object.fromEntries((sale.payment?.discounts ?? []).map((d) => [String(d.seat), d.idNumber]));
   const seats = [...bookings].sort((a, b) => String(a.seat_number).localeCompare(String(b.seat_number), undefined, { numeric: true }));
 
   return (
@@ -66,7 +68,7 @@ export default function WalkInReceipt({ sale, cashier }) {
             {b.discount_category && (
               <p className="text-[11px] text-ink-600">
                 {CATEGORY_LABELS[b.discount_category]} {DISCOUNT_PERCENT}% off (regular {formatPeso(perSeat)})
-                {sale.payment?.discountIdNumber ? ` · ID ${sale.payment.discountIdNumber}` : ""}
+                {idBySeat[String(b.seat_number)] ? ` · ID ${idBySeat[String(b.seat_number)]}` : ""}
               </p>
             )}
             <p className="text-[11px] text-ink-600">Ticket {b.booking_reference ?? bookingReference(b.booking_id, issuedAt)}</p>

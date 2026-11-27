@@ -24,6 +24,39 @@ test("the rider's own seat is 20% off; other seats are regular", async () => {
   assert.deepEqual(r.data.bookings.map((b) => b.discount_category), ["student", null]);
 });
 
+test("several discounted riders in one sale: each seat has its own type and ID", async () => {
+  const { tripId } = await createTrip({ hours: 2, fare: "465.00" });
+  const r = await sell({
+    tripId,
+    passengerName: "Dela Cruz family",
+    seatNumbers: ["7", "8", "9"],
+    cashReceived: 1300,
+    seatDiscounts: [
+      { seat: "7", category: "student", idNumber: "224232" },
+      { seat: "8", category: "senior", idNumber: "OSCA-5521" },
+    ],
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.equal(r.data.payment.total, 1209); // 372 + 372 + 465
+  assert.equal(r.data.payment.change, 91);
+  const bySeat = Object.fromEntries(r.data.bookings.map((b) => [b.seat_number, b.discount_category]));
+  assert.deepEqual(bySeat, { 7: "student", 8: "senior", 9: null });
+
+  // A discount on a seat that isn't being sold, or without an ID, is refused.
+  const wrongSeat = await sell({ tripId, passengerName: "X", seatNumbers: ["10"], cashReceived: 465, seatDiscounts: [{ seat: "11", category: "pwd", idNumber: "PWD-1" }] });
+  assert.equal(wrongSeat.status, 400);
+  const noId = await sell({ tripId, passengerName: "X", seatNumbers: ["10"], cashReceived: 465, seatDiscounts: [{ seat: "10", category: "pwd", idNumber: "" }] });
+  assert.equal(noId.status, 400);
+});
+
+test("exact cash for a discounted single seat is accepted (the bug in the screenshot)", async () => {
+  const { tripId } = await createTrip({ hours: 2, fare: "465.00" });
+  const r = await sell({ tripId, passengerName: "Juan Dela Cruz", seatNumbers: ["7"], cashReceived: 372, seatDiscounts: [{ seat: "7", category: "student", idNumber: "224232" }] });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.equal(r.data.payment.total, 372);
+  assert.equal(r.data.payment.change, 0);
+});
+
 test("every student in line gets their discount (walk-ins share one placeholder account)", async () => {
   const { tripId } = await createTrip({ hours: 2, fare: "350.00" });
   for (const seat of ["5", "6"]) {

@@ -166,8 +166,10 @@ export const getUnpaidBookings = () => request("/api/bookings/unpaid");
 
 // cashReceived = the counter's payment confirmation; the server refuses a
 // sale when it doesn't cover the fare.
-export const createWalkInBooking = ({ tripId, passengerName, seatNumbers, cashReceived }) =>
-  request("/api/bookings/walk-in", { method: "POST", body: { tripId, passengerName, seatNumbers, cashReceived } });
+// seatDiscounts: [{ seat, category: 'student'|'pwd'|'senior', idNumber }] —
+// one entry per discounted seat (the ID staff checked at the counter).
+export const createWalkInBooking = ({ tripId, passengerName, seatNumbers, cashReceived, seatDiscounts = [] }) =>
+  request("/api/bookings/walk-in", { method: "POST", body: { tripId, passengerName, seatNumbers, cashReceived, seatDiscounts } });
 
 // Terminal staff collect the fare in cash for a Reserved online booking:
 // confirms the payment and the seat (Reserved -> Confirmed) in one step.

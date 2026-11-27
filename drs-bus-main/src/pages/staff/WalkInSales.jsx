@@ -12,7 +12,7 @@ import WalkInReceipt from "../../components/staff/WalkInReceipt";
 import { useAuth } from "../../context/AuthContext";
 import * as api from "../../lib/api";
 import { compareSeats, customSeatLayout, mapTrip, formatDate, formatPeso, formatTime, stillSelectable } from "../../lib/format";
-import { PASSENGER_TYPES, CATEGORY_LABELS, DISCOUNT_PERCENT, discountedFare, totalWithDiscount } from "../../lib/discounts";
+import { PASSENGER_TYPES, CATEGORY_LABELS, DISCOUNT_PERCENT, discountedFare } from "../../lib/discounts";
 
 const tripLabel = (t) => `${t.origin} → ${t.destination}`;
 const shortDeparture = (t) => `${formatDate(t.departure_time)?.replace(/, \d{4}$/, "")} ${formatTime(t.departure_time)}`;
@@ -52,10 +52,10 @@ export default function WalkInSales() {
   const [seatLayout, setSeatLayout] = useState(null); // null = auto layout from capacity
   const [selectedSeatIds, setSelectedSeatIds] = useState([]);
   const [passengerName, setPassengerName] = useState("");
-  // Student / PWD / senior: staff check the rider's ID at the counter and
-  // note its number. 20% off the rider's own seat (the first one picked).
-  const [fareType, setFareType] = useState("regular");
-  const [idNumber, setIdNumber] = useState("");
+  // Fare type per seat: { [seatId]: { type: 'regular'|'student'|'pwd'|'senior', idNumber } }.
+  // Each student / PWD / senior rider shows their ID at the counter, so any
+  // number of seats in one sale can be discounted (20% off each).
+  const [seatFares, setSeatFares] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [receipt, setReceipt] = useState(null);
   const [error, setError] = useState("");
@@ -114,8 +114,9 @@ export default function WalkInSales() {
       return;
     }
     if (selectedSeatIds.length === 0) return;
-    if (discounted && idNumber.trim().length < 3) {
-      setError(`Check the passenger's ${CATEGORY_LABELS[fareType]} ID and type its number to give the discounted fare.`);
+    const missingId = discountedSeats.find((s) => (seatFares[s]?.idNumber ?? "").trim().length < 3);
+    if (missingId) {
+      setError(`Seat ${missingId}: check the passenger's ${CATEGORY_LABELS[fareOf(missingId)]} ID and type its number to give the discounted fare.`);
       return;
     }
     if (trip.fare == null) {
@@ -136,10 +137,9 @@ export default function WalkInSales() {
         passengerName: passengerName.trim(),
         seatNumbers: selectedSeatIds.map(String),
         cashReceived,
-        discountCategory: discounted ? fareType : null,
-        discountIdNumber: discounted ? idNumber.trim() : undefined,
+        seatDiscounts: discountedSeats.map((s) => ({ seat: String(s), category: fareOf(s), idNumber: seatFares[s].idNumber.trim() })),
       });
-      const total = result.payment?.total ?? totalWithDiscount(trip.fare, result.bookings.length, discounted);
+      const total = result.payment?.total ?? saleTotal;
       setReceipt({
         ...result,
         trip,
@@ -150,8 +150,7 @@ export default function WalkInSales() {
       });
       setPaying(false);
       setPassengerName("");
-      setFareType("regular");
-      setIdNumber("");
+      setSeatFares({});
       setSelectedSeatIds([]);
       refreshSeats(tripId).catch(() => {});
       loadTrips(); // seats-left in the dropdown
@@ -170,14 +169,22 @@ export default function WalkInSales() {
   }
 
   const count = selectedSeatIds.length;
-  const discounted = fareType !== "regular";
-  // One seat (the rider's own) at 20% off; the rest regular. Same as the server.
-  const total = trip?.fare != null ? totalWithDiscount(trip.fare, count, discounted) : null;
   const pickedTrip = tripId ? trips.find((t) => String(t.trip_id) === String(tripId)) : null;
 
   // Goal-gradient: always show where in the sale we are.
   const step = receipt ? 4 : paying ? 3 : trip || tripId ? 2 : 1;
   const sortedSeats = [...selectedSeatIds].sort(compareSeats);
+  // Per-seat fares: each discounted seat 20% off, the rest regular. Summed
+  // in centavos, the same way the server prices the sale.
+  const fareOf = (seat) => seatFares[seat]?.type ?? "regular";
+  const discountedSeats = sortedSeats.filter((s) => fareOf(s) !== "regular");
+  const regularCount = count - discountedSeats.length;
+  const saleTotal =
+    trip?.fare != null
+      ? (Math.round(Number(trip.fare) * 100) * regularCount + Math.round(discountedFare(trip.fare) * 100) * discountedSeats.length) / 100
+      : null;
+  const setSeatFare = (seat, patch) =>
+    setSeatFares((prev) => ({ ...prev, [seat]: { type: "regular", idNumber: "", ...prev[seat], ...patch } }));
 
   return (
     <div className="p-4 sm:p-6 space-y-4 max-w-5xl">
@@ -319,68 +326,74 @@ export default function WalkInSales() {
                   <span className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Passenger name</span>
                   <input value={passengerName} onChange={(e) => setPassengerName(e.target.value)} maxLength={150} placeholder="Name on ticket" className="input min-h-11" />
                 </label>
-                <fieldset>
-                  <legend className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Fare type</legend>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {PASSENGER_TYPES.map((t) => (
-                      <button
-                        key={t.value}
-                        type="button"
-                        aria-pressed={fareType === t.value}
-                        onClick={() => {
-                          setFareType(t.value);
-                          setError("");
-                        }}
-                        className={`min-h-11 rounded-lg border-2 px-2 text-sm ${fareType === t.value ? "border-amber-700 bg-amber-50 font-semibold text-amber-900" : "border-slate-200 text-gray-700"}`}
-                      >
-                        {t.label}
-                        {t.value !== "regular" && <span className="block text-[11px] font-normal text-gray-500">{DISCOUNT_PERCENT}% off</span>}
-                      </button>
-                    ))}
-                  </div>
-                </fieldset>
-                {discounted && (
-                  <label className="block">
-                    <span className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">{CATEGORY_LABELS[fareType]} ID number</span>
-                    <input value={idNumber} onChange={(e) => setIdNumber(e.target.value)} maxLength={50} placeholder="Number on the ID you checked" className="input min-h-11" />
-                    <span className="block text-xs text-gray-500 mt-1">
-                      Check the passenger&apos;s {CATEGORY_LABELS[fareType]} ID first. The discount is for their own seat{count > 1 ? ` (seat ${sortedSeats[0]}); the other seats are regular fare` : ""}.
-                    </span>
-                  </label>
-                )}
-                <dl className="text-sm space-y-1">
-                  <div className="flex justify-between gap-2">
-                    <dt className="text-gray-600">Seats</dt>
-                    <dd className="font-medium text-right">{count === 0 ? "None yet" : sortedSeats.join(", ")}</dd>
-                  </div>
-                  {trip.fare != null && discounted && count > 0 ? (
-                    <>
-                      <div className="flex justify-between gap-2">
-                        <dt className="text-gray-600">{CATEGORY_LABELS[fareType]} fare</dt>
-                        <dd className="tabular-nums">{formatPeso(discountedFare(trip.fare))} × 1</dd>
-                      </div>
-                      {count > 1 && (
-                        <div className="flex justify-between gap-2">
-                          <dt className="text-gray-600">Regular fare</dt>
-                          <dd className="tabular-nums">
-                            {formatPeso(trip.fare)} × {count - 1}
-                          </dd>
-                        </div>
-                      )}
-                    </>
+                {/* One row per seat: each rider's fare type, and the ID number
+                    for a student / PWD / senior (staff check the ID first). */}
+                <fieldset className="space-y-2">
+                  <legend className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Fare type per seat</legend>
+                  {count === 0 ? (
+                    <p className="text-sm text-gray-500">Pick seats on the map, then choose Regular, Student, PWD or Senior for each.</p>
                   ) : (
-                    trip.fare != null && (
-                      <div className="flex justify-between gap-2">
-                        <dt className="text-gray-600">Fare</dt>
-                        <dd className="tabular-nums">
-                          {formatPeso(trip.fare)} × {count}
-                        </dd>
-                      </div>
-                    )
+                    sortedSeats.map((s) => {
+                      const type = fareOf(s);
+                      return (
+                        <div key={s} className={`rounded-lg border p-2 space-y-1.5 ${type !== "regular" ? "border-amber-300 bg-amber-50/60" : "border-slate-200"}`}>
+                          <div className="flex items-center gap-2">
+                            <span className="w-14 shrink-0 text-sm font-semibold">Seat {s}</span>
+                            <select
+                              aria-label={`Fare type for seat ${s}`}
+                              value={type}
+                              onChange={(e) => {
+                                setSeatFare(s, { type: e.target.value });
+                                setError("");
+                              }}
+                              className="input min-h-11 flex-1"
+                            >
+                              {PASSENGER_TYPES.map((t) => (
+                                <option key={t.value} value={t.value}>
+                                  {t.label}
+                                  {t.value !== "regular" ? ` (${DISCOUNT_PERCENT}% off)` : ""}
+                                </option>
+                              ))}
+                            </select>
+                            <span className="w-16 shrink-0 text-right text-sm tabular-nums">
+                              {trip.fare != null ? formatPeso(type === "regular" ? trip.fare : discountedFare(trip.fare)) : "—"}
+                            </span>
+                          </div>
+                          {type !== "regular" && (
+                            <input
+                              aria-label={`${CATEGORY_LABELS[type]} ID number for seat ${s}`}
+                              value={seatFares[s]?.idNumber ?? ""}
+                              onChange={(e) => setSeatFare(s, { idNumber: e.target.value })}
+                              maxLength={50}
+                              placeholder={`${CATEGORY_LABELS[type]} ID number (check the ID)`}
+                              className="input min-h-11"
+                            />
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </fieldset>
+                <dl className="text-sm space-y-1">
+                  {trip.fare != null && regularCount > 0 && (
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-gray-600">Regular fare</dt>
+                      <dd className="tabular-nums">
+                        {formatPeso(trip.fare)} × {regularCount}
+                      </dd>
+                    </div>
+                  )}
+                  {trip.fare != null && discountedSeats.length > 0 && (
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-gray-600">Discounted fare ({DISCOUNT_PERCENT}% off)</dt>
+                      <dd className="tabular-nums">
+                        {formatPeso(discountedFare(trip.fare))} × {discountedSeats.length}
+                      </dd>
+                    </div>
                   )}
                   <div className="flex justify-between gap-2 border-t border-slate-100 pt-2">
                     <dt className="font-semibold">Total</dt>
-                    <dd className="font-bold text-emerald-700 tabular-nums">{total != null ? formatPeso(total) : "—"}</dd>
+                    <dd className="font-bold text-emerald-700 tabular-nums">{saleTotal != null ? formatPeso(saleTotal) : "—"}</dd>
                   </div>
                 </dl>
                 <InlineAlert type="error" message={error} onDismiss={() => setError("")} />
@@ -408,25 +421,26 @@ export default function WalkInSales() {
               <p>
                 {trip.origin} → {trip.destination} · {trip.departureTime}
               </p>
-              {discounted ? (
-                <>
-                  <p>
-                    Seat {sortedSeats[0]} · {CATEGORY_LABELS[fareType]} ({DISCOUNT_PERCENT}% off, ID {idNumber.trim()}) · {formatPeso(discountedFare(trip.fare))}
-                  </p>
-                  {count > 1 && (
-                    <p>
-                      {count - 1} more seat{count - 1 === 1 ? "" : "s"} ({sortedSeats.slice(1).join(", ")}) × {formatPeso(trip.fare)}
-                    </p>
-                  )}
-                </>
-              ) : (
+              {discountedSeats.length === 0 ? (
                 <p>
                   {count} seat{count === 1 ? "" : "s"} ({sortedSeats.join(", ")}) × {formatPeso(trip.fare)}
                 </p>
+              ) : (
+                sortedSeats.map((s) => {
+                  const type = fareOf(s);
+                  return (
+                    <p key={s}>
+                      Seat {s} ·{" "}
+                      {type === "regular"
+                        ? `Regular · ${formatPeso(trip.fare)}`
+                        : `${CATEGORY_LABELS[type]} (${DISCOUNT_PERCENT}% off, ID ${seatFares[s]?.idNumber?.trim()}) · ${formatPeso(discountedFare(trip.fare))}`}
+                    </p>
+                  );
+                })
               )}
             </>
           }
-          amountDue={total}
+          amountDue={saleTotal}
           confirmLabel={`Confirm payment & sell`}
           isSaving={isSubmitting}
           error={payError}
