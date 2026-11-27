@@ -76,10 +76,13 @@ export default function DriverDashboard() {
   const hasConductor = activeTrip?.conductor_id != null;
   // GPS is the driver's job: only the driver's phone shares the bus's
   // position (backup to the bus's tracker). The server refuses a conductor's.
-  const sharesGps = Boolean(activeTrip) && myRole === "driver";
-  const gps = useDriverLocation(sharesGps ? activeTrip.bus_id : null);
   // A bus fitted with a GPS tracker reports by itself; the phone is backup.
   const tracker = useBusTracker(activeTrip?.bus_id ?? null);
+  // While the tracker is reporting, the phone doesn't send at all (the
+  // server would ignore it anyway); it takes over only when the tracker
+  // goes quiet, is moved to another bus, or isn't fitted.
+  const sharesGps = Boolean(activeTrip) && myRole === "driver";
+  const gps = useDriverLocation(sharesGps && !tracker.online ? activeTrip.bus_id : null);
   // Drive mode: the driver of a trip on the road with a conductor aboard.
   // Nothing to tap — just where to stop next, in big text.
   const driveMode = activeTrip?.status === "In Transit" && myRole === "driver" && hasConductor;

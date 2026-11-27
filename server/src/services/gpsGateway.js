@@ -1,6 +1,6 @@
 import net from "node:net";
 import { pool } from "../db/pool.js";
-import { ingestLocation } from "./locationService.js";
+import { ingestLocation, clearDeviceActive, DEVICE_ACTIVE_SECONDS } from "./locationService.js";
 
 // Receives the SinoTrack ST-906L directly — no Traccar in between.
 //
@@ -363,4 +363,42 @@ export function listDevices() {
 }
 
 export const GPS_ONLINE_MS = ONLINE_MS;
+
+// A tracker was taken off this bus (moved to another bus or unassigned).
+// The server stops ignoring its driver's phone, and every open screen for
+// the bus hears "tracker:removed" (useBusTracker.js), so the driver's app
+// starts sharing the phone's location again straight away instead of
+// waiting out the tracker's 6-minute "still reporting" window.
+export async function releaseTrackerFromBus(busId) {
+  if (busId == null) return;
+  await clearDeviceActive(busId);
+  io?.to(`bus:${busId}`).emit("tracker:removed", { busId });
+}
+
+// Called after an admin assigns this tracker to a bus (routes/gps.js,
+// routes/fleet.js). If the tracker has a recent fix, put it on the new bus
+// right away: the bus moves to the tracker's position and its driver's
+// phone is ignored from now on (ingestLocation marks the tracker active),
+// instead of the map showing the phone until the next report, which is up
+// to 5 minutes away when the bus is parked. Never throws.
+export async function applyTrackerAssignment(deviceId, busId) {
+  if (busId == null) return;
+  const d = devices.get(deviceId);
+  const fix = d?.lastValidFix;
+  if (!fix || Date.now() - new Date(fix.time).getTime() > DEVICE_ACTIVE_SECONDS * 1000) return;
+  try {
+    await ingestLocation(io, {
+      busId,
+      latitude: fix.latitude,
+      longitude: fix.longitude,
+      timestamp: fix.time,
+      syncStatus: "synced",
+      source: "device",
+      live: true,
+    });
+    d.lastIngest = { at: new Date().toISOString(), busId };
+  } catch (err) {
+    console.error("GPS tracker: couldn't move the position to the new bus (non-fatal):", err.message);
+  }
+}
 export const _test = { parseText, parseBinary, splitFrames };

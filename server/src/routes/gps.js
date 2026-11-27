@@ -2,7 +2,7 @@ import { Router } from "express";
 import { pool } from "../db/pool.js";
 import { requireRole } from "../middleware/auth.js";
 import { logAudit } from "../services/audit.js";
-import { getListener, getDevice, listDevices, GPS_ONLINE_MS } from "../services/gpsGateway.js";
+import { getListener, getDevice, listDevices, applyTrackerAssignment, releaseTrackerFromBus, GPS_ONLINE_MS } from "../services/gpsGateway.js";
 import { parseHistoryQuery, getRouteHistory } from "../services/locationService.js";
 
 // Admin "GPS Tracker" page (admin/GpsTracker.jsx) — the SinoTrack-style
@@ -169,6 +169,10 @@ gpsRouter.post("/devices/:deviceId/assign", async (req, res) => {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
+    // The bus (if any) this tracker is coming off.
+    const [previous] = await conn.query(`SELECT bus_id FROM buses WHERE gps_device_id = ? FOR UPDATE`, [deviceId]);
+    // A bus has one tracker: one already on the new bus is taken off it too.
+    const [displaced] = busId !== null ? await conn.query(`SELECT gps_device_id FROM buses WHERE bus_id = ? AND gps_device_id IS NOT NULL FOR UPDATE`, [busId]) : [[]];
     await conn.query(`UPDATE buses SET gps_device_id = NULL WHERE gps_device_id = ?`, [deviceId]);
     if (busId !== null) {
       const [result] = await conn.query(`UPDATE buses SET gps_device_id = ? WHERE bus_id = ?`, [deviceId, busId]);
@@ -178,7 +182,19 @@ gpsRouter.post("/devices/:deviceId/assign", async (req, res) => {
       }
     }
     await conn.commit();
-    await logAudit({ staffId: req.user.id, action: busId ? "assign_gps" : "unassign_gps", entityType: "bus", entityId: busId, details: { deviceId } });
+    // Switch the maps over now instead of waiting for the next report (up to
+    // 5 minutes when parked): the old bus goes back to its driver's phone,
+    // and the new bus jumps to the tracker's current position (if it has a
+    // fresh fix), with its driver's phone ignored from here on.
+    for (const row of previous) if (row.bus_id !== busId) await releaseTrackerFromBus(row.bus_id);
+    await applyTrackerAssignment(deviceId, busId);
+    await logAudit({
+      staffId: req.user.id,
+      action: busId ? "assign_gps" : "unassign_gps",
+      entityType: "bus",
+      entityId: busId,
+      details: { deviceId, fromBusId: previous[0]?.bus_id ?? null, replacedDeviceId: displaced[0]?.gps_device_id ?? undefined },
+    });
     res.json({ deviceId, busId });
   } catch (err) {
     await conn.rollback().catch(() => {});

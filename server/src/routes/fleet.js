@@ -6,6 +6,7 @@ import { optionalText, requiredText, integer } from "../services/validate.js";
 import { validateSeatLayout, getSeatLabels, busSeatLabels, readStoredLayout, naturalCompare } from "../services/seatLayout.js";
 import { clearTripsCache } from "./trips.js";
 import { normalizeCrewRole } from "../services/crew.js";
+import { applyTrackerAssignment, releaseTrackerFromBus } from "../services/gpsGateway.js";
 
 const BUS_TYPES = ["ordinary", "air_conditioned"];
 
@@ -175,6 +176,8 @@ busesRouter.post("/", requireRole("admin"), async (req, res) => {
       details: { busNumber, plateNum, capacity: savedCapacity, seatLayout: parsed.layout ?? undefined, type, yearModel, currentDriverId, boardingPoint, gpsDeviceId },
     });
     await clearTripsCache();
+    // A tracker that's already reporting shows on the new bus straight away.
+    if (f.gps_device_id) await applyTrackerAssignment(f.gps_device_id, result.insertId);
     res.status(201).json({
       bus_id: result.insertId,
       busNumber,
@@ -213,6 +216,9 @@ busesRouter.patch("/:id", requireRole("admin"), async (req, res) => {
   const changesSeats = "seat_layout" in f || "capacity" in f;
 
   try {
+    // The tracker this bus had before the edit (to hand the map back to the
+    // driver's phone if it's removed or swapped).
+    const [[before]] = "gps_device_id" in f ? await pool.query(`SELECT gps_device_id FROM buses WHERE bus_id = ?`, [req.params.id]) : [[null]];
     let capacity;
     if (changesSeats) {
       const [[current]] = await pool.query(`SELECT capacity, seat_layout FROM buses WHERE bus_id = ?`, [req.params.id]);
@@ -251,6 +257,14 @@ busesRouter.patch("/:id", requireRole("admin"), async (req, res) => {
       details: parsed.layout ? { ...req.body, capacity } : req.body,
     });
     await clearTripsCache();
+    // Tracker changed: switch the map over now (same as the GPS Tracker
+    // page's Assign): no tracker -> the driver's phone again; a new tracker
+    // -> its current position, with the phone ignored.
+    if ("gps_device_id" in f && (before?.gps_device_id ?? null) !== (f.gps_device_id ?? null)) {
+      const busId = Number(req.params.id);
+      await releaseTrackerFromBus(busId);
+      if (f.gps_device_id) await applyTrackerAssignment(f.gps_device_id, busId);
+    }
     const seatInfo = changesSeats ? { capacity, seatLayout: parsed.layout ?? (f.seat_layout === null ? null : undefined) } : {};
     res.json({ bus_id: Number(req.params.id), ...req.body, ...seatInfo });
   } catch (err) {

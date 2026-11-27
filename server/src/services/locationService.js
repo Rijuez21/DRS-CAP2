@@ -6,12 +6,24 @@ import { redis, CACHE_TTL_SECONDS } from "../cache/redis.js";
 // driver's phone is only a backup: its points are ignored so the map
 // doesn't jump between two slightly different positions. The tracker counts
 // as "reporting" for this long after its last point.
-const DEVICE_ACTIVE_SECONDS = 90;
+//
+// It must outlast the tracker's slowest reporting interval: 10 s while
+// moving but 300 s when parked (RCONF "GPRS UPLOAD TIME:10,300"). This used
+// to be 90 s, so a parked or boarding bus's tracker "went quiet" between
+// reports and the driver's phone took over the map for ~3½ of every 5 minutes.
+// 6 minutes = one parked interval plus a margin. Keep useBusTracker.js in step.
+export const DEVICE_ACTIVE_SECONDS = 360;
 const deviceActiveKey = (busId) => `gps:device-active:${busId}`;
 
 export async function deviceIsReporting(busId) {
   // If Redis is down, accept the phone's points rather than risk a blank map.
   return Boolean(await redis.exists(deviceActiveKey(busId)).catch(() => 0));
+}
+
+// A tracker was taken off this bus (moved to another bus, or unassigned):
+// its driver's phone is the bus's position again, straight away.
+export async function clearDeviceActive(busId) {
+  await redis.del(deviceActiveKey(busId)).catch((err) => console.error("Redis del failed (non-fatal):", err.message));
 }
 
 /**
