@@ -682,7 +682,12 @@ const FLAG_SWEEP_INTERVAL_MS = 60 * 1000;
 // which on a switchback road can put the pin on the wrong bend entirely.
 // 100 m is loose enough for a phone outdoors in the Cordillera to meet
 // within seconds, tight enough that the driver stops at the right spot.
-const MAX_PICKUP_ACCURACY_M = 100;
+//
+// TURNED OFF FOR NOW: any accuracy is accepted (a laptop's Wi-Fi guess of
+// ±200 m included), so flagging can be used and demonstrated anywhere.
+// To require a precise fix again, set FLAG_MAX_ACCURACY_M=100 in the server's
+// environment (and VITE_FLAG_MAX_ACCURACY_M=100 for the website).
+const MAX_PICKUP_ACCURACY_M = Number(process.env.FLAG_MAX_ACCURACY_M) > 0 ? Number(process.env.FLAG_MAX_ACCURACY_M) : null;
 
 const FLAG_SELECT = `
   SELECT fr.flag_id, fr.trip_id, fr.passenger_id, fr.passenger_name,
@@ -778,7 +783,7 @@ function parsePickupFix(body) {
   if (!Number.isFinite(accuracy) || accuracy <= 0) {
     return { error: "pickupAccuracy (metres, from the phone's GPS) is required" };
   }
-  if (accuracy > MAX_PICKUP_ACCURACY_M) {
+  if (MAX_PICKUP_ACCURACY_M != null && accuracy > MAX_PICKUP_ACCURACY_M) {
     return {
       error: `Your location isn't precise enough yet (±${Math.round(accuracy)} m, needs ±${MAX_PICKUP_ACCURACY_M} m or better). Step into the open for a few seconds and try again.`,
     };

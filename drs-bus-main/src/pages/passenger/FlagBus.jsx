@@ -55,11 +55,14 @@ const RECENT_FLAG_WINDOW_MS = 30 * 60 * 1000; // after a refresh, still show a f
 const NEARBY_STOP_KM = 3;
 const MAX_NAMED_STOPS = 3;
 const TREND_THRESHOLD_KM = 0.05; // ignore GPS jitter smaller than ~50 m when deciding approaching vs moving away
-// The driver stops exactly where the passenger is, so a flag needs a real
-// GPS fix, never a typed description alone. Mirrors MAX_PICKUP_ACCURACY_M
-// in server/src/routes/bookings.js (the server enforces it; this only
-// keeps the button honest). Worse than this is a Wi-Fi/cell-tower guess.
-const MAX_PICKUP_ACCURACY_M = 100;
+// A fix within this is a real GPS position ("Exact location"); worse is a
+// Wi-Fi/cell-tower guess, shown as approximate with a tip to add a landmark.
+const PRECISE_ACCURACY_M = 100;
+// The accuracy a flag REQUIRES. Turned off for now (null = any accuracy is
+// accepted) so flagging works from a laptop too. Mirrors MAX_PICKUP_ACCURACY_M
+// in server/src/routes/bookings.js; set VITE_FLAG_MAX_ACCURACY_M=100 (and the
+// server's FLAG_MAX_ACCURACY_M=100) to require a precise fix again.
+const REQUIRED_ACCURACY_M = Number(import.meta.env.VITE_FLAG_MAX_ACCURACY_M) > 0 ? Number(import.meta.env.VITE_FLAG_MAX_ACCURACY_M) : null;
 // While a flag is open the pickup pin follows the passenger: resend only
 // after real movement (not GPS jitter) and not more often than this, so a
 // passenger pacing at the roadside doesn't flood the driver with updates.
@@ -73,7 +76,12 @@ const pinIcon = L.divIcon({
 });
 
 function isPreciseFix(me) {
-  return Boolean(me) && me.accuracy != null && me.accuracy <= MAX_PICKUP_ACCURACY_M;
+  return Boolean(me) && me.accuracy != null && me.accuracy <= PRECISE_ACCURACY_M;
+}
+
+// Good enough to send as a pickup point (any fix while the limit is off).
+function canFlagWith(me) {
+  return Boolean(me) && me.accuracy != null && (REQUIRED_ACCURACY_M == null || me.accuracy <= REQUIRED_ACCURACY_M);
 }
 
 const DECLINE_OR_CLOSED = ["Declined", "Expired", "Cancelled"];
@@ -264,7 +272,7 @@ export default function FlagBus() {
   // momentary bad reading never replaces a good pin with a worse one.
   const openFlagId = isOpenFlag(flag) ? flag.flag_id : null;
   useEffect(() => {
-    if (!openFlagId || !isPreciseFix(me)) return;
+    if (!openFlagId || !canFlagWith(me)) return;
     const last = lastPinRef.current;
     if (last.flagId !== openFlagId) {
       // First look at this flag (just sent, or restored after a refresh):
@@ -770,7 +778,9 @@ function LocationBadge({ status, me }) {
     status === "ok"
       ? precise
         ? `Exact location · ±${Math.round(me.accuracy)} m`
-        : `GPS ±${Math.round(me?.accuracy ?? 0)} m — waiting for a more precise fix`
+        : REQUIRED_ACCURACY_M == null
+          ? `Approximate location · ±${Math.round(me?.accuracy ?? 0)} m`
+          : `GPS ±${Math.round(me?.accuracy ?? 0)} m — waiting for a more precise fix`
       : status === "locating"
         ? "Finding your location…"
         : status === "idle"
@@ -916,15 +926,17 @@ function FlagForm({ bus, me, geoStatus, landmark, onLandmarkChange, onSubmit, is
 
   const left = seatsLeft(bus);
   const hasLocation = geoStatus === "ok" && Boolean(me);
-  const precise = hasLocation && isPreciseFix(me);
+  const usable = hasLocation && canFlagWith(me);
+  // Allowed, but rough (a laptop's Wi-Fi guess): nudge for a landmark.
+  const approximate = usable && !isPreciseFix(me);
 
   // Order matters: tell the passenger the one thing they can act on.
   let blockReason = "";
   if (left == null) blockReason = "This bus's seating capacity isn't on file, so it can't take flag requests.";
   else if (left === 0) blockReason = "This bus is full. Try another bus.";
   else if (!hasLocation) blockReason = "location"; // rendered as LocationPermissionCard below
-  else if (!precise)
-    blockReason = `Your GPS is only accurate to ±${Math.round(me.accuracy)} m (needs ±${MAX_PICKUP_ACCURACY_M} m or better). Step into the open for a few seconds for a better fix.`;
+  else if (!usable)
+    blockReason = `Your GPS is only accurate to ±${Math.round(me.accuracy)} m (needs ±${REQUIRED_ACCURACY_M} m or better). Step into the open for a few seconds for a better fix.`;
 
   return (
     <div className="rounded-3xl bg-white border border-slate-100 shadow-sm p-5 space-y-4">
@@ -961,6 +973,13 @@ function FlagForm({ bus, me, geoStatus, landmark, onLandmarkChange, onSubmit, is
       <p className="text-xs text-ink-600">
         No seat selection — the conductor will seat you once you board. Fare is paid on the bus.
       </p>
+
+      {approximate && !blockReason && (
+        <p className="text-sm text-amber-700">
+          Your location is approximate (±{Math.round(me.accuracy)} m). Add a landmark above so the bus crew can find you, or step outside for a
+          more exact pin.
+        </p>
+      )}
 
       {blockReason === "location" ? (
         <p className="text-sm text-rose-600 font-medium">
